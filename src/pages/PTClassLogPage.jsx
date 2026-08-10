@@ -24,18 +24,29 @@ const PTClassLogPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Trainer filter state for logging
+  const [selectedTrainerFilter, setSelectedTrainerFilter] = useState('');
+
   // Form state
   const [formData, setFormData] = useState({
     pt_assignment_id: '',
     class_date: new Date().toISOString().split('T')[0],
     session_slot: 'Morning',
-    trainer_id: '', // optional substitute
+    trainer_id: '', // alternate / substitute trainer ID
     notes: ''
   });
   const [submitting, setSubmitting] = useState(false);
 
   // Daily Statuses (Absence / Present)
   const [dailyStatuses, setDailyStatuses] = useState([]);
+
+  // Alternate Trainer Modal state
+  const [alternateModal, setAlternateModal] = useState({
+    isOpen: false,
+    absentTrainerName: '',
+    assignedTrainerId: '',
+    selectedAlternateId: ''
+  });
 
   // History & Calendar Filters state
   const [historyMonth, setHistoryMonth] = useState(new Date().toISOString().substring(0, 7)); // YYYY-MM
@@ -128,16 +139,71 @@ const PTClassLogPage = () => {
     }
   };
 
+  // Filter assignments based on selected trainer filter
+  const filteredAssignments = selectedTrainerFilter
+    ? activeAssignments.filter(a => String(a.trainer_id) === String(selectedTrainerFilter))
+    : activeAssignments;
+
+  const handleTrainerFilterChange = (trainerId) => {
+    setSelectedTrainerFilter(trainerId);
+    setFormData(prev => ({
+      ...prev,
+      pt_assignment_id: '',
+      trainer_id: ''
+    }));
+
+    // If trainer is selected and marked ABSENT, open prompt for alternate trainer selection
+    if (trainerId && getTrainerStatus(trainerId) === 'Absent') {
+      const tr = trainers.find(t => String(t.id) === String(trainerId));
+      openAlternateModal(tr ? tr.name : 'Assigned Trainer', trainerId);
+    }
+  };
+
   const handleAssignmentChange = (e) => {
     const assignId = e.target.value;
+    const selectedAssign = activeAssignments.find(a => String(a.id) === String(assignId));
+
+    if (!selectedAssign) {
+      setFormData(prev => ({ ...prev, pt_assignment_id: '', trainer_id: '' }));
+      return;
+    }
+
+    const assignedTrainerId = selectedAssign.trainer_id;
+    const isAbsent = getTrainerStatus(assignedTrainerId) === 'Absent';
+
     setFormData(prev => ({
       ...prev,
       pt_assignment_id: assignId,
-      trainer_id: ''
+      trainer_id: isAbsent ? prev.trainer_id : ''
     }));
+
+    if (isAbsent && !formData.trainer_id) {
+      openAlternateModal(selectedAssign.trainerName || 'Assigned Trainer', assignedTrainerId);
+    }
   };
 
-  const selectedAssignment = activeAssignments.find(a => String(a.id) === formData.pt_assignment_id);
+  const openAlternateModal = (trainerName, trainerId) => {
+    setAlternateModal({
+      isOpen: true,
+      absentTrainerName: trainerName,
+      assignedTrainerId: trainerId,
+      selectedAlternateId: ''
+    });
+  };
+
+  const confirmAlternateTrainer = () => {
+    if (!alternateModal.selectedAlternateId) {
+      alert('Please select an alternate trainer.');
+      return;
+    }
+    setFormData(prev => ({
+      ...prev,
+      trainer_id: alternateModal.selectedAlternateId
+    }));
+    setAlternateModal({ isOpen: false, absentTrainerName: '', assignedTrainerId: '', selectedAlternateId: '' });
+  };
+
+  const selectedAssignment = activeAssignments.find(a => String(a.id) === String(formData.pt_assignment_id));
   const isDefaultTrainerAbsent = selectedAssignment ? getTrainerStatus(selectedAssignment.trainer_id) === 'Absent' : false;
   const selectedSubstitute = trainers.find(t => String(t.id) === String(formData.trainer_id));
 
@@ -153,7 +219,7 @@ const PTClassLogPage = () => {
     }
 
     if (isDefaultTrainerAbsent && (!formData.trainer_id || String(formData.trainer_id) === String(selectedAssignment.trainer_id))) {
-      alert(`Default trainer ${selectedAssignment.trainerName} is marked ABSENT on ${formData.class_date}. Please select a substitute trainer to conduct this class.`);
+      openAlternateModal(selectedAssignment.trainerName, selectedAssignment.trainer_id);
       return;
     }
 
@@ -270,7 +336,7 @@ const PTClassLogPage = () => {
       <header className="pt-log-header">
         <div className="title-group">
           <h1><span>PT CLASS LOG</span> & ATTENDANCE HISTORY</h1>
-          <p>Record daily PT sessions & explore interactive attendance history calendars.</p>
+          <p>Record daily PT sessions with trainer filtering, substitute coverage & interactive history calendars.</p>
         </div>
       </header>
 
@@ -293,14 +359,14 @@ const PTClassLogPage = () => {
         </button>
       </div>
 
-      {/* Quick Trainer Availability Strip */}
+      {/* Quick Trainer Availability & Status Strip */}
       <div className="availability-strip">
         <div className="availability-strip-header">
           <div className="availability-strip-title">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            Trainer Daily Availability ({formatDateDDMMYYYY(formData.class_date)})
+            Trainer Availability ({formatDateDDMMYYYY(formData.class_date)})
           </div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Quick operational absence toggle for selected date</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Mark absence to trigger alternate trainer selection prompt</span>
         </div>
         <div className="availability-pills-row">
           {trainers.length === 0 ? (
@@ -308,8 +374,12 @@ const PTClassLogPage = () => {
           ) : (
             trainers.map(t => {
               const isAbsent = getTrainerStatus(t.id) === 'Absent';
+              const isSelectedFilter = String(selectedTrainerFilter) === String(t.id);
               return (
-                <div key={t.id} className={`trainer-status-pill ${isAbsent ? 'absent' : ''}`}>
+                <div
+                  key={t.id}
+                  className={`trainer-status-pill ${isAbsent ? 'absent' : ''} ${isSelectedFilter ? 'active-filter' : ''}`}
+                >
                   <div className="trainer-info">
                     <span className="trainer-name">{t.name}</span>
                     <span className="trainer-grade">Grade {t.grade || 'Unassigned'} • {isAbsent ? '🔴 ABSENT' : '🟢 Present'}</span>
@@ -319,7 +389,7 @@ const PTClassLogPage = () => {
                     className={`btn-toggle-status ${isAbsent ? 'mark-present' : 'mark-absent'}`}
                     onClick={() => toggleTrainerStatus(t.id)}
                   >
-                    {isAbsent ? 'Mark Present' : 'Mark Absent Today'}
+                    {isAbsent ? 'Mark Present' : 'Mark Absent'}
                   </button>
                 </div>
               );
@@ -330,45 +400,119 @@ const PTClassLogPage = () => {
 
       {viewMode === 'entry' ? (
         <div className="pt-log-grid">
-          {/* Left Card: Quick Entry Form */}
+          {/* Left Card: Quick Entry Form with Trainer & Client Filtering */}
           <div className="pt-log-card">
-            <h3>Log New PT Class</h3>
+            <div className="card-header-bar">
+              <h3>Log New PT Class</h3>
+              <span className="step-badge">Step-by-Step Workflow</span>
+            </div>
+
             <form onSubmit={handleSubmit} className="log-form">
-              <div className="log-form-group">
-                <label>Select Active Assignment *</label>
+              {/* STEP 1: Filter by Trainer */}
+              <div className="log-form-group step-block">
+                <label className="step-label">
+                  <span className="step-num">1</span> Filter By Trainer
+                </label>
+                <div className="trainer-filter-pills">
+                  <button
+                    type="button"
+                    className={`trainer-chip ${selectedTrainerFilter === '' ? 'active' : ''}`}
+                    onClick={() => handleTrainerFilterChange('')}
+                  >
+                    👥 All Trainers ({activeAssignments.length} Clients)
+                  </button>
+                  {trainers.map(tr => {
+                    const isAbsent = getTrainerStatus(tr.id) === 'Absent';
+                    const count = activeAssignments.filter(a => String(a.trainer_id) === String(tr.id)).length;
+                    return (
+                      <button
+                        key={tr.id}
+                        type="button"
+                        className={`trainer-chip ${String(selectedTrainerFilter) === String(tr.id) ? 'active' : ''} ${isAbsent ? 'chip-absent' : ''}`}
+                        onClick={() => handleTrainerFilterChange(String(tr.id))}
+                      >
+                        {isAbsent ? '🔴' : '🟢'} {tr.name} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* STEP 2: Select Assigned Client / Assignment */}
+              <div className="log-form-group step-block">
+                <label className="step-label">
+                  <span className="step-num">2</span> Select Active Client & Package *
+                </label>
                 <select
                   value={formData.pt_assignment_id}
                   onChange={handleAssignmentChange}
                   required
                 >
-                  <option value="">-- Select Active Assignment --</option>
-                  {activeAssignments.map(a => (
+                  <option value="">
+                    {selectedTrainerFilter
+                      ? `-- Select Client Assigned to ${trainers.find(t => String(t.id) === String(selectedTrainerFilter))?.name || 'Trainer'} (${filteredAssignments.length} Active) --`
+                      : `-- Select Active Client Assignment (${filteredAssignments.length} Total Active) --`}
+                  </option>
+                  {filteredAssignments.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.clientName} ({a.packageName}) — {a.classes_completed}/{a.total_classes_snapshot} Done
+                      {a.clientName} ({a.packageName}) — Assigned: {a.trainerName} [{a.classes_completed}/{a.total_classes_snapshot} Done]
                     </option>
                   ))}
                 </select>
+
+                {filteredAssignments.length === 0 && selectedTrainerFilter && (
+                  <div style={{ fontSize: '0.8rem', color: '#f59e0b', marginTop: '0.4rem' }}>
+                    ℹ️ No active PT client assignments found for this trainer.
+                  </div>
+                )}
               </div>
 
+              {/* Assignment Overview Box */}
               {selectedAssignment && (
-                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--glass-border)', fontSize: '0.85rem' }}>
-                  <div><strong>Assigned Trainer:</strong> {selectedAssignment.trainerName} ({selectedAssignment.trainerGrade || 'No Grade'})</div>
-                  <div><strong>Progress:</strong> {selectedAssignment.classes_completed} of {selectedAssignment.total_classes_snapshot} classes completed</div>
-                  {isSuperAdmin && <div><strong>Package Price:</strong> {formatCurrency(selectedAssignment.package_price_snapshot)}</div>}
+                <div className="assignment-details-box">
+                  <div className="detail-row">
+                    <span><strong>Client:</strong> {selectedAssignment.clientName} ({selectedAssignment.clientId})</span>
+                    <span><strong>Assigned Trainer:</strong> {selectedAssignment.trainerName} ({selectedAssignment.trainerGrade || 'No Grade'})</span>
+                  </div>
+                  <div className="detail-row">
+                    <span><strong>Package:</strong> {selectedAssignment.packageName}</span>
+                    <span><strong>Progress:</strong> {selectedAssignment.classes_completed} / {selectedAssignment.total_classes_snapshot} Completed</span>
+                  </div>
+                  {isSuperAdmin && (
+                    <div className="detail-row" style={{ color: '#10b981', fontWeight: '700' }}>
+                      <span><strong>Package Price:</strong> {formatCurrency(selectedAssignment.package_price_snapshot)}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
+              {/* Absence Alert Callout */}
               {selectedAssignment && isDefaultTrainerAbsent && (
                 <div className="absence-warning-banner">
-                  <span>⚠️</span>
-                  <div>
-                    <strong>{selectedAssignment.trainerName}</strong> is marked <strong>ABSENT</strong> on {formData.class_date}. Please select a substitute trainer below to conduct this class.
+                  <div className="banner-icon">⚠️</div>
+                  <div className="banner-text">
+                    <strong>{selectedAssignment.trainerName}</strong> is marked <strong>ABSENT</strong> on {formatDateDDMMYYYY(formData.class_date)}.
+                    {formData.trainer_id ? (
+                      <div>Selected Alternate Trainer: <strong>{selectedSubstitute?.name || 'Alternate Trainer'}</strong></div>
+                    ) : (
+                      <div>An Alternate / Substitute Trainer is required to conduct this session.</div>
+                    )}
                   </div>
+                  <button
+                    type="button"
+                    className="btn-select-alternate"
+                    onClick={() => openAlternateModal(selectedAssignment.trainerName, selectedAssignment.trainer_id)}
+                  >
+                    {formData.trainer_id ? 'Change Alternate' : 'Select Alternate Trainer'}
+                  </button>
                 </div>
               )}
 
-              <div className="log-form-group">
-                <label>Class Date & Session Slot *</label>
+              {/* STEP 3: Class Date & Session Slot */}
+              <div className="log-form-group step-block">
+                <label className="step-label">
+                  <span className="step-num">3</span> Class Date & Session Slot *
+                </label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   <input
                     type="date"
@@ -387,27 +531,35 @@ const PTClassLogPage = () => {
                 </div>
               </div>
 
+              {/* Conducting Trainer Indicator / Override */}
               <div className={`log-form-group ${isDefaultTrainerAbsent ? 'substitute-highlight' : ''}`}>
                 <label>
-                  Conducting Trainer {isDefaultTrainerAbsent ? '(Substitute Required due to Absence) *' : '(Substitute Override)'}
+                  Conducting Trainer {isDefaultTrainerAbsent ? '(Alternate Trainer Required) *' : '(Optional Substitute Override)'}
                 </label>
                 <select
                   value={formData.trainer_id}
                   onChange={e => setFormData({ ...formData, trainer_id: e.target.value })}
                   required={isDefaultTrainerAbsent}
                 >
-                  <option value="">{isDefaultTrainerAbsent ? '-- Select Substitute Trainer --' : '-- Same as Assigned Trainer --'}</option>
-                  {trainers.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} (Grade {t.grade || 'Unassigned'})
-                    </option>
-                  ))}
+                  <option value="">
+                    {isDefaultTrainerAbsent
+                      ? '-- Select Alternate Trainer --'
+                      : `-- Same as Assigned (${selectedAssignment?.trainerName || 'Assigned Trainer'}) --`}
+                  </option>
+                  {trainers.map(t => {
+                    const isAbsent = getTrainerStatus(t.id) === 'Absent';
+                    return (
+                      <option key={t.id} value={t.id} disabled={isAbsent}>
+                        {t.name} (Grade {t.grade || 'Unassigned'}) {isAbsent ? '— 🔴 ABSENT' : '— 🟢 Present'}
+                      </option>
+                    );
+                  })}
                 </select>
 
                 {selectedSubstitute && selectedAssignment && String(selectedSubstitute.id) !== String(selectedAssignment.trainer_id) && (
                   <div className="cross-grade-tag">
-                    <span>ℹ️</span>
-                    <span>Cross-grade substitution — <strong>{selectedSubstitute.name}</strong> (Grade {selectedSubstitute.grade || 'N/A'}) will be paid at their own grade's rate for this class.</span>
+                    <span>🔄</span>
+                    <span>Substitute Coverage: <strong>{selectedSubstitute.name}</strong> (Grade {selectedSubstitute.grade || 'N/A'}) conducting session for {selectedAssignment.trainerName}.</span>
                   </div>
                 )}
               </div>
@@ -415,10 +567,10 @@ const PTClassLogPage = () => {
               <div className="log-form-group">
                 <label>Class Notes / Workout Focus</label>
                 <textarea
-                  rows="3"
+                  rows="2"
                   value={formData.notes}
                   onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="e.g. Chest & Triceps workout completed."
+                  placeholder="e.g. Legs & Core workout completed."
                 ></textarea>
               </div>
 
@@ -430,7 +582,11 @@ const PTClassLogPage = () => {
 
           {/* Right Card: Today's Logged Classes */}
           <div className="pt-log-card">
-            <h3>Today's Logged Classes</h3>
+            <div className="card-header-bar">
+              <h3>Today's Logged Classes</h3>
+              <span className="log-count-pill">{todayLogs.length} Sessions Today</span>
+            </div>
+
             {loading ? (
               <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading today's logs...</div>
             ) : todayLogs.length === 0 ? (
@@ -442,9 +598,9 @@ const PTClassLogPage = () => {
                     <tr>
                       <th style={{ width: '30%' }}>Client & Session</th>
                       <th style={{ width: '24%' }}>Package</th>
-                      <th style={{ width: '20%' }}>Trainer</th>
-                      {isSuperAdmin && <th style={{ width: '16%' }}>Rate</th>}
-                      <th style={{ width: '10%', textAlign: 'right' }}>Action</th>
+                      <th style={{ width: '24%' }}>Trainer</th>
+                      {isSuperAdmin && <th style={{ width: '14%' }}>Rate</th>}
+                      <th style={{ width: '8%', textAlign: 'right' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -469,7 +625,7 @@ const PTClassLogPage = () => {
                               <span className="trainer-name">{log.trainerName}</span>
                               {isSubstituted && (
                                 <div className="substituted-badge">
-                                  🔄 Substituted covering for {log.assignedTrainerName || 'Assigned'}
+                                  🔄 Alternate covering for {log.assignedTrainerName || 'Assigned'}
                                 </div>
                               )}
                             </div>
@@ -485,7 +641,7 @@ const PTClassLogPage = () => {
                             </td>
                           )}
                           <td style={{ textAlign: 'right' }}>
-                            <button className="btn-undo-log" onClick={() => handleUndo(log.id)}>
+                            <button className="btn-undo-log" onClick={() => handleUndo(log.id)} title="Undo / Delete log">
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
                               Undo
                             </button>
@@ -513,6 +669,19 @@ const PTClassLogPage = () => {
             </div>
 
             <div className="calendar-filter-item">
+              <label>Filter Trainer</label>
+              <select
+                value={filterTrainerId}
+                onChange={e => setFilterTrainerId(e.target.value)}
+              >
+                <option value="">All Trainers</option>
+                {trainers.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} (Grade {t.grade || 'N/A'})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="calendar-filter-item">
               <label>Filter Client</label>
               <select
                 value={filterClientId}
@@ -521,19 +690,6 @@ const PTClassLogPage = () => {
                 <option value="">All Clients</option>
                 {clients.map(c => (
                   <option key={c.id} value={c.id}>{c.name} ({c.clientId})</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="calendar-filter-item">
-              <label>Filter Trainer</label>
-              <select
-                value={filterTrainerId}
-                onChange={e => setFilterTrainerId(e.target.value)}
-              >
-                <option value="">All Trainers</option>
-                {trainers.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
             </div>
@@ -563,36 +719,16 @@ const PTClassLogPage = () => {
             <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-dim)' }}>Loading attendance history...</div>
           ) : subView === 'calendar' ? (
             <div>
-              <div
-                className="calendar-weekday-header"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(7, 1fr)',
-                  gap: '8px',
-                  textAlign: 'center',
-                  background: '#f8fafc',
-                  padding: '0.65rem 0',
-                  borderRadius: '10px',
-                  border: '1px solid #e2e8f0',
-                  marginBottom: '10px'
-                }}
-              >
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>SUN</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>MON</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>TUE</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>WED</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>THU</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>FRI</div>
-                <div style={{ fontWeight: '800', color: '#475569', fontSize: '0.78rem', letterSpacing: '0.08em' }}>SAT</div>
+              <div className="calendar-weekday-header">
+                <div>SUN</div>
+                <div>MON</div>
+                <div>TUE</div>
+                <div>WED</div>
+                <div>THU</div>
+                <div>FRI</div>
+                <div>SAT</div>
               </div>
-              <div
-                className="calendar-grid"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(7, 1fr)',
-                  gap: '8px'
-                }}
-              >
+              <div className="calendar-grid">
                 {renderCalendarGrid()}
               </div>
             </div>
@@ -605,7 +741,7 @@ const PTClassLogPage = () => {
                     <th>Session</th>
                     <th>Client</th>
                     <th>Package</th>
-                    <th>Trainer</th>
+                    <th>Conducting Trainer</th>
                     {isSuperAdmin && <th>Rate Snapshot</th>}
                   </tr>
                 </thead>
@@ -636,7 +772,7 @@ const PTClassLogPage = () => {
                             <div>{log.trainerName}</div>
                             {isSubstituted && (
                               <div className="substituted-badge">
-                                🔄 Substituted: {log.trainerName} ({log.trainerGrade || 'Grade ?'}) covering for {log.assignedTrainerName || 'Assigned'}
+                                🔄 Substituted: {log.trainerName} covering for {log.assignedTrainerName || 'Assigned'}
                               </div>
                             )}
                           </td>
@@ -659,12 +795,75 @@ const PTClassLogPage = () => {
         </div>
       )}
 
+      {/* Alternate Trainer Selection Modal Prompt */}
+      {alternateModal.isOpen && (
+        <div className="day-modal-overlay" onClick={() => setAlternateModal({ ...alternateModal, isOpen: false })}>
+          <div className="day-modal-card animated-fade-in" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="day-modal-header" style={{ borderColor: '#fdba74' }}>
+              <h3 style={{ color: '#c2410c', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                ⚠️ Trainer Absent — Alternate Required
+              </h3>
+              <button
+                style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b' }}
+                onClick={() => setAlternateModal({ ...alternateModal, isOpen: false })}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '0.5rem 0' }}>
+              <p style={{ fontSize: '0.92rem', color: '#334155', lineHeight: '1.5' }}>
+                Trainer <strong>{alternateModal.absentTrainerName}</strong> is marked <strong>ABSENT</strong> on {formatDateDDMMYYYY(formData.class_date)}.
+              </p>
+              <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.4rem' }}>
+                Please select an Alternate / Substitute Trainer present on shift to conduct this PT class:
+              </p>
+
+              <div style={{ marginTop: '1.2rem' }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase', color: '#475569', letterSpacing: '0.05em' }}>
+                  Select Present Alternate Trainer *
+                </label>
+                <select
+                  style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '10px', border: '1.5px solid #ea580c', marginTop: '0.4rem', fontSize: '0.95rem', fontWeight: '600', color: '#0f172a', background: '#ffffff' }}
+                  value={alternateModal.selectedAlternateId}
+                  onChange={e => setAlternateModal({ ...alternateModal, selectedAlternateId: e.target.value })}
+                >
+                  <option value="">-- Select Alternate Trainer --</option>
+                  {trainers.filter(t => getTrainerStatus(t.id) !== 'Absent').map(t => (
+                    <option key={t.id} value={t.id}>
+                      🟢 {t.name} (Grade {t.grade || 'Unassigned'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem', borderTop: '1px solid #e2e8f0', paddingTop: '1rem' }}>
+              <button
+                type="button"
+                style={{ background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1', padding: '0.6rem 1.25rem', borderRadius: '100px', fontWeight: '700', cursor: 'pointer' }}
+                onClick={() => setAlternateModal({ ...alternateModal, isOpen: false })}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)', color: '#ffffff', border: 'none', padding: '0.6rem 1.4rem', borderRadius: '100px', fontWeight: '700', cursor: 'pointer', boxShadow: '0 4px 12px rgba(234, 88, 12, 0.3)' }}
+                onClick={confirmAlternateTrainer}
+              >
+                Confirm Alternate Trainer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Day Details Modal */}
       {dayModal.isOpen && (
         <div className="day-modal-overlay" onClick={() => setDayModal({ ...dayModal, isOpen: false })}>
           <div className="day-modal-card animated-fade-in" onClick={e => e.stopPropagation()}>
             <div className="day-modal-header">
-              <h3>PT Classes Conducted — {dayModal.dateStr}</h3>
+              <h3>PT Classes Conducted — {formatDateDDMMYYYY(dayModal.dateStr)}</h3>
               <button
                 style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b' }}
                 onClick={() => setDayModal({ ...dayModal, isOpen: false })}
@@ -686,11 +885,11 @@ const PTClassLogPage = () => {
                         {log.clientName} ({log.clientCode})
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>
-                        <strong>Trainer:</strong> {log.trainerName} • <strong>Package:</strong> {log.packageName}
+                        <strong>Conducting Trainer:</strong> {log.trainerName} • <strong>Package:</strong> {log.packageName}
                       </div>
                       {isSubstituted && (
                         <div className="substituted-badge">
-                          🔄 Substituted: {log.trainerName} covering for {log.assignedTrainerName || 'Assigned Trainer'}
+                          🔄 Alternate: {log.trainerName} covering for {log.assignedTrainerName || 'Assigned Trainer'}
                         </div>
                       )}
                       {log.notes && (
@@ -729,3 +928,4 @@ const PTClassLogPage = () => {
 };
 
 export default PTClassLogPage;
+
