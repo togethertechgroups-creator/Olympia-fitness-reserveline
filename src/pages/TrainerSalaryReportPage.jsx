@@ -25,6 +25,16 @@ const TrainerSalaryReportPage = () => {
   const [revenueWarningChoiceConfirmed, setRevenueWarningChoiceConfirmed] = useState(false);
   const [lowRevenueModal, setLowRevenueModal] = useState({ isOpen: false, pendingAction: null, trainer: null });
 
+  // Review-Before-Send Modal State
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    trainer: null,
+    step: 'review', // 'review' | 'delivery'
+    sendingWa: false,
+    waPhone: '',
+    waSuccess: ''
+  });
+
   // Strict Master / Superadmin Role Check
   if (!userRole || userRole !== 'superadmin') {
     return <Navigate to="/manage-clients" replace />;
