@@ -2,8 +2,12 @@ const { createClient } = require('@libsql/client');
 const path = require('path');
 const fs = require('fs');
 
-const TURSO_URL = process.env.TURSO_DATABASE_URL || 'libsql://olympia-reserveline-togethertechgroups-creator.aws-ap-south-1.turso.io';
+let rawUrl = process.env.TURSO_DATABASE_URL || 'libsql://olympia-reserveline-togethertechgroups-creator.aws-ap-south-1.turso.io';
 const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODYzNTM1NTEsImlkIjoiMDE5ZmVhZjYtZGEwMS03M2QzLTg2NjItMDBlNjYzNWNkNjgzIiwia2lkIjoibDRZZTBadGdtdzJDT2VfSUFLX3haYnI2eTl5V0Q4V25ZbjQ4Zng4b092QSIsInJpZCI6IjUxNDE1YjM0LTUxN2EtNGRlNS04NjRjLWVkNjM2ZTA0YTNiMiJ9.mQQWWxKPLnQIIsUSNPqhVJYWwX_vB_9zJ2Uym2T7IDAeb3TptKIjijHBhOIH_FHLC5YMQgpmigPMGN3g9VkLBg';
+
+if (rawUrl.startsWith('libsql://')) {
+  rawUrl = rawUrl.replace('libsql://', 'https://');
+}
 
 const isTurso = !!(process.env.TURSO_DATABASE_URL || process.env.VERCEL || process.env.USE_TURSO);
 
@@ -16,9 +20,9 @@ function flattenArgs(args) {
 }
 
 if (isTurso) {
-  console.log("☁️ Connected to Turso Cloud Database!");
+  console.log("☁️ Connected to Turso Cloud Database via HTTPS!");
   const client = createClient({
-    url: TURSO_URL,
+    url: rawUrl,
     authToken: TURSO_TOKEN
   });
 
