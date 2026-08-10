@@ -1,7 +1,12 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.cjs": {
+      "includeFiles": "server/**"
+    }
+  },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.cjs" },
+    { "source": "/api/(.*)", "destination": "/api/index.cjs" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
