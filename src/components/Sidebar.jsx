@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import olympiaLogo from '../assets/olympialogo.jpeg';
 import './Sidebar.css';
 
 const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
@@ -10,15 +11,7 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
       {/* Brand Header */}
       <div className="sidebar-brand">
         <div className="sidebar-brand-left">
-          <div className="sidebar-brand-icon">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6.5 6.5h11M6.5 17.5h11M4 9v6M20 9v6M9 4v16M15 4v16"/>
-            </svg>
-          </div>
-          <div className="sidebar-brand-info">
-            <span className="sidebar-brand-title">OLYMPIA</span>
-            <span className="sidebar-brand-sub">FITNESS CLUB</span>
-          </div>
+          <img src={olympiaLogo} alt="Olympia Fitness Logo" className="sidebar-logo-img" />
         </div>
         <button 
           className="sidebar-toggle-btn" 
