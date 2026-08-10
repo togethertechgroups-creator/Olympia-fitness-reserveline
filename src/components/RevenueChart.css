@@ -1,0 +1,79 @@
+.revenue-chart-card {
+  padding: 0.25rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.25rem;
+}
+
+.chart-title {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin: 0;
+}
+
+.chart-subtitle {
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 0.15rem;
+}
+
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  background: #ea580c;
+  border-radius: 50%;
+}
+
+.legend-text {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chart-body {
+  height: 230px;
+  width: 100%;
+}
+
+/* Kill the Recharts SVG surface background rect stroke (causes black border) */
+/* but use transparent fill NOT none, as none breaks hover event hit-testing in SVG */
+.chart-body .recharts-surface > rect,
+.chart-body .recharts-wrapper .recharts-surface > rect {
+  fill: transparent !important;
+  stroke: transparent !important;
+  stroke-width: 0 !important;
+}
+
+/* Hide all axis lines and tick lines */
+.chart-body .recharts-cartesian-axis-line,
+.chart-body .recharts-cartesian-axis-tick-line {
+  display: none !important;
+}
+
+.chart-body .recharts-wrapper {
+  border: none !important;
+  outline: none !important;
+}
+
+.chart-body svg {
+  border: none !important;
+  outline: none !important;
+  overflow: visible !important;
+}
+

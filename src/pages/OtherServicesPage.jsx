@@ -1,0 +1,466 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import InvoicePreviewModal from '../components/InvoicePreviewModal';
+import { getOtherServicesSales, getOtherServices, sellOtherService, getClients } from '../api';
+import { formatDateDDMMYYYY } from '../utils/formatDate';
+import './OtherServicesPage.css';
+
+const OtherServicesPage = () => {
+  const navigate = useNavigate();
+  const userRole = localStorage.getItem('userRole');
+  const isSuperAdmin = userRole === 'superadmin';
+
+  const [salesList, setSalesList] = useState([]);
+  const [services, setServices] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Filters & Search
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+
+  // Sell Modal State
+  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [sellFormData, setSellFormData] = useState({
+    client_id: '',
+    service_id: '',
+    sale_date: new Date().toISOString().split('T')[0],
+    paid_amount: 0,
+    payment_method: 'UPI'
+  });
+  const [isSubmittingSell, setIsSubmittingSell] = useState(false);
+  const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
+  const [toastMessage, setToastMessage] = useState(null);
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [salesData, servicesData, clientsData] = await Promise.all([
+        getOtherServicesSales(),
+        getOtherServices(),
+        getClients()
+      ]);
+      const salesArr = Array.isArray(salesData) ? salesData : [];
+      const servicesArr = Array.isArray(servicesData) ? servicesData : [];
+      const clientsArr = Array.isArray(clientsData) ? clientsData : [];
+      setSalesList(salesArr);
+      setServices(servicesArr);
+      setClients(clientsArr);
+    } catch (err) {
+      console.error("Failed to load other services data:", err);
+      setSalesList([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenSellModal = async (svc = null) => {
+    try {
+      const [freshServices, freshClients] = await Promise.all([
+        getOtherServices(),
+        getClients()
+      ]);
+      const currentServices = freshServices || [];
+      const currentClients = freshClients || [];
+      setServices(currentServices);
+      setClients(currentClients);
+
+      const selectedSvc = svc || (currentServices.length > 0 ? currentServices[0] : null);
+      setSellFormData({
+        client_id: currentClients.length > 0 ? currentClients[0].id : '',
+        service_id: selectedSvc ? selectedSvc.id : '',
+        sale_date: new Date().toISOString().split('T')[0],
+        paid_amount: selectedSvc ? selectedSvc.price : 0,
+        payment_method: 'UPI'
+      });
+      setIsSellModalOpen(true);
+    } catch (err) {
+      console.error("Error loading modal data:", err);
+      setIsSellModalOpen(true);
+    }
+  };
+
+  const handleServiceSelectionChange = (serviceId) => {
+    const foundSvc = services.find(s => String(s.id) === String(serviceId));
+    setSellFormData(prev => ({
+      ...prev,
+      service_id: serviceId,
+      paid_amount: foundSvc ? foundSvc.price : prev.paid_amount
+    }));
+  };
+
+  const handleConfirmSell = async (e) => {
+    e.preventDefault();
+    if (!sellFormData.client_id || !sellFormData.service_id) {
+      alert("Please select a client and a service tariff.");
+      return;
+    }
+    setIsSubmittingSell(true);
+    try {
+      const resp = await sellOtherService(sellFormData);
+      setToastMessage(`Invoice ${resp.billNo} generated! Service sold successfully.`);
+      setIsSellModalOpen(false);
+      await fetchData();
+
+      if (resp.bill) {
+        setInvoiceModal({ isOpen: true, data: resp.bill });
+      }
+
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err) {
+      alert(err.message || "Failed to complete service sale");
+    } finally {
+      setIsSubmittingSell(false);
+    }
+  };
+
+  // Helper calculation for validity days remaining
+  const calculateDaysLeft = (expiryDateStr) => {
+    if (!expiryDateStr) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expiryDateStr);
+    exp.setHours(0, 0, 0, 0);
+    const diffTime = exp - today;
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  // Filtering sales list
+  const filteredSales = salesList.filter(item => {
+    const daysLeft = calculateDaysLeft(item.expiryDate);
+    const isExpired = daysLeft !== null && daysLeft < 0;
+
+    let matchesStatus = true;
+    if (statusFilter === 'Active') matchesStatus = !isExpired && item.paymentStatus !== 'Due';
+    if (statusFilter === 'Expired') matchesStatus = isExpired;
+    if (statusFilter === 'Due') matchesStatus = item.paymentStatus === 'Due';
+
+    const searchLower = searchTerm.toLowerCase();
+    const matchesSearch =
+      (item.clientName || '').toLowerCase().includes(searchLower) ||
+      (item.clientCode || '').toLowerCase().includes(searchLower) ||
+      (item.clientPhone || item.clientMobile || '').toLowerCase().includes(searchLower) ||
+      (item.serviceName || '').toLowerCase().includes(searchLower) ||
+      (item.billNo || '').toLowerCase().includes(searchLower);
+
+    return matchesStatus && matchesSearch;
+  });
+
+  // Summary Metrics
+  const totalSalesCount = salesList.length;
+  const totalRevenue = salesList.reduce((sum, item) => sum + (item.price_snapshot || 0), 0);
+  const activeCount = salesList.filter(item => {
+    const days = calculateDaysLeft(item.expiryDate);
+    return days === null || days >= 0;
+  }).length;
+  const expiredCount = totalSalesCount - activeCount;
+
+  const formatCurrency = (val) => `₹${(parseFloat(val) || 0).toLocaleString('en-IN')}`;
+
+  return (
+    <div className="other-services-page">
+      {/* Top Header Bar */}
+      <header className="os-header-bar">
+        <div className="os-title-group">
+          <h1 className="os-page-title">
+            <span className="gradient-text">OTHER SERVICES</span> CLIENT LIST
+          </h1>
+          <p className="os-page-subtitle">Client service subscriptions, active status & sale invoices.</p>
+        </div>
+
+        <div className="os-header-actions">
+          <button className="btn-sell-service-primary" onClick={() => handleOpenSellModal()}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Sell Service to Client
+          </button>
+
+          {isSuperAdmin && (
+            <button className="btn-manage-tariffs-secondary" onClick={() => navigate('/settings?tab=other')}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              </svg>
+              Manage Service Tariffs
+            </button>
+          )}
+        </div>
+      </header>
+
+      {toastMessage && (
+        <div className="os-toast-alert">
+          ✓ {toastMessage}
+        </div>
+      )}
+
+      {/* Summary Stat Cards */}
+      <div className="os-stats-grid">
+        <div className="os-stat-card">
+          <span className="os-stat-label">TOTAL SERVICES SOLD</span>
+          <div className="os-stat-value">{totalSalesCount} <span className="os-stat-unit">Sales</span></div>
+          <span className="os-stat-sub">Recorded subscriptions</span>
+        </div>
+
+        <div className="os-stat-card">
+          <span className="os-stat-label">ACTIVE SUBSCRIPTIONS</span>
+          <div className="os-stat-value text-green">{activeCount} <span className="os-stat-unit">Active</span></div>
+          <span className="os-stat-sub">Valid service periods</span>
+        </div>
+
+        <div className="os-stat-card">
+          <span className="os-stat-label">EXPIRED / COMPLETED</span>
+          <div className="os-stat-value text-red">{expiredCount} <span className="os-stat-unit">Expired</span></div>
+          <span className="os-stat-sub">Pass validity date</span>
+        </div>
+
+        <div className="os-stat-card">
+          <span className="os-stat-label">TOTAL SERVICE REVENUE</span>
+          <div className="os-stat-value text-purple">{formatCurrency(totalRevenue)}</div>
+          <span className="os-stat-sub">Revenue generated</span>
+        </div>
+      </div>
+
+      {/* Filter & Search Toolbar */}
+      <div className="os-toolbar-card">
+        <div className="os-search-box">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input
+            type="text"
+            placeholder="Search by Client Name, Phone, ID, Service or Invoice #..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div className="os-filter-pills">
+          {['All', 'Active', 'Expired', 'Due'].map(status => (
+            <button
+              key={status}
+              className={`os-pill-btn ${statusFilter === status ? 'active' : ''}`}
+              onClick={() => setStatusFilter(status)}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Client Sales Table */}
+      <div className="os-table-container">
+        {loading ? (
+          <div className="os-table-loading">Loading Other Services client subscriptions...</div>
+        ) : filteredSales.length === 0 ? (
+          <div className="os-table-empty">
+            <h3>No Service Sales Found</h3>
+            <p>Click <strong>"Sell Service to Client"</strong> above to record a new client service.</p>
+          </div>
+        ) : (
+          <table className="os-clients-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Client Name</th>
+                <th>Service Taken</th>
+                <th>Sale Date</th>
+                <th>Validity</th>
+                <th>Price / Status</th>
+                <th>Invoice #</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredSales.map((item) => {
+                const daysLeft = calculateDaysLeft(item.expiryDate);
+                const isExpired = daysLeft !== null && daysLeft < 0;
+                const clientInitial = (item.clientName || 'C').charAt(0).toUpperCase();
+
+                // Format invoice bill object for InvoicePreviewModal
+                const billObj = {
+                  id: item.invoice_id,
+                  billNo: item.billNo || 'INV-0000',
+                  clientId: item.clientCode || item.client_id,
+                  clientName: item.clientName,
+                  mobile: item.clientPhone || item.clientMobile || '',
+                  invoiceDate: item.sale_date,
+                  joinDate: item.sale_date,
+                  expiryDate: item.expiryDate || '',
+                  planName: `Service: ${item.serviceName}`,
+                  packageName: `Service: ${item.serviceName}`,
+                  planAmount: item.price_snapshot,
+                  totalPlanAmount: item.price_snapshot,
+                  paidAmount: item.paidAmount !== undefined ? item.paidAmount : item.price_snapshot,
+                  dueAmount: item.dueAmount || 0,
+                  remainingBalance: item.dueAmount || 0,
+                  paymentStatus: item.paymentStatus || 'Paid'
+                };
+
+                return (
+                  <tr key={item.id}>
+                    <td className="col-id">{item.clientCode || `ID_${item.client_id}`}</td>
+                    <td className="col-client">
+                      <div className="client-cell-box">
+                        <div className="client-avatar-circle">{clientInitial}</div>
+                        <div>
+                          <div className="client-name-text">{item.clientName}</div>
+                          <div className="client-phone-sub">{item.clientPhone || item.clientMobile || 'No Phone'}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="col-service">
+                      <span className="service-name-badge">{item.serviceName}</span>
+                    </td>
+                    <td className="col-date">{formatDateDDMMYYYY(item.sale_date)}</td>
+                    <td className="col-validity">
+                      {daysLeft === null ? (
+                        <span className="validity-label-sub">N/A</span>
+                      ) : isExpired ? (
+                        <div>
+                          <span className="badge-validity expired">Expired</span>
+                          <div className="validity-date-sub">Expired {formatDateDDMMYYYY(item.expiryDate)}</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="badge-validity active">{daysLeft} days left</span>
+                          <div className="validity-date-sub">Expires {formatDateDDMMYYYY(item.expiryDate)}</div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="col-price">
+                      <div className="price-val">{formatCurrency(item.price_snapshot)}</div>
+                      <span className={`status-pill ${item.paymentStatus === 'Due' ? 'due' : 'paid'}`}>
+                        {item.paymentStatus || 'Paid'}
+                      </span>
+                    </td>
+                    <td className="col-invoice">{item.billNo || 'INV-0000'}</td>
+                    <td className="col-actions">
+                      <button
+                        className="btn-action-view-invoice"
+                        onClick={() => setInvoiceModal({ isOpen: true, data: billObj })}
+                        title="View / Print Invoice"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        Invoice
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Sell Service Modal */}
+      {isSellModalOpen && (
+        <div className="os-modal-overlay">
+          <div className="os-modal-card">
+            <div className="os-modal-header">
+              <h3>Sell Service to Client</h3>
+              <button onClick={() => setIsSellModalOpen(false)} className="btn-close-modal">✕</button>
+            </div>
+
+            <form onSubmit={handleConfirmSell} className="os-modal-body">
+              <div className="form-group">
+                <label>Select Client *</label>
+                <select
+                  value={sellFormData.client_id}
+                  onChange={(e) => setSellFormData({ ...sellFormData, client_id: e.target.value })}
+                  required
+                >
+                  <option value="">-- Choose Client --</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.clientId || c.id || 'ID N/A'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Select Service Tariff *</label>
+                <select
+                  value={sellFormData.service_id}
+                  onChange={(e) => handleServiceSelectionChange(e.target.value)}
+                  required
+                >
+                  <option value="">-- Choose Service --</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} — ₹{s.price} ({s.duration_days} Days)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Paid Amount (₹) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={sellFormData.paid_amount}
+                    onChange={(e) => setSellFormData({ ...sellFormData, paid_amount: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Payment Method *</label>
+                  <select
+                    value={sellFormData.payment_method}
+                    onChange={(e) => setSellFormData({ ...sellFormData, payment_method: e.target.value })}
+                    required
+                  >
+                    <option value="UPI">UPI</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Net Banking">Net Banking</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Sale Date *</label>
+                <input
+                  type="date"
+                  value={sellFormData.sale_date}
+                  onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="os-modal-actions">
+                <button type="button" className="btn-modal-cancel" onClick={() => setIsSellModalOpen(false)} disabled={isSubmittingSell}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-modal-confirm" disabled={isSubmittingSell}>
+                  {isSubmittingSell ? 'Processing Sale...' : 'Process Sale & Generate Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Preview Modal */}
+      <InvoicePreviewModal
+        isOpen={invoiceModal.isOpen}
+        onClose={() => setInvoiceModal({ isOpen: false, data: null })}
+        client={invoiceModal.data}
+      />
+    </div>
+  );
+};
+
+export default OtherServicesPage;

@@ -1,0 +1,57 @@
+.supplement-management-unified {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f3ff;
+}
+
+.supp-nav-header {
+  background: #f5f3ff;
+  padding-top: calc(var(--navbar-height, 90px) + 1.25rem);
+  padding-bottom: 0.5rem;
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
+.supp-nav-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #ffffff;
+  padding: 0.35rem;
+  border-radius: 100px;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.supp-tab-btn {
+  padding: 0.65rem 1.6rem;
+  border-radius: 100px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #64748b;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.supp-tab-btn:hover {
+  color: #0f172a;
+  background: rgba(245, 243, 255, 0.75);
+}
+
+.supp-tab-btn.active {
+  background: linear-gradient(135deg, #8b1e1e 0%, #731818 100%);
+  color: #ffffff;
+  border-color: rgba(139, 30, 30, 0.3);
+  box-shadow: 0 4px 14px rgba(139, 30, 30, 0.3);
+  font-weight: 800;
+}
+
+.supp-tab-btn.active svg {
+  stroke: #ffffff;
+}

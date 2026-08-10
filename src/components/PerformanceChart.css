@@ -1,0 +1,61 @@
+.performance-chart-card {
+  background: var(--dash-card-bg);
+  border-radius: 24px;
+  padding: 1.5rem;
+  box-shadow: var(--dash-shadow);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: var(--dash-transition);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.performance-chart-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.08);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.chart-title-group h3 {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #1e1b4b;
+  margin: 0;
+}
+
+.chart-subtitle {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.performance-body {
+  flex: 1;
+  min-height: 250px;
+  width: 100%;
+}
+
+/* Force-removal of ALL Recharts default black borders/lines */
+.performance-body .recharts-cartesian-axis-line,
+.performance-body .recharts-cartesian-grid line,
+.performance-body line.recharts-cartesian-axis-line {
+  stroke: transparent !important;
+  stroke-width: 0 !important;
+  display: none !important;
+}
+
+.performance-body .recharts-cartesian-grid-horizontal line {
+  display: none !important;
+}
+
+.performance-body svg {
+  overflow: visible !important;
+}

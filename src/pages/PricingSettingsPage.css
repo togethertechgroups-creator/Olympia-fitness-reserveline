@@ -1,0 +1,294 @@
+/* Premium Pricing Cards - Fee Tariff Management */
+
+.settings-form {
+    padding: calc(var(--navbar-height, 90px) + 1.5rem) 2rem 3rem 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.pricing-cards-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1.25rem;
+    margin-top: 1.5rem;
+}
+
+.pricing-card {
+    border-radius: 16px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+    color: #ffffff;
+    overflow: hidden;
+}
+
+.pricing-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
+}
+
+/* Gradients matching image */
+.bg-gradient-pink {
+    background: linear-gradient(135deg, #d300c5 0%, #ff1168 100%);
+}
+.bg-gradient-orange {
+    background: linear-gradient(135deg, #ff7a00 0%, #ff0e64 100%);
+}
+.bg-gradient-teal {
+    background: linear-gradient(135deg, #00d7b2 0%, #3e52d3 100%);
+}
+
+.pricing-card-header {
+    background: #ffffff;
+    border-radius: 12px;
+    margin: 0.85rem 0.85rem 0 0.85rem;
+    padding: 0.85rem 1rem;
+    text-align: center;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.05);
+}
+
+.pricing-card-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.bg-gradient-pink .pricing-card-header h3 { color: #52006A; }
+.bg-gradient-orange .pricing-card-header h3 { color: #ea580c; }
+.bg-gradient-teal .pricing-card-header h3 { color: #10b981; }
+
+.pricing-stars {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+    margin: 0.3rem 0;
+}
+.pricing-stars svg {
+    width: 10px;
+    height: 10px;
+    fill: currentColor;
+    opacity: 0.8;
+}
+
+.pricing-header-subrow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.4rem;
+}
+
+.pricing-read-more {
+    font-size: 0.65rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #64748b;
+    letter-spacing: 0.05em;
+}
+
+.pricing-header-delete-link {
+    background: transparent;
+    border: none;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: #ef4444;
+    cursor: pointer;
+    letter-spacing: 0.03em;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.pricing-header-delete-link:hover {
+    background: #fee2e2;
+    color: #dc2626;
+}
+
+.pricing-features {
+    padding: 0.85rem 0.85rem 0 0.85rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.pricing-feature-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pricing-feature-item:last-child {
+    border-bottom: none;
+}
+
+.pricing-feature-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+}
+
+.pricing-feature-content {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pricing-feature-value {
+    font-weight: 900;
+    font-size: 0.95rem;
+}
+
+.pricing-card-input {
+    width: 85px;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255, 255, 255, 0.95);
+    color: #1e1b4b;
+    font-size: 0.88rem;
+    font-weight: 900;
+    text-align: right;
+    outline: none;
+}
+
+.pricing-card-input:focus {
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.5);
+}
+
+.pricing-price-box {
+    text-align: center;
+    padding: 0.5rem 0.85rem;
+    margin-top: auto;
+}
+
+.pricing-price-amount {
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}
+
+.pricing-price-sub {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    opacity: 0.85;
+}
+
+.pricing-action-btn-container {
+    padding: 0 0.85rem 0.85rem 0.85rem;
+}
+
+.pricing-action-btn {
+    width: 100%;
+    padding: 0.6rem 1rem;
+    border-radius: 100px;
+    background: #ffffff;
+    color: #1e1b4b;
+    border: none;
+    font-size: 0.85rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.pricing-action-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.15);
+}
+
+.pricing-action-btn.edit-mode {
+    color: #ffffff;
+}
+
+.bg-gradient-pink .pricing-action-btn.edit-mode { background: #52006A; }
+.bg-gradient-orange .pricing-action-btn.edit-mode { background: #f97316; }
+.bg-gradient-teal .pricing-action-btn.edit-mode { background: #10b981; }
+
+.pricing-card-delete-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: #ffffff;
+    color: #ef4444;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.pricing-card-delete-btn:hover {
+    background: #ef4444;
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(239, 68, 68, 0.35);
+}
+
+.settings-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(0,0,0,0.05);
+}
+
+.save-settings-btn, .btn-cancel {
+    padding: 0.65rem 2rem;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: var(--dash-transition);
+}
+
+.save-settings-btn {
+    background: #1e1b4b;
+    color: #fff;
+}
+
+.save-settings-btn:hover {
+    background: #312e81;
+}
+
+.btn-cancel {
+    background: transparent;
+    color: #64748b;
+}
+
+.btn-cancel:hover {
+    color: #334155;
+    background: rgba(0,0,0,0.05);
+}
+
+.add-plan-card {
+    border: 2px dashed #cbd5e1;
+    background: transparent;
+    color: #1e1b4b;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem 1rem;
+    min-height: 220px;
+}
+
+.add-plan-card:hover {
+    transform: none;
+    box-shadow: none;
+    background: rgba(255,255,255,0.5);
+}

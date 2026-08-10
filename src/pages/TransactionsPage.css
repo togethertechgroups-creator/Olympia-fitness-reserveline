@@ -1,0 +1,144 @@
+/* Transactions Page Light Dashboard UI styling */
+
+.transactions-actions-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 4rem;
+    margin-bottom: 2rem;
+}
+
+.btn-export, .btn-import {
+    box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+    transition: var(--dash-transition);
+}
+.btn-export:hover, .btn-import:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(0,0,0,0.06);
+    border-color: var(--dash-purple) !important;
+}
+
+.txn-search-bar {
+    margin-left: auto;
+    position: relative;
+    width: 350px;
+}
+
+.txn-search-bar svg {
+    position: absolute;
+    left: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+}
+
+.txn-search-bar input {
+    width: 100%;
+    padding: 0.85rem 1rem 0.85rem 2.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(0,0,0,0.05);
+    background: #ffffff;
+    font-size: 0.95rem;
+    color: var(--dash-text);
+    outline: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+    transition: var(--dash-transition);
+}
+
+.txn-search-bar input:focus {
+    border-color: var(--dash-purple);
+    box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.1);
+}
+
+.transactions-table-card {
+    background: #ffffff;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.04);
+    margin: 0 4rem 2rem 4rem;
+    padding: 2rem;
+    border: 1px solid rgba(0,0,0,0.02);
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+.txn-full-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.txn-full-table th {
+    text-align: left;
+    padding: 1rem;
+    color: #64748b;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.txn-full-table td {
+    padding: 1.25rem 1rem;
+    border-bottom: 1px solid rgba(0,0,0,0.03);
+    color: var(--dash-text);
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.txn-full-table tr:hover td {
+    background: rgba(245, 243, 255, 0.5); /* slight purple tint */
+}
+
+/* Method Pills */
+.method-pill {
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    display: inline-flex;
+}
+
+.method-pill.cash {
+    background: rgba(16, 185, 129, 0.1);
+    color: #059669;
+}
+.method-pill.upi {
+    background: rgba(139, 92, 246, 0.1);
+    color: #6d28d9;
+}
+.method-pill.card {
+    background: rgba(249, 115, 22, 0.1);
+    color: #ea580c;
+}
+
+.status-col .captured-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #059669;
+}
+.status-col .captured-badge .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+}
+
+.amount-col {
+    font-weight: 800 !important;
+    font-variant-numeric: tabular-nums;
+}
+
+.transactions-footer {
+    padding: 0 4rem;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: right;
+    margin-bottom: 2rem;
+}
