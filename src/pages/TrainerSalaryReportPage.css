@@ -587,29 +587,31 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  padding: 0.75rem 1.5rem;
+  background: #ffffff;
+  padding: 0.65rem 1.5rem;
   border-radius: 100px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
 }
 
 .month-picker-wrapper label {
   font-family: var(--font-sans);
   font-size: 0.8rem;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  color: #475569;
 }
 
 .month-picker-wrapper input {
-  background: #ffffff !important;
+  background: #f8fafc !important;
   border: 1px solid #cbd5e1 !important;
-  border-radius: 8px;
-  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  padding: 0.45rem 0.9rem;
   color: #0f172a !important;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .export-btn-group {
@@ -618,24 +620,25 @@
 }
 
 .btn-export-excel {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
-  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #ffffff;
+  border: none;
+  padding: 0.75rem 1.6rem;
   border-radius: 100px;
   font-family: var(--font-display);
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
-  transition: var(--transition-fast);
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
 }
 
 .btn-export-excel:hover {
-  background: rgba(16, 185, 129, 0.3);
-  border-color: rgba(16, 185, 129, 0.7);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
 }
 
 .btn-close-month {
@@ -672,6 +675,96 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+/* Hidden PDF Printable Container */
+.pdf-payslip-hidden {
+  display: none;
+}
+
+/* Low Revenue Warning Banner */
+.low-revenue-warning-banner {
+  background: linear-gradient(135deg, rgba(234, 88, 12, 0.08), rgba(245, 158, 11, 0.1));
+  border: 1.5px solid rgba(234, 88, 12, 0.3);
+  border-radius: 18px;
+  padding: 1.1rem 1.75rem;
+  margin-bottom: 1.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  box-shadow: 0 4px 20px rgba(234, 88, 12, 0.06);
+}
+
+.banner-left {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.warning-icon {
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  background: #fff7ed;
+  border-radius: 14px;
+  border: 1px solid #ffedd5;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.15);
+}
+
+.banner-title {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #c2410c;
+  letter-spacing: -0.01em;
+}
+
+.banner-desc {
+  font-size: 0.88rem;
+  color: #475569;
+  font-weight: 600;
+  margin-top: 0.25rem;
+  line-height: 1.4;
+}
+
+.banner-desc strong {
+  color: #9a3412;
+}
+
+.banner-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.btn-mode-pill {
+  padding: 0.6rem 1.25rem;
+  border-radius: 100px;
+  border: 1.5px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.btn-mode-pill:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+.btn-mode-pill.active {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.4);
 }
 
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
@@ -977,67 +1070,6 @@
 /* Hidden PDF Printable Container */
 .pdf-payslip-hidden {
   display: none;
-}
-
-/* Low Revenue Warning Banner */
-.low-revenue-warning-banner {
-  background: linear-gradient(135deg, rgba(234, 88, 12, 0.12), rgba(245, 158, 11, 0.12));
-  border: 1px solid rgba(234, 88, 12, 0.35);
-  border-radius: 16px;
-  padding: 1rem 1.5rem;
-  margin-bottom: 1.5rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1.5rem;
-}
-
-.banner-left {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.warning-icon {
-  font-size: 1.8rem;
-}
-
-.banner-title {
-  font-family: var(--font-display);
-  font-size: 1.1rem;
-  font-weight: 800;
-  color: #ea580c;
-}
-
-.banner-desc {
-  font-size: 0.85rem;
-  color: #94a3b8;
-  margin-top: 0.2rem;
-}
-
-.banner-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.btn-mode-pill {
-  padding: 0.5rem 1rem;
-  border-radius: 100px;
-  border: 1px solid rgba(234, 88, 12, 0.3);
-  background: #ffffff;
-  color: #475569;
-  font-size: 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-mode-pill.active {
-  background: linear-gradient(135deg, #ea580c, #c2410c);
-  color: #ffffff;
-  border-color: transparent;
-  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);
 }
 
 /* Low Revenue Dialog Card */
