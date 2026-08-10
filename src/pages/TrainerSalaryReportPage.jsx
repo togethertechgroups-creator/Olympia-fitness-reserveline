@@ -218,6 +218,80 @@ const TrainerSalaryReportPage = () => {
     }
   };
 
+  const handleExportExcel = () => {
+    if (!reportData || !reportData.trainers) return;
+
+    // Summary Sheet Data
+    const summaryRows = reportData.trainers.map(tr => {
+      const form = adjForms[tr.trainerId] || {};
+      const eff = getTrainerEffectiveComm(tr);
+      const commSalary = eff.commSalary;
+      const commPercent = eff.commPercent;
+      const bPay = parseFloat(form.basicPay) || 0;
+      const bBonus = parseFloat(form.bonus) || 0;
+      const incAmt = parseFloat(form.incentiveAmount) || 0;
+      const effInc = (form.incentiveType === 'Subtract' ? -1 : 1) * incAmt;
+      const othAmt = parseFloat(form.otherAmount) || 0;
+      const effOth = (form.otherType === 'Subtract' ? -1 : 1) * othAmt;
+      const total = calculateFinalTotal(tr, form);
+
+      return {
+        'Trainer Code': tr.trainerCode,
+        'Trainer Name': tr.trainerName,
+        'Grade': tr.grade,
+        'Commission Override': eff.is25DefaultMode ? 'Low Rev Default (25%)' : (tr.customCommissionPercent !== null ? `Custom ${tr.customCommissionPercent}%` : 'Standard Grade Matrix'),
+        'Classes Conducted': tr.classesConducted,
+        'Monthly Base Revenue (₹)': tr.monthlyPtBaseRevenue,
+        'Slab Applied': eff.is25DefaultMode ? '25% Low Rev Default' : (tr.customCommissionPercent !== null ? `Custom Rate: ${tr.customCommissionPercent}%` : (tr.slabApplied === 'Slab1' ? 'Slab 1 (> ₹3,00,000)' : 'Slab 2 (≤ ₹3,00,000)')),
+        'Commission %': `${commPercent}%`,
+        'PT Commission Salary (₹)': commSalary,
+        'Basic Pay (₹)': bPay,
+        'Bonus (₹)': bBonus,
+        'Bonus Note': form.bonusNote || '',
+        'Incentives (₹)': effInc,
+        'Other Adjustment Label': form.otherLabel || 'Other Adjustment',
+        'Other Adjustment (₹)': effOth,
+        'Final Payslip Total (₹)': total
+      };
+    });
+
+    // Detailed Log Sheet Data
+    const detailRows = [];
+    reportData.trainers.forEach(tr => {
+      const eff = getTrainerEffectiveComm(tr);
+      (tr.classLogs || []).forEach(log => {
+        const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
+        const logPayout = eff.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
+
+        detailRows.push({
+          'Trainer Code': tr.trainerCode,
+          'Trainer Name': tr.trainerName,
+          'Class Date': log.class_date,
+          'Session Slot': log.session_slot || 'Morning',
+          'Client Name': log.clientName,
+          'Client Code': log.clientCode,
+          'Package Name': log.packageName,
+          'Package Price (₹)': log.package_price_snapshot,
+          'Total Package Classes': log.total_classes_snapshot,
+          'Slab Applied': eff.is25DefaultMode ? '25% Low Rev Default' : log.slab_applied,
+          'Per-Class Payout (₹)': logPayout,
+          'Notes': log.notes || ''
+        });
+      });
+    });
+
+    const wb = XLSX.utils.book_new();
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Trainer Salary Summary');
+
+    if (detailRows.length > 0) {
+      const wsDetail = XLSX.utils.json_to_sheet(detailRows);
+      XLSX.utils.book_append_sheet(wb, wsDetail, 'Class Log Breakdown');
+    }
+
+    XLSX.writeFile(wb, `Olympia_Trainer_Salary_Report_${selectedMonth}.xlsx`);
+  };
+
   const handleConfirmAndGenerate = async () => {
     if (!modalConfig.trainer) return;
     const tr = modalConfig.trainer;
