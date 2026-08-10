@@ -68,6 +68,14 @@ const PORT = 5000;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+// Vercel serverless URL prefix normalization middleware
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = '/api' + req.url;
+  }
+  next();
+});
+
 // ─── SQLite Setup ───────────────────────────────────────────────────────────
 let DB_PATH;
 const fs = require('fs');
