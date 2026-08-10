@@ -537,7 +537,8 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
         ) : !reportData || reportData.trainers.length === 0 ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-dim)' }}>No trainer activity found for selected month.</div>
         ) : (
-          <table className="report-table">
+          <div className="table-responsive">
+            <table className="report-table">
             <thead>
               <tr>
                 <th>Trainer Info</th>
@@ -667,56 +668,58 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                             {tr.classLogs.length === 0 ? (
                               <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.5rem' }}>No logged classes this month.</p>
                             ) : (
-                              <table className="sub-logs-table">
-                                <thead>
-                                  <tr>
-                                    <th>Class Date</th>
-                                    <th>Session</th>
-                                    <th>Client Name</th>
-                                    <th>Package</th>
-                                    <th>Validity Period</th>
-                                    <th>Package Price</th>
-                                    <th>Total Classes</th>
-                                    <th>Base Rate / Class</th>
-                                    <th>Slab / Rate</th>
-                                    <th>Trainer Payout (₹)</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {tr.classLogs.map(log => {
-                                    const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
-                                    const logPayout = effComm.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
-                                    const isSubstituted = log.assigned_trainer_id && String(log.trainer_id) !== String(log.assigned_trainer_id);
-                                    return (
-                                      <tr key={log.id}>
-                                        <td style={{ fontWeight: '700', color: '#1e293b' }}>{log.class_date}</td>
-                                        <td>
-                                          <span style={{ fontSize: '0.72rem', background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '3px 8px', borderRadius: '6px', fontWeight: '800' }}>
-                                            {log.session_slot || 'Morning'}
-                                          </span>
-                                        </td>
-                                        <td style={{ fontWeight: '700', color: '#0f172a' }}>
-                                          <div>{log.clientName} ({log.clientCode})</div>
-                                          {isSubstituted && (
-                                            <span style={{ display: 'inline-block', fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', border: '1px solid #fde047', padding: '2px 6px', borderRadius: '4px', marginTop: '3px', fontWeight: '700' }}>
-                                              🔄 Substituted (Covering for {log.assignedTrainerName || 'Assigned'})
+                              <div className="table-responsive">
+                                <table className="sub-logs-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Class Date</th>
+                                      <th>Session</th>
+                                      <th>Client Name</th>
+                                      <th>Package</th>
+                                      <th>Validity Period</th>
+                                      <th>Package Price</th>
+                                      <th>Total Classes</th>
+                                      <th>Base Rate / Class</th>
+                                      <th>Slab / Rate</th>
+                                      <th>Trainer Payout (₹)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {tr.classLogs.map(log => {
+                                      const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
+                                      const logPayout = effComm.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
+                                      const isSubstituted = log.assigned_trainer_id && String(log.trainer_id) !== String(log.assigned_trainer_id);
+                                      return (
+                                        <tr key={log.id}>
+                                          <td style={{ fontWeight: '700', color: '#1e293b' }}>{log.class_date}</td>
+                                          <td>
+                                            <span style={{ fontSize: '0.72rem', background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '3px 8px', borderRadius: '6px', fontWeight: '800' }}>
+                                              {log.session_slot || 'Morning'}
                                             </span>
-                                          )}
-                                        </td>
-                                        <td style={{ fontWeight: '600', color: '#334155' }}>{log.packageName}</td>
-                                        <td style={{ fontSize: '0.8rem', fontWeight: '600', color: '#475569' }}>
-                                          {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
-                                        </td>
-                                        <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(log.package_price_snapshot)}</td>
-                                        <td style={{ fontWeight: '700', color: '#0f172a', textAlign: 'center' }}>{log.total_classes_snapshot}</td>
-                                        <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(baseRateClass)}</td>
-                                        <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{effComm.is25DefaultMode ? '25% Low Rev Default' : (hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : log.slab_applied)}</td>
-                                        <td style={{ fontWeight: '900', fontSize: '1rem', color: '#059669' }}>{formatCurrency(logPayout)}</td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
+                                          </td>
+                                          <td style={{ fontWeight: '700', color: '#0f172a' }}>
+                                            <div>{log.clientName} ({log.clientCode})</div>
+                                            {isSubstituted && (
+                                              <span style={{ display: 'inline-block', fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', border: '1px solid #fde047', padding: '2px 6px', borderRadius: '4px', marginTop: '3px', fontWeight: '700' }}>
+                                                🔄 Substituted (Covering for {log.assignedTrainerName || 'Assigned'})
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td style={{ fontWeight: '600', color: '#334155' }}>{log.packageName}</td>
+                                          <td style={{ fontSize: '0.8rem', fontWeight: '600', color: '#475569' }}>
+                                            {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
+                                          </td>
+                                          <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(log.package_price_snapshot)}</td>
+                                          <td style={{ fontWeight: '700', color: '#0f172a', textAlign: 'center' }}>{log.total_classes_snapshot}</td>
+                                          <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(baseRateClass)}</td>
+                                          <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{effComm.is25DefaultMode ? '25% Low Rev Default' : (hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : log.slab_applied)}</td>
+                                          <td style={{ fontWeight: '900', fontSize: '1rem', color: '#059669' }}>{formatCurrency(logPayout)}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
                             )}
                           </div>
                         </td>
@@ -727,6 +730,7 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
               })}
             </tbody>
           </table>
+        </div>
         )}
       </div>
 

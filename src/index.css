@@ -449,3 +449,86 @@ h6 {
   color: #ea580c;
   font-weight: 800;
 }
+
+/* ─── GLOBAL MOBILE RESPONSIVE TABLES ───────────────────────────────────────── */
+.table-responsive,
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 1rem;
+  scrollbar-width: thin;
+  display: block;
+}
+
+@media (max-width: 768px) {
+  /* Enforce horizontal scrolling container for all data tables */
+  .table-responsive,
+  .table-container {
+    overflow-x: auto !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  /* Force minimum readable width for all table elements on mobile screens */
+  .table-responsive > table,
+  .table-container > table,
+  table.clients-table,
+  table.txn-full-table,
+  table.report-table,
+  table.sub-logs-table,
+  table.sales-table,
+  table.purchases-table,
+  table.catalog-table,
+  table.education-table,
+  table.staff-table,
+  table.today-logs-table,
+  table.assign-table,
+  table.os-clients-table,
+  table.Inquiry-table,
+  table.gst-audit-table,
+  table.expenses-table,
+  table.expired-table,
+  table.history-table,
+  table.adv-table,
+  table.breakdown-table,
+  table.client-table {
+    min-width: 680px !important;
+    width: 100% !important;
+  }
+
+  /* Compact touch padding & font size for table cells on mobile */
+  .table-responsive th,
+  .table-responsive td,
+  .table-container th,
+  .table-container td,
+  table th,
+  table td {
+    padding: 0.6rem 0.5rem !important;
+    font-size: 0.82rem !important;
+    white-space: normal;
+  }
+
+  /* Allow action buttons in table cells to wrap neatly */
+  .action-buttons-cell,
+  .table-actions,
+  td div[style*="display: flex"],
+  td div[style*="display:flex"] {
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+
+  /* Reduce table action buttons size slightly on mobile */
+  .btn-action,
+  .btn-view,
+  .btn-edit,
+  .btn-delete,
+  .btn-renew,
+  .btn-undo-log {
+    padding: 0.35rem 0.6rem !important;
+    font-size: 0.75rem !important;
+  }
+}
