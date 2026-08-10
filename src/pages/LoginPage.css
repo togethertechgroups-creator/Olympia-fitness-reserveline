@@ -134,11 +134,11 @@
   bottom: 4px;
   left: 4px;
   width: calc(50% - 4px);
-  background: linear-gradient(135deg, #ea580c, #c2410c);
+  background: linear-gradient(135deg, #dc2626, #991b1b);
   border-radius: 10px;
   z-index: 1;
   transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
 }
 
 .role-tab-indicator.admin {
@@ -175,9 +175,9 @@
 
 .beast-login-input:focus {
   outline: none !important;
-  border-color: #ea580c !important;
-  background: rgba(234, 88, 12, 0.08) !important;
-  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.2) !important;
+  border-color: #dc2626 !important;
+  background: rgba(220, 38, 38, 0.08) !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2) !important;
 }
 
 .eye-btn {
@@ -202,7 +202,7 @@
 
 .login-submit-btn {
   margin-top: 0.5rem;
-  background: linear-gradient(135deg, #ea580c, #c2410c);
+  background: linear-gradient(135deg, #dc2626, #991b1b);
   color: #ffffff;
   font-size: 0.95rem;
   font-weight: 800;
@@ -213,12 +213,12 @@
   transition: all 0.3s ease;
   cursor: pointer;
   border: none;
-  box-shadow: 0 8px 20px rgba(234, 88, 12, 0.35);
+  box-shadow: 0 8px 20px rgba(220, 38, 38, 0.35);
 }
 
 .login-submit-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 25px rgba(234, 88, 12, 0.5);
+  box-shadow: 0 12px 25px rgba(220, 38, 38, 0.5);
 }
 
 .error-banner {
@@ -250,7 +250,7 @@
 }
 
 .powered-highlight {
-  color: #ea580c;
+  color: #ef4444;
   font-weight: 700;
 }
 

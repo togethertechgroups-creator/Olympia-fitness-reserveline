@@ -43,12 +43,12 @@
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #ea580c, #c2410c);
+  background: linear-gradient(135deg, #dc2626, #991b1b);
   color: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 14px rgba(234, 88, 12, 0.4);
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.4);
   flex-shrink: 0;
 }
 
@@ -164,10 +164,10 @@
 }
 
 .sidebar-global-link.active {
-  background: linear-gradient(135deg, #ea580c, #c2410c);
+  background: linear-gradient(135deg, #dc2626, #991b1b);
   color: #ffffff;
   font-weight: 600;
-  box-shadow: 0 4px 16px rgba(234, 88, 12, 0.35);
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.35);
 }
 
 .sidebar-global-link.active svg {
