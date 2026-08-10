@@ -29,7 +29,7 @@ const PtRevenueChart = ({ data = [] }) => {
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
+            <BarChart data={data} margin={{ top: 10, right: 15, left: 0, bottom: 10 }}>
               <XAxis 
                 dataKey="name" 
                 axisLine={false} 
