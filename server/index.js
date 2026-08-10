@@ -80,7 +80,8 @@ app.use((req, res, next) => {
 const db = require('./db.js');
 
 // ─── Schema Initialization ───────────────────────────────────────────────────
-await db.exec(`
+if (!db.isTurso) {
+  db.exec(`
   CREATE TABLE IF NOT EXISTS clients (
     id          TEXT PRIMARY KEY,
     clientId    TEXT,
@@ -334,7 +335,7 @@ await db.exec(`
 `);
 
 try {
-  await db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
+  db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
 } catch (e) { }
 
 // ─── Initialize Settings if empty ───────────────────────────────────────────
@@ -349,7 +350,7 @@ const initialSettings = [
 ];
 
 initialSettings.forEach(setting => {
-  await db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
+  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
 });
 
 // ─── Initialize Users if empty ──────────────────────────────────────────────
@@ -359,9 +360,9 @@ const initialUsers = [
 ];
 
 initialUsers.forEach(user => {
-  const existing = await db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
+  const existing = db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
   if (!existing) {
-    await db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
       user.id, user.username, user.password, user.role
     );
   }
@@ -369,7 +370,7 @@ initialUsers.forEach(user => {
 
 // ─── Initialize Default Other Services Tariffs if empty ────────────────────
 try {
-  const serviceCount = await db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
+  const serviceCount = db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
   if (serviceCount === 0) {
     const defaultOtherServices = [
       { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
@@ -379,7 +380,7 @@ try {
       { name: 'Guest Day Pass', price: 200, duration_days: 1 }
     ];
 
-    const insertStmt = await db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
+    const insertStmt = db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
     defaultOtherServices.forEach(s => {
       insertStmt.run(s.name, s.price, s.duration_days);
     });
@@ -409,25 +410,25 @@ try {
 
   columns.forEach(col => {
     try {
-      await db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
+      db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
       console.log(`✅ Added column ${col.name} to clients table`);
     } catch (e) {
       // Column might already exist
     }
   });
 
-  try { await db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
-  try { await db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
-  try { await db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
-  try { await db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
-  try { await db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
-  try { await db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
-  try { await db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
+  try { db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
+  try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
 
   try {
     const InquiryCols = [
@@ -453,7 +454,7 @@ try {
     ];
     InquiryCols.forEach(col => {
       try {
-        await db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
+        db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
       } catch (e) { }
     });
   } catch (err) { }
@@ -464,24 +465,24 @@ try {
   // ─── PT Module Migrations & Tables ──────────────────────────────────────────
   try {
     try {
-      await db.prepare("ALTER TABLE trainers ADD COLUMN grade TEXT CHECK(grade IN ('A_PRO_PT','A','B'))").run();
+      db.prepare("ALTER TABLE trainers ADD COLUMN grade TEXT CHECK(grade IN ('A_PRO_PT','A','B'))").run();
       console.log('✅ Added grade column to trainers table');
     } catch (e) { }
 
     try {
-      await db.prepare("ALTER TABLE trainers ADD COLUMN custom_commission_percent REAL NULLABLE").run();
+      db.prepare("ALTER TABLE trainers ADD COLUMN custom_commission_percent REAL NULLABLE").run();
       console.log('✅ Added custom_commission_percent column to trainers table');
     } catch (e) { }
 
     // Migrate pt_packages table if category check constraint exists or restricts 'Challenge'
     try {
-      const pkgSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_packages'").get()?.sql || '';
+      const pkgSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_packages'").get()?.sql || '';
       if (pkgSql && (pkgSql.includes('CHECK(category IN') || pkgSql.includes('CHECK (category IN'))) {
         console.log('Migrating pt_packages table to remove category CHECK constraint...');
-        const cols = await db.prepare("PRAGMA table_info(pt_packages)").all().map(c => c.name);
+        const cols = db.prepare("PRAGMA table_info(pt_packages)").all().map(c => c.name);
         const colList = cols.join(', ');
 
-        await db.exec(`
+        db.exec(`
           CREATE TABLE pt_packages_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -505,7 +506,7 @@ try {
       console.error('pt_packages migration error:', e);
     }
 
-    await db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS pt_packages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -521,14 +522,14 @@ try {
     `);
 
     try {
-      await db.prepare("ALTER TABLE pt_packages ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 30").run();
+      db.prepare("ALTER TABLE pt_packages ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 30").run();
     } catch (e) { }
 
     // Migrate pt_assignments status check constraint to include 'Expired'
     try {
-      const assignSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_assignments'").get()?.sql || '';
+      const assignSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_assignments'").get()?.sql || '';
       if (assignSql && !assignSql.includes('Expired')) {
-        await db.exec(`
+        db.exec(`
           CREATE TABLE pt_assignments_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id TEXT NOT NULL REFERENCES clients(id),
@@ -550,7 +551,7 @@ try {
       }
     } catch (e) { }
 
-    await db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS pt_assignments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id TEXT NOT NULL REFERENCES clients(id),
@@ -567,15 +568,15 @@ try {
     `);
 
     try {
-      await db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
+      db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
     } catch (e) { }
 
     try {
-      await db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
+      db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
       console.log('✅ Added invoice_id column to pt_assignments table');
     } catch (e) { }
 
-    await db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS general_package_bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id TEXT NOT NULL REFERENCES clients(id),
@@ -602,9 +603,9 @@ try {
 
     // Migrate pt_class_log to include session_slot with composite UNIQUE(pt_assignment_id, class_date, session_slot)
     try {
-      const logSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_class_log'").get()?.sql || '';
+      const logSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_class_log'").get()?.sql || '';
       if (logSql && !logSql.includes('session_slot')) {
-        await db.exec(`
+        db.exec(`
           CREATE TABLE pt_class_log_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pt_assignment_id INTEGER NOT NULL REFERENCES pt_assignments(id),
@@ -626,7 +627,7 @@ try {
       }
     } catch (e) { }
 
-    await db.exec(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS pt_class_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         pt_assignment_id INTEGER NOT NULL REFERENCES pt_assignments(id),
@@ -684,11 +685,11 @@ try {
       { name: 'other_label', type: 'TEXT' }
     ];
     adjCols.forEach(col => {
-      try { await db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
+      try { db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
     });
 
     // Seed catalog pt_packages if empty
-    const existingPkgCount = await db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;
+    const existingPkgCount = db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;
     if (existingPkgCount === 0) {
       const seedPackages = [
         { name: 'A Pro PT — Standard', price: 9000, total_classes: 16, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT']) },
@@ -700,7 +701,7 @@ try {
         { name: 'Kid PT (Age 5–10)', price: 2000, total_classes: 16, category: 'Kid', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT', 'A', 'B']) }
       ];
 
-      const stmt = await db.prepare(`
+      const stmt = db.prepare(`
         INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
         VALUES (?, ?, ?, ?, ?, ?, 0, 1)
       `);
@@ -709,9 +710,9 @@ try {
     }
 
     // Ensure "100 Days Challenge" package exists in catalog
-    const challengePkg = await db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
+    const challengePkg = db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
     if (!challengePkg) {
-      await db.prepare(`
+      db.prepare(`
         INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
         VALUES ('100 Days Challenge', 15000, 30, 'Challenge', 100, ?, 0, 1)
       `).run(JSON.stringify(['A_PRO_PT', 'A', 'B']));
@@ -721,11 +722,10 @@ try {
   } catch (err) {
     console.error('Migration error:', err.message);
   }
-
-  console.log('✅ Connected to SQLite →', DB_PATH);
+}
 
   // ─── PT Calculation & Auto-Expiry Helpers ────────────────────────────────────
-  const autoExpireAssignments = () => {
+  const autoExpireAssignments = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
       const result = await db.prepare(`
@@ -733,7 +733,7 @@ try {
         SET status = 'Expired'
         WHERE status = 'Active' AND expiry_date IS NOT NULL AND date(expiry_date) < date(?)
       `).run(today);
-      if (result.changes > 0) {
+      if (result && result.changes > 0) {
         console.log(`⏰ Auto-expired ${result.changes} PT assignments.`);
       }
     } catch (e) {
@@ -741,7 +741,7 @@ try {
     }
   };
 
-  const generatePtInvoice = (clientId, packageName, priceSnapshot, assignedDate, expiryDate) => {
+  const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedDate, expiryDate) => {
     try {
       const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
       if (!client) return null;
@@ -790,7 +790,7 @@ try {
     }
   };
 
-  const autoActivateAdvanceBookings = () => {
+  const autoActivateAdvanceBookings = async () => {
     try {
       const today = new Date().toISOString().split('T')[0];
 
@@ -802,7 +802,7 @@ try {
         WHERE b.status = 'Scheduled' AND date(b.booking_start_date) <= date(?)
       `).all(today);
 
-      scheduledGenBookings.forEach(b => {
+      for (const b of (scheduledGenBookings || [])) {
         const isCurrentExpired = !b.currentExpiry || b.currentExpiry < today;
         if (isCurrentExpired) {
           await db.prepare(`
@@ -814,7 +814,7 @@ try {
           await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
           console.log(`✅ [Cron] Auto-activated General Package Booking #${b.id} for Client ${b.client_id}`);
         }
-      });
+      }
 
       // 2. PT Advance Bookings Flagging to ReadyToActivate
       const scheduledPtBookings = await db.prepare(`
@@ -823,7 +823,7 @@ try {
         WHERE b.status = 'Scheduled' AND date(b.booking_start_date) <= date(?)
       `).all(today);
 
-      scheduledPtBookings.forEach(b => {
+      for (const b of (scheduledPtBookings || [])) {
         const activeAssignment = await db.prepare(`
           SELECT id FROM pt_assignments
           WHERE client_id = ? AND status = 'Active' AND date(expiry_date) >= date(?)
@@ -833,7 +833,7 @@ try {
           await db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
           console.log(`⏰ [Cron] PT Advance Booking #${b.id} marked as ReadyToActivate`);
         }
-      });
+      }
     } catch (e) {
       console.error('Error auto-activating advance bookings:', e.message);
     }
@@ -866,7 +866,7 @@ try {
     'B':        { Slab1: 0.30, Slab2: 0.25 }
   };
 
-  const getTrainerMonthlyPtBaseRevenue = (trainerId, yearMonthStr) => {
+  const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
     const row = await db.prepare(`
       SELECT SUM(a.package_price_snapshot / a.total_classes_snapshot) as baseRevenue
       FROM pt_class_log l
@@ -890,8 +890,8 @@ try {
     return (packagePrice * commRate) / totalClasses;
   };
 
-  const syncTrainerMonthlyClassLogs = (trainerId, yearMonthStr) => {
-    const totalRevenue = getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
+  const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
+    const totalRevenue = await getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
     const currentSlab = getSlabForRevenue(totalRevenue);
     
     const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
@@ -910,10 +910,10 @@ try {
       WHERE id = ?
     `);
 
-    logs.forEach(log => {
+    for (const log of (logs || [])) {
       const rate = calculatePerClassRate(log.package_price_snapshot, log.total_classes_snapshot, trainer, currentSlab);
-      updateStmt.run(rate, currentSlab, log.id);
-    });
+      await updateStmt.run(rate, currentSlab, log.id);
+    }
 
     return currentSlab;
   };
@@ -1311,7 +1311,7 @@ app.get('/api/trainers', async (req, res) => {
     const now = new Date();
     const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const trainersWithStats = trainers.map(tr => {
+    const trainersWithStats = await Promise.all(trainers.map(async (tr) => {
       const clientCountRow = await db.prepare(`
         SELECT COUNT(DISTINCT client_id) as totalClients FROM (
           SELECT id as client_id FROM clients WHERE trainerId = ?
@@ -1321,7 +1321,7 @@ app.get('/api/trainers', async (req, res) => {
       `).get(tr.id, tr.id);
 
       const clientCount = clientCountRow ? clientCountRow.totalClients : 0;
-      const baseRevenue = getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
+      const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
       const activeSlab = getSlabForRevenue(baseRevenue);
 
       return {
@@ -1330,7 +1330,7 @@ app.get('/api/trainers', async (req, res) => {
         monthlyPtBaseRevenue: baseRevenue,
         activeSlab: activeSlab
       };
-    });
+    }));
 
     res.json(trainersWithStats);
   } catch (err) {
@@ -2016,7 +2016,7 @@ app.get('/api/pt-class-log/history', async (req, res) => {
   }
 });
 
-function getMonthlyGymTotalRevenue(targetMonth) {
+async function getMonthlyGymTotalRevenue(targetMonth) {
   let total = 0;
   try {
     const txns = await db.prepare('SELECT amount, date FROM transactions').all();
@@ -2065,13 +2065,13 @@ app.get('/api/trainer-salary-report', async (req, res) => {
     const isLockedRow = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(targetMonth);
     const isLocked = !!isLockedRow;
 
-    const gymTotalRevenue = getMonthlyGymTotalRevenue(targetMonth);
+    const gymTotalRevenue = await getMonthlyGymTotalRevenue(targetMonth);
     const isRevenueBelow3Lakhs = gymTotalRevenue < 300000;
 
     const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE strftime('%Y-%m', class_date) = ?) ORDER BY name ASC").all(targetMonth);
 
-    const reportData = trainers.map(tr => {
-      const baseRevenue = getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
+    const reportData = await Promise.all(trainers.map(async (tr) => {
+      const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
       const activeSlab = getSlabForRevenue(baseRevenue);
 
       const logs = await db.prepare(`
@@ -2140,7 +2140,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
         totalPayable: totalPayable,
         classLogs: logs
       };
-    });
+    }));
 
     res.json({
       month: targetMonth,
@@ -2425,7 +2425,7 @@ app.post('/api/restore', async (req, res) => {
       return res.status(400).json({ error: 'Invalid payload format.' });
     }
 
-    const restoreTx = db.transaction((clientsData, txnsData, trainersData) => {
+    const restoreTx = async (clientsData, txnsData, trainersData) => {
       await db.prepare('DELETE FROM clients').run();
       await db.prepare('DELETE FROM transactions').run();
       await db.prepare('DELETE FROM trainers').run();
@@ -2469,14 +2469,14 @@ app.post('/api/restore', async (req, res) => {
       }
 
       for (const t of txnsData) {
-        insertTxn.run(
+        await insertTxn.run(
           t.id || randomUUID(), t.name || '', t.method || 'CASH', t.date || '',
           t.amount || 0, t.status || 'CAPTURED', t.timestamp || null
         );
       }
-    });
+    };
 
-    restoreTx(clients, transactions, trainers);
+    await restoreTx(clients, transactions, trainers);
     res.json({ message: 'Database restored successfully', counts: { clients: clients.length, transactions: transactions.length, trainers: trainers.length } });
   } catch (err) {
     console.error('Restore Error:', err);
@@ -3070,15 +3070,14 @@ app.put('/api/settings', async (req, res) => {
     const settings = req.body; // Expecting { key: value, ... }
     const update = await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
 
-    // Use a transaction for atomic update
-    const transaction = db.transaction((data) => {
+    const transaction = async (data) => {
       await db.prepare('DELETE FROM settings').run();
       for (const [key, value] of Object.entries(data)) {
-        update.run(key, value);
+        await update.run(key, value);
       }
-    });
+    };
 
-    transaction(settings);
+    await transaction(settings);
     res.json({ message: 'Settings updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3128,13 +3127,13 @@ app.put('/api/auth/credentials', async (req, res) => {
 
     const update = await db.prepare('UPDATE users SET username = ?, password = ? WHERE role = ?');
 
-    const transaction = db.transaction((data) => {
+    const transaction = async (data) => {
       for (const cred of data) {
-        update.run(cred.username, cred.password, cred.role);
+        await update.run(cred.username, cred.password, cred.role);
       }
-    });
+    };
 
-    transaction(credentials);
+    await transaction(credentials);
     res.json({ message: 'Credentials updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3145,7 +3144,7 @@ app.put('/api/auth/credentials', async (req, res) => {
 app.get('/api/performance', async (req, res) => {
   try {
     const plans = ["Monthly", "Quarterly", "Half-Yearly", "Annual"];
-    const results = plans.map(p => {
+    const results = await Promise.all(plans.map(async (p) => {
       const row = await db.prepare(
         "SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as revenue FROM clients WHERE plan = ?"
       ).get(p);
@@ -3155,7 +3154,7 @@ app.get('/api/performance', async (req, res) => {
         revenue: row.revenue,
         status: 'Active'
       };
-    });
+    }));
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4063,7 +4062,7 @@ app.post('/api/supplements/purchases', async (req, res) => {
 
     const totalCost = Math.round(qty * pricePerUnit * 100) / 100;
 
-    const executePurchaseTransaction = db.transaction(() => {
+    const executePurchaseTransaction = async () => {
       const supp = await db.prepare('SELECT id FROM supplements WHERE id = ?').get(supplement_id);
       if (!supp) {
         throw new Error('Selected supplement does not exist');
@@ -4074,7 +4073,7 @@ app.post('/api/supplements/purchases', async (req, res) => {
           supplement_id, vendor_name, quantity, purchase_price_per_unit, total_cost, purchase_date, invoice_ref, notes, created_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
-      const result = insertStmt.run(
+      const result = await insertStmt.run(
         supplement_id, vendor_name.trim(), qty, pricePerUnit, totalCost, purchase_date, invoice_ref ? invoice_ref.trim() : null, notes ? notes.trim() : null, created_by || null
       );
 
@@ -4085,9 +4084,9 @@ app.post('/api/supplements/purchases', async (req, res) => {
       `).run(qty, pricePerUnit, supplement_id);
 
       return result.lastInsertRowid;
-    });
+    };
 
-    const newPurchaseId = executePurchaseTransaction();
+    const newPurchaseId = await executePurchaseTransaction();
     const newPurchase = await db.prepare(`
       SELECT p.*, s.name as supplement_name, s.unit as supplement_unit
       FROM supplement_purchases p
@@ -4176,7 +4175,7 @@ app.post('/api/supplements/sales', async (req, res) => {
 
     const totalAmount = Math.round(qty * salePrice * 100) / 100;
 
-    const executeSaleTransaction = db.transaction(() => {
+    const executeSaleTransaction = async () => {
       const supplement = await db.prepare('SELECT current_stock, default_purchase_price FROM supplements WHERE id = ?').get(supplement_id);
       if (!supplement) {
         throw new Error('Selected supplement does not exist');
@@ -4212,9 +4211,9 @@ app.post('/api/supplements/sales', async (req, res) => {
       await db.prepare('UPDATE supplements SET current_stock = current_stock - ? WHERE id = ?').run(qty, supplement_id);
 
       return result.lastInsertRowid;
-    });
+    };
 
-    const newSaleId = executeSaleTransaction();
+    const newSaleId = await executeSaleTransaction();
     const newSale = await db.prepare(`
       SELECT s.*, sup.name as supplement_name, sup.unit as supplement_unit, c.name as client_name
       FROM supplement_sales s
