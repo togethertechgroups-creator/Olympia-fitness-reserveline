@@ -217,11 +217,91 @@ const DashboardPage = () => {
               </div>
             </div>
 
-            {/* 5. Combined Client & Advance Bookings Card */}
-            <div className="ui-dash-card combined-status-card" style={{ gridColumn: 'span 2' }}>
+            {/* Row 2: Supplements & Other Services (4 cards) */}
+            {/* 5. Supplements Revenue (Month) */}
+            <div className="ui-dash-card" onClick={() => navigate('/supplements/revenue')}>
+              <div className="card-top-row">
+                <span className="card-category-title">SUPPLEMENTS REVENUE</span>
+              </div>
+              <div className="card-val-row">
+                <div className="card-main-val card-val-purple">{formatCurrency(supplementsSummary?.monthRevenue)}</div>
+              </div>
+              <div className="card-bottom-row">
+                <span className="card-link-action">View Revenue</span>
+                <div className="card-icon-badge badge-purple">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <path d="M16 10a4 4 0 0 1-8 0"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* 6. Supplements Profit (Month) */}
+            <div className="ui-dash-card" onClick={() => navigate('/supplements/revenue')}>
+              <div className="card-top-row">
+                <span className="card-category-title">SUPPLEMENTS PROFIT</span>
+              </div>
+              <div className="card-val-row">
+                <div className="card-main-val card-val-purple">{formatCurrency(supplementsSummary?.monthProfit)}</div>
+              </div>
+              <div className="card-bottom-row">
+                <span className="card-link-action">View Profit</span>
+                <div className="card-icon-badge badge-purple">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path>
+                    <path d="M12 6v2m0 8v2"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* 7. Other Services Revenue */}
+            <div className="ui-dash-card" onClick={() => navigate('/settings')}>
+              <div className="card-top-row">
+                <span className="card-category-title">OTHER SERVICES REVENUE</span>
+              </div>
+              <div className="card-val-row">
+                <div className="card-main-val" style={{ color: '#0284c7' }}>{formatCurrency(stats?.otherServicesRevenue)}</div>
+              </div>
+              <div className="card-bottom-row">
+                <span className="card-link-action">View Catalog</span>
+                <div className="card-icon-badge" style={{ background: '#e0f2fe', color: '#0284c7' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* 8. Other Services Sales */}
+            <div className="ui-dash-card" onClick={() => navigate('/settings')}>
+              <div className="card-top-row">
+                <span className="card-category-title">OTHER SERVICES SALES</span>
+              </div>
+              <div className="card-val-row">
+                <div className="card-main-val" style={{ color: '#ea580c' }}>{stats?.otherServicesSalesCount || 0} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '700' }}>Sales</span></div>
+              </div>
+              <div className="card-bottom-row">
+                <span className="card-link-action">View Catalog</span>
+                <div className="card-icon-badge" style={{ background: '#ffedd5', color: '#ea580c' }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="9" cy="21" r="1"></circle>
+                    <circle cx="20" cy="21" r="1"></circle>
+                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3: Full Width Combined Client & Advance Bookings Card */}
+            <div className="ui-dash-card combined-status-card" style={{ gridColumn: 'span 4' }}>
               <div className="card-top-row" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '0.65rem', marginBottom: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ea580c' }}></div>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#dc2626' }}></div>
                   <span className="card-category-title" style={{ fontSize: '0.85rem', fontWeight: '800', color: '#0f172a', letterSpacing: '0.04em' }}>
                     CLIENT & ADVANCE BOOKINGS OVERVIEW
                   </span>
@@ -269,85 +349,6 @@ const DashboardPage = () => {
                     <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#e11d48', lineHeight: 1 }}>{stats?.inactivePt || 0}</div>
                     <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#be123c', textTransform: 'uppercase', marginTop: '0.35rem' }}>Inactive PT</div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 7. Other Services Revenue */}
-            <div className="ui-dash-card" onClick={() => navigate('/settings')}>
-              <div className="card-top-row">
-                <span className="card-category-title">OTHER SERVICES REVENUE</span>
-              </div>
-              <div className="card-val-row">
-                <div className="card-main-val" style={{ color: '#0284c7' }}>{formatCurrency(stats?.otherServicesRevenue)}</div>
-              </div>
-              <div className="card-bottom-row">
-                <span className="card-link-action">View Catalog</span>
-                <div className="card-icon-badge" style={{ background: '#e0f2fe', color: '#0284c7' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-                    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* 8. Other Services Sales */}
-            <div className="ui-dash-card" onClick={() => navigate('/settings')}>
-              <div className="card-top-row">
-                <span className="card-category-title">OTHER SERVICES SALES</span>
-              </div>
-              <div className="card-val-row">
-                <div className="card-main-val" style={{ color: '#ea580c' }}>{stats?.otherServicesSalesCount || 0} <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: '700' }}>Sales</span></div>
-              </div>
-              <div className="card-bottom-row">
-                <span className="card-link-action">View Catalog</span>
-                <div className="card-icon-badge" style={{ background: '#ffedd5', color: '#ea580c' }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="9" cy="21" r="1"></circle>
-                    <circle cx="20" cy="21" r="1"></circle>
-                    <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* 9. Supplements Revenue (Month) */}
-            <div className="ui-dash-card" onClick={() => navigate('/supplements/revenue')}>
-              <div className="card-top-row">
-                <span className="card-category-title">SUPPLEMENTS REVENUE</span>
-              </div>
-              <div className="card-val-row">
-                <div className="card-main-val card-val-purple">{formatCurrency(supplementsSummary?.monthRevenue)}</div>
-              </div>
-              <div className="card-bottom-row">
-                <span className="card-link-action">View Revenue</span>
-                <div className="card-icon-badge badge-purple">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
-                    <line x1="3" y1="6" x2="21" y2="6"></line>
-                    <path d="M16 10a4 4 0 0 1-8 0"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            {/* 10. Supplements Profit (Month) */}
-            <div className="ui-dash-card" onClick={() => navigate('/supplements/revenue')}>
-              <div className="card-top-row">
-                <span className="card-category-title">SUPPLEMENTS PROFIT</span>
-              </div>
-              <div className="card-val-row">
-                <div className="card-main-val card-val-purple">{formatCurrency(supplementsSummary?.monthProfit)}</div>
-              </div>
-              <div className="card-bottom-row">
-                <span className="card-link-action">View Profit</span>
-                <div className="card-icon-badge badge-purple">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"></path>
-                    <path d="M12 6v2m0 8v2"></path>
-                  </svg>
                 </div>
               </div>
             </div>

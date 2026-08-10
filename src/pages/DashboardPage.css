@@ -469,6 +469,7 @@
     gap: 0.85rem;
   }
   .combined-metrics-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 0.5rem; }
+  .ui-dash-card[style*="gridColumn: span 4"],
   .ui-dash-card[style*="gridColumn: span 2"] { grid-column: span 1 !important; }
 }
 
