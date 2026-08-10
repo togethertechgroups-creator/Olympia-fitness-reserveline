@@ -72,7 +72,16 @@ app.use(express.json({ limit: '50mb' }));
 let DB_PATH;
 const fs = require('fs');
 
-if (process.env.DB_PATH) {
+if (process.env.VERCEL) {
+  const tmpDbPath = path.join('/tmp', 'beast_fitness.db');
+  if (!fs.existsSync(tmpDbPath)) {
+    const srcDbPath = path.join(__dirname, 'beast_fitness.db');
+    if (fs.existsSync(srcDbPath)) {
+      try { fs.copyFileSync(srcDbPath, tmpDbPath); } catch (e) {}
+    }
+  }
+  DB_PATH = tmpDbPath;
+} else if (process.env.DB_PATH) {
   // Set explicitly by main.cjs (packaged mode)
   DB_PATH = process.env.DB_PATH;
 } else {
@@ -98,8 +107,10 @@ if (!fs.existsSync(dbDir)) {
 
 const db = new Database(DB_PATH);
 
-// Enable WAL mode for better performance
-db.pragma('journal_mode = WAL');
+// Enable WAL mode for better performance (if not serverless Vercel)
+if (!process.env.VERCEL) {
+  try { db.pragma('journal_mode = WAL'); } catch (e) {}
+}
 db.pragma('foreign_keys = ON');
 
 // ─── Schema Initialization ───────────────────────────────────────────────────
@@ -4601,13 +4612,17 @@ app.use((req, res) => {
 });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.log(`⚠️ Port ${PORT} is already in use. Assuming backend is already running.`);
-  } else {
-    console.error('❌ Server startup error:', err);
-  }
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`⚠️ Port ${PORT} is already in use. Assuming backend is already running.`);
+    } else {
+      console.error('❌ Server startup error:', err);
+    }
+  });
+}
+
+module.exports = app;
 
