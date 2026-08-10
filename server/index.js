@@ -80,7 +80,7 @@ app.use((req, res, next) => {
 const db = require('./db.js');
 
 // ─── Schema Initialization ───────────────────────────────────────────────────
-db.exec(`
+await db.exec(`
   CREATE TABLE IF NOT EXISTS clients (
     id          TEXT PRIMARY KEY,
     clientId    TEXT,
@@ -334,7 +334,7 @@ db.exec(`
 `);
 
 try {
-  db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
+  await db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
 } catch (e) { }
 
 // ─── Initialize Settings if empty ───────────────────────────────────────────
@@ -349,7 +349,7 @@ const initialSettings = [
 ];
 
 initialSettings.forEach(setting => {
-  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
+  await db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
 });
 
 // ─── Initialize Users if empty ──────────────────────────────────────────────
@@ -359,9 +359,9 @@ const initialUsers = [
 ];
 
 initialUsers.forEach(user => {
-  const existing = db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
+  const existing = await db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
   if (!existing) {
-    db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
+    await db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
       user.id, user.username, user.password, user.role
     );
   }
@@ -369,7 +369,7 @@ initialUsers.forEach(user => {
 
 // ─── Initialize Default Other Services Tariffs if empty ────────────────────
 try {
-  const serviceCount = db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
+  const serviceCount = await db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
   if (serviceCount === 0) {
     const defaultOtherServices = [
       { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
@@ -379,7 +379,7 @@ try {
       { name: 'Guest Day Pass', price: 200, duration_days: 1 }
     ];
 
-    const insertStmt = db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
+    const insertStmt = await db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
     defaultOtherServices.forEach(s => {
       insertStmt.run(s.name, s.price, s.duration_days);
     });
@@ -409,25 +409,25 @@ try {
 
   columns.forEach(col => {
     try {
-      db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
+      await db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
       console.log(`✅ Added column ${col.name} to clients table`);
     } catch (e) {
       // Column might already exist
     }
   });
 
-  try { db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
+  try { await db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
+  try { await db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
 
   try {
     const InquiryCols = [
@@ -453,7 +453,7 @@ try {
     ];
     InquiryCols.forEach(col => {
       try {
-        db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
+        await db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
       } catch (e) { }
     });
   } catch (err) { }
@@ -464,24 +464,24 @@ try {
   // ─── PT Module Migrations & Tables ──────────────────────────────────────────
   try {
     try {
-      db.prepare("ALTER TABLE trainers ADD COLUMN grade TEXT CHECK(grade IN ('A_PRO_PT','A','B'))").run();
+      await db.prepare("ALTER TABLE trainers ADD COLUMN grade TEXT CHECK(grade IN ('A_PRO_PT','A','B'))").run();
       console.log('✅ Added grade column to trainers table');
     } catch (e) { }
 
     try {
-      db.prepare("ALTER TABLE trainers ADD COLUMN custom_commission_percent REAL NULLABLE").run();
+      await db.prepare("ALTER TABLE trainers ADD COLUMN custom_commission_percent REAL NULLABLE").run();
       console.log('✅ Added custom_commission_percent column to trainers table');
     } catch (e) { }
 
     // Migrate pt_packages table if category check constraint exists or restricts 'Challenge'
     try {
-      const pkgSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_packages'").get()?.sql || '';
+      const pkgSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_packages'").get()?.sql || '';
       if (pkgSql && (pkgSql.includes('CHECK(category IN') || pkgSql.includes('CHECK (category IN'))) {
         console.log('Migrating pt_packages table to remove category CHECK constraint...');
-        const cols = db.prepare("PRAGMA table_info(pt_packages)").all().map(c => c.name);
+        const cols = await db.prepare("PRAGMA table_info(pt_packages)").all().map(c => c.name);
         const colList = cols.join(', ');
 
-        db.exec(`
+        await db.exec(`
           CREATE TABLE pt_packages_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -505,7 +505,7 @@ try {
       console.error('pt_packages migration error:', e);
     }
 
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS pt_packages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -521,14 +521,14 @@ try {
     `);
 
     try {
-      db.prepare("ALTER TABLE pt_packages ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 30").run();
+      await db.prepare("ALTER TABLE pt_packages ADD COLUMN duration_days INTEGER NOT NULL DEFAULT 30").run();
     } catch (e) { }
 
     // Migrate pt_assignments status check constraint to include 'Expired'
     try {
-      const assignSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_assignments'").get()?.sql || '';
+      const assignSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_assignments'").get()?.sql || '';
       if (assignSql && !assignSql.includes('Expired')) {
-        db.exec(`
+        await db.exec(`
           CREATE TABLE pt_assignments_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id TEXT NOT NULL REFERENCES clients(id),
@@ -550,7 +550,7 @@ try {
       }
     } catch (e) { }
 
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS pt_assignments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id TEXT NOT NULL REFERENCES clients(id),
@@ -567,15 +567,15 @@ try {
     `);
 
     try {
-      db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
+      await db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
     } catch (e) { }
 
     try {
-      db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
+      await db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
       console.log('✅ Added invoice_id column to pt_assignments table');
     } catch (e) { }
 
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS general_package_bookings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         client_id TEXT NOT NULL REFERENCES clients(id),
@@ -602,9 +602,9 @@ try {
 
     // Migrate pt_class_log to include session_slot with composite UNIQUE(pt_assignment_id, class_date, session_slot)
     try {
-      const logSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_class_log'").get()?.sql || '';
+      const logSql = await db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_class_log'").get()?.sql || '';
       if (logSql && !logSql.includes('session_slot')) {
-        db.exec(`
+        await db.exec(`
           CREATE TABLE pt_class_log_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pt_assignment_id INTEGER NOT NULL REFERENCES pt_assignments(id),
@@ -626,7 +626,7 @@ try {
       }
     } catch (e) { }
 
-    db.exec(`
+    await db.exec(`
       CREATE TABLE IF NOT EXISTS pt_class_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         pt_assignment_id INTEGER NOT NULL REFERENCES pt_assignments(id),
@@ -684,11 +684,11 @@ try {
       { name: 'other_label', type: 'TEXT' }
     ];
     adjCols.forEach(col => {
-      try { db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
+      try { await db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
     });
 
     // Seed catalog pt_packages if empty
-    const existingPkgCount = db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;
+    const existingPkgCount = await db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;
     if (existingPkgCount === 0) {
       const seedPackages = [
         { name: 'A Pro PT — Standard', price: 9000, total_classes: 16, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT']) },
@@ -700,7 +700,7 @@ try {
         { name: 'Kid PT (Age 5–10)', price: 2000, total_classes: 16, category: 'Kid', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT', 'A', 'B']) }
       ];
 
-      const stmt = db.prepare(`
+      const stmt = await db.prepare(`
         INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
         VALUES (?, ?, ?, ?, ?, ?, 0, 1)
       `);
@@ -709,9 +709,9 @@ try {
     }
 
     // Ensure "100 Days Challenge" package exists in catalog
-    const challengePkg = db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
+    const challengePkg = await db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
     if (!challengePkg) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
         VALUES ('100 Days Challenge', 15000, 30, 'Challenge', 100, ?, 0, 1)
       `).run(JSON.stringify(['A_PRO_PT', 'A', 'B']));
@@ -728,7 +728,7 @@ try {
   const autoExpireAssignments = () => {
     try {
       const today = new Date().toISOString().split('T')[0];
-      const result = db.prepare(`
+      const result = await db.prepare(`
         UPDATE pt_assignments
         SET status = 'Expired'
         WHERE status = 'Active' AND expiry_date IS NOT NULL AND date(expiry_date) < date(?)
@@ -743,10 +743,10 @@ try {
 
   const generatePtInvoice = (clientId, packageName, priceSnapshot, assignedDate, expiryDate) => {
     try {
-      const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+      const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
       if (!client) return null;
 
-      const billRow = db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+      const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
       let nextBillNo = 'INV-0001';
       if (billRow && billRow.billNo) {
         const match = billRow.billNo.match(/INV-(\d{4})/);
@@ -758,7 +758,7 @@ try {
       const billId = randomUUID();
       const invoiceDateStr = toDateLabel();
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -781,7 +781,7 @@ try {
       const currentDue = client.dueAmount || 0;
       const newDue = currentDue + priceSnapshot;
       const newPaymentStatus = newDue <= 0 ? 'Paid' : 'Due';
-      db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, newPaymentStatus, clientId);
+      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, newPaymentStatus, clientId);
 
       return { billId, billNo: nextBillNo };
     } catch (err) {
@@ -795,7 +795,7 @@ try {
       const today = new Date().toISOString().split('T')[0];
 
       // 1. General Package Advance Bookings Auto-Activation
-      const scheduledGenBookings = db.prepare(`
+      const scheduledGenBookings = await db.prepare(`
         SELECT b.*, c.expiryDate as currentExpiry
         FROM general_package_bookings b
         JOIN clients c ON b.client_id = c.id
@@ -805,32 +805,32 @@ try {
       scheduledGenBookings.forEach(b => {
         const isCurrentExpired = !b.currentExpiry || b.currentExpiry < today;
         if (isCurrentExpired) {
-          db.prepare(`
+          await db.prepare(`
             UPDATE clients 
             SET plan = ?, fromDate = ?, expiryDate = ?, amount = ?, status = 'active'
             WHERE id = ?
           `).run(b.plan_type, b.booking_start_date, b.booking_end_date, b.price, b.client_id);
 
-          db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
+          await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
           console.log(`✅ [Cron] Auto-activated General Package Booking #${b.id} for Client ${b.client_id}`);
         }
       });
 
       // 2. PT Advance Bookings Flagging to ReadyToActivate
-      const scheduledPtBookings = db.prepare(`
+      const scheduledPtBookings = await db.prepare(`
         SELECT b.*
         FROM pt_advance_bookings b
         WHERE b.status = 'Scheduled' AND date(b.booking_start_date) <= date(?)
       `).all(today);
 
       scheduledPtBookings.forEach(b => {
-        const activeAssignment = db.prepare(`
+        const activeAssignment = await db.prepare(`
           SELECT id FROM pt_assignments
           WHERE client_id = ? AND status = 'Active' AND date(expiry_date) >= date(?)
         `).get(b.client_id, today);
 
         if (!activeAssignment) {
-          db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
+          await db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
           console.log(`⏰ [Cron] PT Advance Booking #${b.id} marked as ReadyToActivate`);
         }
       });
@@ -840,8 +840,10 @@ try {
   };
 
   // Run on startup
+  if (!db.isTurso) {
   autoExpireAssignments();
   autoActivateAdvanceBookings();
+}
 
   const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
     const baseStr = assignedDateStr || new Date().toISOString().split('T')[0];
@@ -865,7 +867,7 @@ try {
   };
 
   const getTrainerMonthlyPtBaseRevenue = (trainerId, yearMonthStr) => {
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT SUM(a.package_price_snapshot / a.total_classes_snapshot) as baseRevenue
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
@@ -892,17 +894,17 @@ try {
     const totalRevenue = getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
     const currentSlab = getSlabForRevenue(totalRevenue);
     
-    const trainer = db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
+    const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
     if (!trainer) return currentSlab;
 
-    const logs = db.prepare(`
+    const logs = await db.prepare(`
       SELECT l.id, a.package_price_snapshot, a.total_classes_snapshot
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
       WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
     `).all(trainerId, yearMonthStr);
 
-    const updateStmt = db.prepare(`
+    const updateStmt = await db.prepare(`
       UPDATE pt_class_log
       SET per_class_rate_snapshot = ?, slab_applied = ?
       WHERE id = ?
@@ -941,27 +943,27 @@ const computeGstBreakdown = (price, ratePercent = 4.8) => {
 
 // ─── ATTENDANCE Routes ───────────────────────────────────────────────────────
 
-app.get('/api/attendance', (req, res) => {
+app.get('/api/attendance', async (req, res) => {
   try {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: 'Date is required' });
-    const records = db.prepare('SELECT * FROM attendance WHERE date = ?').all(date);
+    const records = await db.prepare('SELECT * FROM attendance WHERE date = ?').all(date);
     res.json(records);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/attendance', (req, res) => {
+app.post('/api/attendance', async (req, res) => {
   try {
     const { clientId, date, status } = req.body;
     if (!clientId || !date || !status) return res.status(400).json({ error: 'Missing parameters' });
 
     if (status === 'Absent') {
-      db.prepare('DELETE FROM attendance WHERE clientId = ? AND date = ?').run(clientId, date);
+      await db.prepare('DELETE FROM attendance WHERE clientId = ? AND date = ?').run(clientId, date);
     } else {
       const id = randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO attendance (id, clientId, date, status)
         VALUES (?, ?, ?, ?)
         ON CONFLICT(clientId, date) DO UPDATE SET status = excluded.status
@@ -975,13 +977,13 @@ app.post('/api/attendance', (req, res) => {
 });
 
 // GET /api/attendance/monthly?clientId=xxx&year=2026&month=05
-app.get('/api/attendance/monthly', (req, res) => {
+app.get('/api/attendance/monthly', async (req, res) => {
   try {
     const { clientId, year, month } = req.query;
     if (!clientId || !year || !month) return res.status(400).json({ error: 'clientId, year, month required' });
 
     const prefix = `${year}-${month.padStart(2, '0')}`;
-    const records = db.prepare(
+    const records = await db.prepare(
       "SELECT * FROM attendance WHERE clientId = ? AND date LIKE ?"
     ).all(clientId, `${prefix}%`);
 
@@ -998,9 +1000,9 @@ app.get('/api/attendance/monthly', (req, res) => {
 });
 
 // GET bills for a specific client
-app.get('/api/bills/client/:clientId', (req, res) => {
+app.get('/api/bills/client/:clientId', async (req, res) => {
   try {
-    const bills = db.prepare('SELECT * FROM bills WHERE clientId = ? ORDER BY timestamp DESC').all(req.params.clientId);
+    const bills = await db.prepare('SELECT * FROM bills WHERE clientId = ? ORDER BY timestamp DESC').all(req.params.clientId);
     res.json(bills);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1011,9 +1013,9 @@ app.get('/api/bills/client/:clientId', (req, res) => {
 // ─── CLIENT Routes ───────────────────────────────────────────────────────────
 
 // GET all clients
-app.get('/api/clients', (req, res) => {
+app.get('/api/clients', async (req, res) => {
   try {
-    const clients = db.prepare(`
+    const clients = await db.prepare(`
       SELECT c.*, t.name as trainerName 
       FROM clients c 
       LEFT JOIN trainers t ON c.trainerId = t.id 
@@ -1026,19 +1028,19 @@ app.get('/api/clients', (req, res) => {
 });
 
 // GET next client ID for auto-generation
-app.get('/api/clients/check-id/:clientId', (req, res) => {
+app.get('/api/clients/check-id/:clientId', async (req, res) => {
   try {
     const { clientId } = req.params;
-    const existing = db.prepare('SELECT id FROM clients WHERE clientId = ?').get(clientId);
+    const existing = await db.prepare('SELECT id FROM clients WHERE clientId = ?').get(clientId);
     res.json({ exists: !!existing });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/clients/next-id', (req, res) => {
+app.get('/api/clients/next-id', async (req, res) => {
   try {
-    const row = db.prepare("SELECT clientId FROM clients WHERE clientId LIKE 'GYM2026%' ORDER BY clientId DESC LIMIT 1").get();
+    const row = await db.prepare("SELECT clientId FROM clients WHERE clientId LIKE 'GYM2026%' ORDER BY clientId DESC LIMIT 1").get();
     let nextId = 'GYM20260001';
 
     if (row && row.clientId) {
@@ -1056,9 +1058,9 @@ app.get('/api/clients/next-id', (req, res) => {
 });
 
 // GET single client
-app.get('/api/clients/:id', (req, res) => {
+app.get('/api/clients/:id', async (req, res) => {
   try {
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
     if (!client) return res.status(404).json({ message: 'Client not found' });
     res.json({ ...client, personalTraining: !!client.personalTraining });
   } catch (err) {
@@ -1067,7 +1069,7 @@ app.get('/api/clients/:id', (req, res) => {
 });
 
 // POST create client
-app.post('/api/clients', (req, res) => {
+app.post('/api/clients', async (req, res) => {
   try {
     const {
       clientId, name, phone, plan, fromDate, expiryDate,
@@ -1084,7 +1086,7 @@ app.post('/api/clients', (req, res) => {
 
     // Check for unique clientId
     if (clientId) {
-      const existing = db.prepare('SELECT id FROM clients WHERE clientId = ?').get(clientId);
+      const existing = await db.prepare('SELECT id FROM clients WHERE clientId = ?').get(clientId);
       if (existing) {
         return res.status(400).json({ error: 'This Client ID is already in use.' });
       }
@@ -1095,7 +1097,7 @@ app.post('/api/clients', (req, res) => {
     const dueAmount = amount - finalPaidAmount;
     const paymentStatus = dueAmount <= 0 ? 'Paid' : (finalPaidAmount > 0 ? 'Partial' : 'Due');
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO clients (
         id, clientId, name, phone, plan, fromDate, expiryDate, amount, 
         personalTraining, status, gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet, trainerId, admissionDate, profileImage,
@@ -1111,7 +1113,7 @@ app.post('/api/clients', (req, res) => {
     );
 
     // Generate Bill No
-    const billRow = db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
     let nextBillNo = 'INV-0001';
     if (billRow && billRow.billNo) {
       const match = billRow.billNo.match(/INV-(\d{4})/);
@@ -1120,11 +1122,11 @@ app.post('/api/clients', (req, res) => {
       }
     }
 
-    const gstSettings = db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
+    const gstSettings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
     const gstCalc = computeGstBreakdown(amount, gstSettings.gst_rate_percent || 4.8);
 
     const billId = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, invoice_category, taxable_value, cgst_amount, sgst_amount, gst_rate_snapshot, client_gstin_snapshot)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GeneralPlan', ?, ?, ?, ?, ?)
     `).run(billId, nextBillNo, id, name, toDateLabel(), fromDate || '', expiryDate || '', amount, finalPaidAmount, dueAmount, paymentStatus, 0, amount, dueAmount, gstCalc.taxable_value, gstCalc.cgst_amount, gstCalc.sgst_amount, gstCalc.gst_rate_snapshot, gstinVal);
@@ -1132,13 +1134,13 @@ app.post('/api/clients', (req, res) => {
     // Create a transaction record if some amount is paid
     if (finalPaidAmount > 0) {
       const txId = randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(txId, id, billId, name, paymentMethod, finalPaidAmount, toDateLabel());
     }
 
-    const newClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
+    const newClient = await db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
     res.status(201).json({ ...newClient, personalTraining: !!newClient.personalTraining, billNo: nextBillNo });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1146,12 +1148,12 @@ app.post('/api/clients', (req, res) => {
 });
 
 // POST add payment to client bill
-app.post('/api/clients/:id/payment', (req, res) => {
+app.post('/api/clients/:id/payment', async (req, res) => {
   try {
     const clientId = req.params.id;
     const { paidAmount, paymentDate, paymentMethod } = req.body;
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
     if (!client) return res.status(404).json({ error: 'Client not found' });
 
     const amountToPay = parseFloat(paidAmount);
@@ -1162,12 +1164,12 @@ app.post('/api/clients/:id/payment', (req, res) => {
     const newStatus = newDueAmount <= 0 ? 'Paid' : 'Partial';
 
     // Update client
-    db.prepare(`
+    await db.prepare(`
       UPDATE clients SET paidAmount = ?, dueAmount = ?, paymentStatus = ? WHERE id = ?
     `).run(newPaidAmount, newDueAmount, newStatus, clientId);
 
     // Generate Bill No
-    const billRow = db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
     let nextBillNo = 'INV-0001';
     if (billRow && billRow.billNo) {
       const match = billRow.billNo.match(/INV-(\d{4})/);
@@ -1178,11 +1180,11 @@ app.post('/api/clients/:id/payment', (req, res) => {
     const billId = randomUUID();
 
     // Count existing bills for this client to assign due sequence number
-    const existingBillCount = db.prepare('SELECT COUNT(*) as cnt FROM bills WHERE clientId = ?').get(clientId).cnt;
+    const existingBillCount = await db.prepare('SELECT COUNT(*) as cnt FROM bills WHERE clientId = ?').get(clientId).cnt;
     const dueNumber = existingBillCount; // 1st due payment = Due 1, 2nd = Due 2, etc.
 
     // Create a new invoice for this payment
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -1204,13 +1206,13 @@ app.post('/api/clients/:id/payment', (req, res) => {
 
     // Add transaction
     const txId = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(txId, clientId, billId, client.name, paymentMethod || 'CASH', amountToPay, paymentDate || toDateLabel());
 
     // Return the new bill so frontend can open invoice preview immediately
-    const newBill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
+    const newBill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(billId);
     res.json({ success: true, message: 'Payment updated successfully', bill: newBill });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1218,9 +1220,9 @@ app.post('/api/clients/:id/payment', (req, res) => {
 });
 
 // GET all bills
-app.get('/api/bills', (req, res) => {
+app.get('/api/bills', async (req, res) => {
   try {
-    const bills = db.prepare('SELECT * FROM bills ORDER BY timestamp DESC').all();
+    const bills = await db.prepare('SELECT * FROM bills ORDER BY timestamp DESC').all();
     res.json(bills);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1228,9 +1230,9 @@ app.get('/api/bills', (req, res) => {
 });
 
 // PUT update client
-app.put('/api/clients/:id', (req, res) => {
+app.put('/api/clients/:id', async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
     if (!existing) return res.status(404).json({ message: 'Client not found' });
 
     const {
@@ -1242,13 +1244,13 @@ app.put('/api/clients/:id', (req, res) => {
 
     // Check for unique clientId
     if (clientId && clientId !== existing.clientId) {
-      const conflict = db.prepare('SELECT id FROM clients WHERE clientId = ? AND id != ?').get(clientId, req.params.id);
+      const conflict = await db.prepare('SELECT id FROM clients WHERE clientId = ? AND id != ?').get(clientId, req.params.id);
       if (conflict) {
         return res.status(400).json({ error: 'This Client ID is already in use.' });
       }
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE clients SET
         clientId = COALESCE(?, clientId),
         name = COALESCE(?, name),
@@ -1281,7 +1283,7 @@ app.put('/api/clients/:id', (req, res) => {
       req.params.id
     );
 
-    const updated = db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
     res.json({ ...updated, personalTraining: !!updated.personalTraining });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1289,9 +1291,9 @@ app.put('/api/clients/:id', (req, res) => {
 });
 
 // DELETE client
-app.delete('/api/clients/:id', (req, res) => {
+app.delete('/api/clients/:id', async (req, res) => {
   try {
-    const result = db.prepare('DELETE FROM clients WHERE id = ?').run(req.params.id);
+    const result = await db.prepare('DELETE FROM clients WHERE id = ?').run(req.params.id);
     if (result.changes === 0) return res.status(404).json({ message: 'Client not found' });
     res.json({ message: 'Client deleted' });
   } catch (err) {
@@ -1302,15 +1304,15 @@ app.delete('/api/clients/:id', (req, res) => {
 // ─── TRAINER Routes ──────────────────────────────────────────────────────────
 
 // GET all trainers
-app.get('/api/trainers', (req, res) => {
+app.get('/api/trainers', async (req, res) => {
   try {
-    const trainers = db.prepare(`SELECT * FROM trainers ORDER BY dateAdded DESC`).all();
+    const trainers = await db.prepare(`SELECT * FROM trainers ORDER BY dateAdded DESC`).all();
 
     const now = new Date();
     const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     const trainersWithStats = trainers.map(tr => {
-      const clientCountRow = db.prepare(`
+      const clientCountRow = await db.prepare(`
         SELECT COUNT(DISTINCT client_id) as totalClients FROM (
           SELECT id as client_id FROM clients WHERE trainerId = ?
           UNION
@@ -1337,9 +1339,9 @@ app.get('/api/trainers', (req, res) => {
 });
 
 // GET next trainer ID
-app.get('/api/trainers/next-id', (req, res) => {
+app.get('/api/trainers/next-id', async (req, res) => {
   try {
-    const row = db.prepare("SELECT trainerId FROM trainers ORDER BY trainerId DESC LIMIT 1").get();
+    const row = await db.prepare("SELECT trainerId FROM trainers ORDER BY trainerId DESC LIMIT 1").get();
     let nextId = 'TRN001';
 
     if (row && row.trainerId) {
@@ -1357,7 +1359,7 @@ app.get('/api/trainers/next-id', (req, res) => {
 });
 
 // POST create trainer
-app.post('/api/trainers', (req, res) => {
+app.post('/api/trainers', async (req, res) => {
   try {
     const { trainerId, name, specialization, experience, status = 'Active', grade, custom_commission_percent } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
@@ -1368,12 +1370,12 @@ app.post('/api/trainers', (req, res) => {
       : null;
 
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO trainers (id, trainerId, name, specialization, experience, status, grade, custom_commission_percent)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, trainerId, name, specialization, experience, status, grade, commOverride);
 
-    const newTrainer = db.prepare('SELECT * FROM trainers WHERE id = ?').get(id);
+    const newTrainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(id);
     res.status(201).json(newTrainer);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1381,7 +1383,7 @@ app.post('/api/trainers', (req, res) => {
 });
 
 // PUT update trainer
-app.put('/api/trainers/:id', (req, res) => {
+app.put('/api/trainers/:id', async (req, res) => {
   try {
     const { trainerId, name, specialization, experience, status, grade, custom_commission_percent } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
@@ -1391,13 +1393,13 @@ app.put('/api/trainers/:id', (req, res) => {
       ? parseFloat(custom_commission_percent)
       : null;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE trainers SET
         trainerId = ?, name = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?
       WHERE id = ?
     `).run(trainerId, name, specialization, experience, status, grade, commOverride, req.params.id);
 
-    const updated = db.prepare('SELECT * FROM trainers WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(req.params.id);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1405,9 +1407,9 @@ app.put('/api/trainers/:id', (req, res) => {
 });
 
 // DELETE trainer
-app.delete('/api/trainers/:id', (req, res) => {
+app.delete('/api/trainers/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM trainers WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM trainers WHERE id = ?').run(req.params.id);
     res.json({ message: 'Trainer deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1415,16 +1417,16 @@ app.delete('/api/trainers/:id', (req, res) => {
 });
 
 // ─── PT PACKAGES Routes ──────────────────────────────────────────────────────
-app.get('/api/pt-packages', (req, res) => {
+app.get('/api/pt-packages', async (req, res) => {
   try {
-    const pkgs = db.prepare('SELECT * FROM pt_packages ORDER BY is_custom ASC, id ASC').all();
+    const pkgs = await db.prepare('SELECT * FROM pt_packages ORDER BY is_custom ASC, id ASC').all();
     res.json(pkgs.map(p => ({ ...p, eligible_grades: JSON.parse(p.eligible_grades || '[]'), active: !!p.active, is_custom: !!p.is_custom })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/pt-packages', (req, res) => {
+app.post('/api/pt-packages', async (req, res) => {
   try {
     const { name, price, total_classes, category, eligible_grades, duration_days = 30, active = 1 } = req.body;
     if (!name || price === undefined || !total_classes || !category || !eligible_grades) {
@@ -1433,50 +1435,50 @@ app.post('/api/pt-packages', (req, res) => {
     const gradesStr = Array.isArray(eligible_grades) ? JSON.stringify(eligible_grades) : eligible_grades;
     const durDays = parseInt(duration_days, 10) || 30;
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
       VALUES (?, ?, ?, ?, ?, ?, 0, ?)
     `).run(name, parseFloat(price), parseInt(total_classes, 10), category, durDays, gradesStr, active ? 1 : 0);
 
-    const newPkg = db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(result.lastInsertRowid);
+    const newPkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json({ ...newPkg, eligible_grades: JSON.parse(newPkg.eligible_grades || '[]'), active: !!newPkg.active, is_custom: !!newPkg.is_custom });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/pt-packages/:id', (req, res) => {
+app.put('/api/pt-packages/:id', async (req, res) => {
   try {
     const { name, price, total_classes, category, eligible_grades, duration_days = 30, active } = req.body;
     const gradesStr = Array.isArray(eligible_grades) ? JSON.stringify(eligible_grades) : eligible_grades;
     const durDays = parseInt(duration_days, 10) || 30;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE pt_packages SET
         name = ?, price = ?, total_classes = ?, category = ?, duration_days = ?, eligible_grades = ?, active = ?
       WHERE id = ?
     `).run(name, parseFloat(price), parseInt(total_classes, 10), category, durDays, gradesStr, active ? 1 : 0, req.params.id);
 
-    const updated = db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(req.params.id);
     res.json({ ...updated, eligible_grades: JSON.parse(updated.eligible_grades || '[]'), active: !!updated.active, is_custom: !!updated.is_custom });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.patch('/api/pt-packages/:id/active', (req, res) => {
+app.patch('/api/pt-packages/:id/active', async (req, res) => {
   try {
     const { active } = req.body;
-    db.prepare('UPDATE pt_packages SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
+    await db.prepare('UPDATE pt_packages SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
     res.json({ success: true, active: !!active });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/pt-packages/:id', (req, res) => {
+app.delete('/api/pt-packages/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM pt_packages WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM pt_packages WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'PT Package deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1484,7 +1486,7 @@ app.delete('/api/pt-packages/:id', (req, res) => {
 });
 
 // ─── PT ASSIGNMENTS Routes ───────────────────────────────────────────────────
-app.get('/api/pt-assignments', (req, res) => {
+app.get('/api/pt-assignments', async (req, res) => {
   try {
     autoExpireAssignments();
     const { client_id, trainer_id, status } = req.query;
@@ -1505,17 +1507,17 @@ app.get('/api/pt-assignments', (req, res) => {
     if (status) { query += ' AND a.status = ?'; params.push(status); }
 
     query += ' ORDER BY a.created_at DESC';
-    const assignments = db.prepare(query).all(...params);
+    const assignments = await db.prepare(query).all(...params);
     res.json(assignments);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/clients/:clientId/pt-assignments', (req, res) => {
+app.get('/api/clients/:clientId/pt-assignments', async (req, res) => {
   try {
     autoExpireAssignments();
-    const assignments = db.prepare(`
+    const assignments = await db.prepare(`
       SELECT a.*, 
              t.name as trainerName, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days
@@ -1531,7 +1533,7 @@ app.get('/api/clients/:clientId/pt-assignments', (req, res) => {
   }
 });
 
-app.post('/api/pt-assignments', (req, res) => {
+app.post('/api/pt-assignments', async (req, res) => {
   try {
     const { client_id, trainer_id, pt_package_id, custom_package, assigned_date } = req.body;
 
@@ -1540,7 +1542,7 @@ app.post('/api/pt-assignments', (req, res) => {
     }
 
     const today = new Date().toISOString().split('T')[0];
-    const existingActive = db.prepare(`
+    const existingActive = await db.prepare(`
       SELECT * FROM pt_assignments
       WHERE client_id = ? AND status = 'Active' AND date(expiry_date) >= date(?)
       ORDER BY date(expiry_date) DESC LIMIT 1
@@ -1553,7 +1555,7 @@ app.post('/api/pt-assignments', (req, res) => {
       });
     }
 
-    const trainer = db.prepare('SELECT * FROM trainers WHERE id = ?').get(trainer_id);
+    const trainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(trainer_id);
     if (!trainer) return res.status(404).json({ error: 'Trainer not found.' });
     if (!trainer.grade) {
       return res.status(400).json({ error: 'Selected trainer does not have an assigned Grade. Please set trainer grade first.' });
@@ -1573,7 +1575,7 @@ app.post('/api/pt-assignments', (req, res) => {
       pkgName = name;
       const gradeToStore = eligible_grade || trainer.grade;
       const durDays = parseInt(duration_days, 10) || 30;
-      const result = db.prepare(`
+      const result = await db.prepare(`
         INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
         VALUES (?, ?, ?, ?, ?, ?, 1, 1)
       `).run(name, parseFloat(price), parseInt(total_classes, 10), category, durDays, JSON.stringify([gradeToStore]));
@@ -1582,7 +1584,7 @@ app.post('/api/pt-assignments', (req, res) => {
       totalClassesSnapshot = parseInt(total_classes, 10);
       packageDurationDays = durDays;
     } else {
-      const pkg = db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
+      const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
       if (!pkg) return res.status(404).json({ error: 'PT Package not found.' });
       pkgName = pkg.name;
       priceSnapshot = pkg.price;
@@ -1597,13 +1599,13 @@ app.post('/api/pt-assignments', (req, res) => {
     const invoiceObj = generatePtInvoice(client_id, pkgName, priceSnapshot, assignDate, expiryDate);
     const invoiceId = invoiceObj ? invoiceObj.billId : null;
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO pt_assignments (
         client_id, pt_package_id, trainer_id, package_price_snapshot, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
       ) VALUES (?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
     `).run(client_id, finalPackageId, trainer_id, priceSnapshot, totalClassesSnapshot, assignDate, expiryDate, invoiceId);
 
-    const newAssignment = db.prepare(`
+    const newAssignment = await db.prepare(`
       SELECT a.*, c.name as clientName, t.name as trainerName, p.name as packageName, p.duration_days
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id
@@ -1619,9 +1621,9 @@ app.post('/api/pt-assignments', (req, res) => {
 });
 
 // ─── GENERAL PACKAGE ADVANCE BOOKING Routes ─────────────────────────
-app.get('/api/general-bookings', (req, res) => {
+app.get('/api/general-bookings', async (req, res) => {
   try {
-    const bookings = db.prepare(`
+    const bookings = await db.prepare(`
       SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.expiryDate as currentPlanExpiry
       FROM general_package_bookings b
       JOIN clients c ON b.client_id = c.id
@@ -1633,7 +1635,7 @@ app.get('/api/general-bookings', (req, res) => {
   }
 });
 
-app.post('/api/general-bookings', (req, res) => {
+app.post('/api/general-bookings', async (req, res) => {
   try {
     const { client_id, plan_type, price, booking_start_date, booking_end_date } = req.body;
 
@@ -1641,7 +1643,7 @@ app.post('/api/general-bookings', (req, res) => {
       return res.status(400).json({ error: 'Client, plan type, price, and start date are required.' });
     }
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(client_id);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(client_id);
     if (!client) return res.status(404).json({ error: 'Client not found.' });
 
     const today = new Date().toISOString().split('T')[0];
@@ -1655,7 +1657,7 @@ app.post('/api/general-bookings', (req, res) => {
 
     let endDate = booking_end_date;
     if (!endDate) {
-      const settings = db.prepare('SELECT * FROM settings').all();
+      const settings = await db.prepare('SELECT * FROM settings').all();
       const settingsObj = settings.reduce((acc, s) => { acc[s.key] = s.value; return acc; }, {});
       const customDuration = settingsObj[`${plan_type}_duration`];
       let days = customDuration ? parseInt(customDuration, 10) : 30;
@@ -1669,12 +1671,12 @@ app.post('/api/general-bookings', (req, res) => {
       endDate = calculateExpiryDate(booking_start_date, days);
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO general_package_bookings (client_id, plan_type, price, booking_start_date, booking_end_date, status)
       VALUES (?, ?, ?, ?, ?, 'Scheduled')
     `).run(client_id, plan_type, parseFloat(price), booking_start_date, endDate);
 
-    const newBooking = db.prepare(`
+    const newBooking = await db.prepare(`
       SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode
       FROM general_package_bookings b
       JOIN clients c ON b.client_id = c.id
@@ -1687,17 +1689,17 @@ app.post('/api/general-bookings', (req, res) => {
   }
 });
 
-app.patch('/api/general-bookings/:id/cancel', (req, res) => {
+app.patch('/api/general-bookings/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
-    const booking = db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
+    const booking = await db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
     if (!booking) return res.status(404).json({ error: 'Booking not found.' });
 
     if (booking.status !== 'Scheduled') {
       return res.status(400).json({ error: `Cannot cancel a booking with status '${booking.status}'.` });
     }
 
-    db.prepare("UPDATE general_package_bookings SET status = 'Cancelled' WHERE id = ?").run(id);
+    await db.prepare("UPDATE general_package_bookings SET status = 'Cancelled' WHERE id = ?").run(id);
     res.json({ success: true, message: 'General package advance booking cancelled.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1705,9 +1707,9 @@ app.patch('/api/general-bookings/:id/cancel', (req, res) => {
 });
 
 // ─── PT ADVANCE BOOKING Routes ──────────────────────────────────────
-app.get('/api/pt-advance-bookings', (req, res) => {
+app.get('/api/pt-advance-bookings', async (req, res) => {
   try {
-    const bookings = db.prepare(`
+    const bookings = await db.prepare(`
       SELECT b.*,
              c.name as clientName, c.phone as clientPhone, c.clientId as clientCode,
              t.name as trainerName, t.grade as trainerGrade,
@@ -1724,7 +1726,7 @@ app.get('/api/pt-advance-bookings', (req, res) => {
   }
 });
 
-app.post('/api/pt-advance-bookings', (req, res) => {
+app.post('/api/pt-advance-bookings', async (req, res) => {
   try {
     const { client_id, pt_package_id, trainer_id, booking_start_date } = req.body;
 
@@ -1732,10 +1734,10 @@ app.post('/api/pt-advance-bookings', (req, res) => {
       return res.status(400).json({ error: 'Client, PT Package, Trainer, and Start Date are required.' });
     }
 
-    const pkg = db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
+    const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
     if (!pkg) return res.status(404).json({ error: 'PT Package not found.' });
 
-    const latestPt = db.prepare(`
+    const latestPt = await db.prepare(`
       SELECT * FROM pt_assignments
       WHERE client_id = ? AND (status = 'Active' OR date(expiry_date) >= date('now'))
       ORDER BY date(expiry_date) DESC LIMIT 1
@@ -1754,12 +1756,12 @@ app.post('/api/pt-advance-bookings', (req, res) => {
       ? 'ReadyToActivate'
       : 'Scheduled';
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO pt_advance_bookings (client_id, pt_package_id, trainer_id, price_snapshot, total_classes_snapshot, booking_start_date, status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(client_id, pt_package_id, trainer_id, pkg.price, pkg.total_classes, booking_start_date, initialStatus);
 
-    const newBooking = db.prepare(`
+    const newBooking = await db.prepare(`
       SELECT b.*, c.name as clientName, t.name as trainerName, p.name as packageName
       FROM pt_advance_bookings b
       JOIN clients c ON b.client_id = c.id
@@ -1774,27 +1776,27 @@ app.post('/api/pt-advance-bookings', (req, res) => {
   }
 });
 
-app.patch('/api/pt-advance-bookings/:id/cancel', (req, res) => {
+app.patch('/api/pt-advance-bookings/:id/cancel', async (req, res) => {
   try {
     const { id } = req.params;
-    const booking = db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
+    const booking = await db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
     if (!booking) return res.status(404).json({ error: 'PT Advance booking not found.' });
 
     if (!['Scheduled', 'ReadyToActivate'].includes(booking.status)) {
       return res.status(400).json({ error: `Cannot cancel a booking with status '${booking.status}'.` });
     }
 
-    db.prepare("UPDATE pt_advance_bookings SET status = 'Cancelled' WHERE id = ?").run(id);
+    await db.prepare("UPDATE pt_advance_bookings SET status = 'Cancelled' WHERE id = ?").run(id);
     res.json({ success: true, message: 'PT advance booking cancelled.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/pt-advance-bookings/:id/activate', (req, res) => {
+app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
   try {
     const { id } = req.params;
-    const booking = db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
+    const booking = await db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
     if (!booking) return res.status(404).json({ error: 'PT Advance booking not found.' });
 
     if (booking.status === 'Active') {
@@ -1804,7 +1806,7 @@ app.post('/api/pt-advance-bookings/:id/activate', (req, res) => {
       return res.status(400).json({ error: 'Cannot activate a cancelled booking.' });
     }
 
-    const pkg = db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(booking.pt_package_id);
+    const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(booking.pt_package_id);
     const durationDays = pkg ? (pkg.duration_days || 30) : 30;
     const pkgName = pkg ? pkg.name : 'PT Package';
 
@@ -1814,15 +1816,15 @@ app.post('/api/pt-advance-bookings/:id/activate', (req, res) => {
     const invoiceObj = generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate);
     const invoiceId = invoiceObj ? invoiceObj.billId : null;
 
-    const assignResult = db.prepare(`
+    const assignResult = await db.prepare(`
       INSERT INTO pt_assignments (
         client_id, pt_package_id, trainer_id, package_price_snapshot, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
       ) VALUES (?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
     `).run(booking.client_id, booking.pt_package_id, booking.trainer_id, booking.price_snapshot, booking.total_classes_snapshot, assignDate, expiryDate, invoiceId);
 
-    db.prepare("UPDATE pt_advance_bookings SET status = 'Active' WHERE id = ?").run(id);
+    await db.prepare("UPDATE pt_advance_bookings SET status = 'Active' WHERE id = ?").run(id);
 
-    const newAssignment = db.prepare(`
+    const newAssignment = await db.prepare(`
       SELECT a.*, c.name as clientName, t.name as trainerName, p.name as packageName
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id
@@ -1838,10 +1840,10 @@ app.post('/api/pt-advance-bookings/:id/activate', (req, res) => {
 });
 
 // ─── PT CLASS LOG Routes ─────────────────────────────────────────────────────
-app.get('/api/pt-class-log/today', (req, res) => {
+app.get('/api/pt-class-log/today', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
-    const logs = db.prepare(`
+    const logs = await db.prepare(`
       SELECT l.*,
              c.name as clientName, c.clientId as clientCode,
              t.name as trainerName, t.grade as trainerGrade,
@@ -1864,7 +1866,7 @@ app.get('/api/pt-class-log/today', (req, res) => {
   }
 });
 
-app.post('/api/pt-class-log', (req, res) => {
+app.post('/api/pt-class-log', async (req, res) => {
   try {
     const { pt_assignment_id, class_date, session_slot = 'Morning', trainer_id, notes } = req.body;
 
@@ -1874,12 +1876,12 @@ app.post('/api/pt-class-log', (req, res) => {
     const session = ['Morning', 'Evening'].includes(session_slot) ? session_slot : 'Morning';
 
     const yearMonthStr = class_date.substring(0, 7);
-    const lock = db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(yearMonthStr);
+    const lock = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(yearMonthStr);
     if (lock) {
       return res.status(400).json({ error: `Payroll for ${yearMonthStr} is locked and cannot be modified.` });
     }
 
-    const assignment = db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(pt_assignment_id);
+    const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(pt_assignment_id);
     if (!assignment) return res.status(404).json({ error: 'PT Assignment not found.' });
 
     if (assignment.status === 'Completed' || assignment.classes_completed >= assignment.total_classes_snapshot) {
@@ -1893,7 +1895,7 @@ app.post('/api/pt-class-log', (req, res) => {
     }
 
     const loggingTrainerId = trainer_id || assignment.trainer_id;
-    const trainer = db.prepare('SELECT * FROM trainers WHERE id = ?').get(loggingTrainerId);
+    const trainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(loggingTrainerId);
     if (!trainer) return res.status(404).json({ error: 'Trainer not found.' });
     if (!trainer.grade) {
       return res.status(400).json({ error: 'Logging trainer does not have an assigned grade. Set grade first.' });
@@ -1901,7 +1903,7 @@ app.post('/api/pt-class-log', (req, res) => {
 
     let logId;
     try {
-      const result = db.prepare(`
+      const result = await db.prepare(`
         INSERT INTO pt_class_log (pt_assignment_id, trainer_id, client_id, class_date, session_slot, per_class_rate_snapshot, slab_applied, notes)
         VALUES (?, ?, ?, ?, ?, 0, 'Slab2', ?)
       `).run(pt_assignment_id, loggingTrainerId, assignment.client_id, class_date, session, notes || null);
@@ -1917,11 +1919,11 @@ app.post('/api/pt-class-log', (req, res) => {
 
     const newCompletedCount = assignment.classes_completed + 1;
     const newStatus = newCompletedCount >= assignment.total_classes_snapshot ? 'Completed' : 'Active';
-    db.prepare(`
+    await db.prepare(`
       UPDATE pt_assignments SET classes_completed = ?, status = ? WHERE id = ?
     `).run(newCompletedCount, newStatus, pt_assignment_id);
 
-    const createdLog = db.prepare(`
+    const createdLog = await db.prepare(`
       SELECT l.*, c.name as clientName, t.name as trainerName
       FROM pt_class_log l
       JOIN clients c ON l.client_id = c.id
@@ -1935,24 +1937,24 @@ app.post('/api/pt-class-log', (req, res) => {
   }
 });
 
-app.delete('/api/pt-class-log/:id', (req, res) => {
+app.delete('/api/pt-class-log/:id', async (req, res) => {
   try {
-    const log = db.prepare('SELECT * FROM pt_class_log WHERE id = ?').get(req.params.id);
+    const log = await db.prepare('SELECT * FROM pt_class_log WHERE id = ?').get(req.params.id);
     if (!log) return res.status(404).json({ error: 'Class log entry not found.' });
 
     const yearMonthStr = log.class_date.substring(0, 7);
-    const lock = db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(yearMonthStr);
+    const lock = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(yearMonthStr);
     if (lock) {
       return res.status(400).json({ error: `Payroll for ${yearMonthStr} is locked and cannot be modified.` });
     }
 
-    db.prepare('DELETE FROM pt_class_log WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM pt_class_log WHERE id = ?').run(req.params.id);
 
-    const assignment = db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(log.pt_assignment_id);
+    const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(log.pt_assignment_id);
     if (assignment) {
       const newCompleted = Math.max(0, assignment.classes_completed - 1);
       const newStatus = newCompleted < assignment.total_classes_snapshot && assignment.status === 'Completed' ? 'Active' : assignment.status;
-      db.prepare('UPDATE pt_assignments SET classes_completed = ?, status = ? WHERE id = ?').run(newCompleted, newStatus, assignment.id);
+      await db.prepare('UPDATE pt_assignments SET classes_completed = ?, status = ? WHERE id = ?').run(newCompleted, newStatus, assignment.id);
     }
 
     syncTrainerMonthlyClassLogs(log.trainer_id, yearMonthStr);
@@ -1964,7 +1966,7 @@ app.delete('/api/pt-class-log/:id', (req, res) => {
 });
 
 // GET /api/pt-class-log/history — Query historical class logs for calendar & audit
-app.get('/api/pt-class-log/history', (req, res) => {
+app.get('/api/pt-class-log/history', async (req, res) => {
   try {
     const { month, client_id, trainer_id, pt_assignment_id } = req.query;
     const targetMonth = month || new Date().toISOString().substring(0, 7);
@@ -2007,7 +2009,7 @@ app.get('/api/pt-class-log/history', (req, res) => {
 
     sql += " ORDER BY l.class_date DESC, l.created_at DESC";
 
-    const logs = db.prepare(sql).all(...params);
+    const logs = await db.prepare(sql).all(...params);
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2017,7 +2019,7 @@ app.get('/api/pt-class-log/history', (req, res) => {
 function getMonthlyGymTotalRevenue(targetMonth) {
   let total = 0;
   try {
-    const txns = db.prepare('SELECT amount, date FROM transactions').all();
+    const txns = await db.prepare('SELECT amount, date FROM transactions').all();
     txns.forEach(t => {
       if (!t.date) return;
       let matches = false;
@@ -2036,7 +2038,7 @@ function getMonthlyGymTotalRevenue(targetMonth) {
   } catch (e) {}
 
   try {
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT SUM(price_snapshot) as sumVal FROM other_service_sales
       WHERE strftime('%Y-%m', sale_date) = ?
     `).get(targetMonth);
@@ -2044,7 +2046,7 @@ function getMonthlyGymTotalRevenue(targetMonth) {
   } catch (e) {}
 
   try {
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT SUM(total_price) as sumVal FROM supplement_sales
       WHERE strftime('%Y-%m', sale_date) = ?
     `).get(targetMonth);
@@ -2055,24 +2057,24 @@ function getMonthlyGymTotalRevenue(targetMonth) {
 }
 
 // ─── SALARY REPORT & PAYROLL LOCKS Routes ─────────────────────────────────────
-app.get('/api/trainer-salary-report', (req, res) => {
+app.get('/api/trainer-salary-report', async (req, res) => {
   try {
     const { month } = req.query;
     const targetMonth = month || new Date().toISOString().substring(0, 7);
 
-    const isLockedRow = db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(targetMonth);
+    const isLockedRow = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(targetMonth);
     const isLocked = !!isLockedRow;
 
     const gymTotalRevenue = getMonthlyGymTotalRevenue(targetMonth);
     const isRevenueBelow3Lakhs = gymTotalRevenue < 300000;
 
-    const trainers = db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE strftime('%Y-%m', class_date) = ?) ORDER BY name ASC").all(targetMonth);
+    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE strftime('%Y-%m', class_date) = ?) ORDER BY name ASC").all(targetMonth);
 
     const reportData = trainers.map(tr => {
       const baseRevenue = getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
       const activeSlab = getSlabForRevenue(baseRevenue);
 
-      const logs = db.prepare(`
+      const logs = await db.prepare(`
         SELECT l.*,
                c.name as clientName, c.clientId as clientCode, c.expiryDate as clientExpiryDate,
                a.assigned_date, a.expiry_date,
@@ -2098,7 +2100,7 @@ app.get('/api/trainer-salary-report', (req, res) => {
         : (tr.grade ? (COMMISSION_MATRIX[tr.grade]?.[activeSlab] ? COMMISSION_MATRIX[tr.grade][activeSlab] * 100 : 25) : 0);
 
       // Fetch payroll adjustment if exists
-      const adj = db.prepare('SELECT * FROM trainer_payroll_adjustments WHERE trainer_id = ? AND month = ?').get(tr.id, targetMonth);
+      const adj = await db.prepare('SELECT * FROM trainer_payroll_adjustments WHERE trainer_id = ? AND month = ?').get(tr.id, targetMonth);
       const basicPay = adj ? (adj.basic_pay || 0) : 0;
       const bonus = adj ? (adj.bonus || 0) : 0;
       const bonusNote = adj ? (adj.bonus_note || '') : '';
@@ -2154,19 +2156,19 @@ app.get('/api/trainer-salary-report', (req, res) => {
 });
 
 // ─── TRAINER DAILY STATUS (ABSENCE/PRESENT) Routes ─────────────────────────────
-app.get('/api/trainer-daily-status', (req, res) => {
+app.get('/api/trainer-daily-status', async (req, res) => {
   try {
     const { date } = req.query;
     const targetDate = date || new Date().toISOString().split('T')[0];
 
-    const rows = db.prepare('SELECT * FROM trainer_daily_status WHERE status_date = ?').all(targetDate);
+    const rows = await db.prepare('SELECT * FROM trainer_daily_status WHERE status_date = ?').all(targetDate);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/trainer-daily-status', (req, res) => {
+app.post('/api/trainer-daily-status', async (req, res) => {
   try {
     const { trainer_id, status_date, status, marked_by } = req.body;
     if (!trainer_id || !status_date || !status) {
@@ -2176,7 +2178,7 @@ app.post('/api/trainer-daily-status', (req, res) => {
       return res.status(400).json({ error: 'Status must be Present or Absent.' });
     }
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO trainer_daily_status (trainer_id, status_date, status, marked_by)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(trainer_id, status_date) DO UPDATE SET
@@ -2185,7 +2187,7 @@ app.post('/api/trainer-daily-status', (req, res) => {
         created_at = CURRENT_TIMESTAMP
     `).run(trainer_id, status_date, status, marked_by || 'Admin');
 
-    const updatedRow = db.prepare('SELECT * FROM trainer_daily_status WHERE trainer_id = ? AND status_date = ?').get(trainer_id, status_date);
+    const updatedRow = await db.prepare('SELECT * FROM trainer_daily_status WHERE trainer_id = ? AND status_date = ?').get(trainer_id, status_date);
     res.json(updatedRow);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2193,7 +2195,7 @@ app.post('/api/trainer-daily-status', (req, res) => {
 });
 
 // POST /api/trainer-payroll-adjustments (Superadmin only)
-app.post('/api/trainer-payroll-adjustments', (req, res) => {
+app.post('/api/trainer-payroll-adjustments', async (req, res) => {
   try {
     const {
       trainer_id, month, basic_pay, bonus, bonus_note,
@@ -2210,7 +2212,7 @@ app.post('/api/trainer-payroll-adjustments', (req, res) => {
     }
 
     // Check if month is locked
-    const isLocked = db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(month);
+    const isLocked = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(month);
     if (isLocked) {
       return res.status(400).json({ error: `Payroll for ${month} is closed and locked. Adjustments cannot be modified.` });
     }
@@ -2227,7 +2229,7 @@ app.post('/api/trainer-payroll-adjustments', (req, res) => {
       return res.status(400).json({ error: 'Basic Pay and Bonus must be non-negative (≥ 0).' });
     }
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO trainer_payroll_adjustments (
         trainer_id, month, basic_pay, bonus, bonus_note,
         incentive_amount, incentive_type, other_amount, other_type, other_label, updated_by
@@ -2341,7 +2343,7 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
       await sendWhatsAppMessage(phone, caption);
     }
 
-    db.prepare(
+    await db.prepare(
       'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), '', trainerName || '', phone, 'payslip_pdf');
 
@@ -2352,12 +2354,12 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
   }
 });
 
-app.post('/api/payroll-locks', (req, res) => {
+app.post('/api/payroll-locks', async (req, res) => {
   try {
     const { month, locked_by } = req.body;
     if (!month) return res.status(400).json({ error: 'Month is required.' });
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO payroll_locks (month, locked_by)
       VALUES (?, ?)
       ON CONFLICT(month) DO UPDATE SET locked_at = CURRENT_TIMESTAMP, locked_by = excluded.locked_by
@@ -2369,20 +2371,20 @@ app.post('/api/payroll-locks', (req, res) => {
   }
 });
 
-app.get('/api/payroll-locks', (req, res) => {
+app.get('/api/payroll-locks', async (req, res) => {
   try {
-    const locks = db.prepare('SELECT * FROM payroll_locks ORDER BY month DESC').all();
+    const locks = await db.prepare('SELECT * FROM payroll_locks ORDER BY month DESC').all();
     res.json(locks);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/stats/pt-summary', (req, res) => {
+app.get('/api/stats/pt-summary', async (req, res) => {
   try {
     const currentMonthStr = new Date().toISOString().substring(0, 7);
 
-    const totalRow = db.prepare(`
+    const totalRow = await db.prepare(`
       SELECT SUM(per_class_rate_snapshot) as totalPayable
       FROM pt_class_log
       WHERE strftime('%Y-%m', class_date) = ?
@@ -2390,7 +2392,7 @@ app.get('/api/stats/pt-summary', (req, res) => {
 
     const totalPtCommissionPayable = totalRow && totalRow.totalPayable ? totalRow.totalPayable : 0;
 
-    const trainers = db.prepare("SELECT * FROM trainers WHERE status = 'Active'").all();
+    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active'").all();
     const trainerRevenueList = trainers.map(tr => {
       const baseRevenue = getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
       const activeSlab = getSlabForRevenue(baseRevenue);
@@ -2414,7 +2416,7 @@ app.get('/api/stats/pt-summary', (req, res) => {
 });
 
 // POST restore all data
-app.post('/api/restore', (req, res) => {
+app.post('/api/restore', async (req, res) => {
   try {
     const { clients = [], transactions = [], trainers = [] } = req.body;
 
@@ -2424,11 +2426,11 @@ app.post('/api/restore', (req, res) => {
     }
 
     const restoreTx = db.transaction((clientsData, txnsData, trainersData) => {
-      db.prepare('DELETE FROM clients').run();
-      db.prepare('DELETE FROM transactions').run();
-      db.prepare('DELETE FROM trainers').run();
+      await db.prepare('DELETE FROM clients').run();
+      await db.prepare('DELETE FROM transactions').run();
+      await db.prepare('DELETE FROM trainers').run();
 
-      const insertTrainer = db.prepare(`
+      const insertTrainer = await db.prepare(`
         INSERT INTO trainers (id, trainerId, name, specialization, experience, status, dateAdded)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
@@ -2441,14 +2443,14 @@ app.post('/api/restore', (req, res) => {
         );
       }
 
-      const insertClient = db.prepare(`
+      const insertClient = await db.prepare(`
         INSERT INTO clients (
           id, clientId, name, phone, plan, fromDate, expiryDate, amount, 
           personalTraining, status, gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet, dateAdded, trainerId, admissionDate
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)
       `);
 
-      const insertTxn = db.prepare(`
+      const insertTxn = await db.prepare(`
         INSERT INTO transactions (id, name, method, date, amount, status, timestamp)
         VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
       `);
@@ -2485,9 +2487,9 @@ app.post('/api/restore', (req, res) => {
 // ─── TRANSACTION Routes ───────────────────────────────────────────────────────
 
 // GET all transactions
-app.get('/api/transactions', (req, res) => {
+app.get('/api/transactions', async (req, res) => {
   try {
-    const txns = db.prepare('SELECT * FROM transactions ORDER BY timestamp DESC').all();
+    const txns = await db.prepare('SELECT * FROM transactions ORDER BY timestamp DESC').all();
     res.json(txns);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2496,34 +2498,34 @@ app.get('/api/transactions', (req, res) => {
 
 // ─── EXPENSES Routes ──────────────────────────────────────────────────────────
 
-app.get('/api/expenses', (req, res) => {
+app.get('/api/expenses', async (req, res) => {
   try {
-    const expenses = db.prepare('SELECT * FROM expenses ORDER BY timestamp DESC').all();
+    const expenses = await db.prepare('SELECT * FROM expenses ORDER BY timestamp DESC').all();
     res.json(expenses);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/expenses', (req, res) => {
+app.post('/api/expenses', async (req, res) => {
   try {
     const { date, name, category, amount, paymentMode, notes } = req.body;
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO expenses (id, date, name, category, amount, paymentMode, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, date || toDateLabel(), name, category, amount || 0, paymentMode || 'CASH', notes || '');
 
-    const newExpense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
+    const newExpense = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
     res.status(201).json(newExpense);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/expenses/:id', (req, res) => {
+app.delete('/api/expenses/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
     res.json({ message: 'Expense deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2531,7 +2533,7 @@ app.delete('/api/expenses/:id', (req, res) => {
 });
 
 // ─── EXPIRED CLIENT RENEWAL Route ─────────────────────────────────────────────
-app.post('/api/clients/:id/renew-expired', (req, res) => {
+app.post('/api/clients/:id/renew-expired', async (req, res) => {
   try {
     const clientId = req.params.id;
     const { planName, price, durationDays, hasGst, gstin, paidAmount, paymentMethod, startDate } = req.body;
@@ -2540,13 +2542,13 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
       return res.status(400).json({ error: 'Plan name and price are required.' });
     }
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(clientId, clientId);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(clientId, clientId);
     if (!client) return res.status(404).json({ error: 'Client not found.' });
 
     let gstinSnapshot = null;
     if ((hasGst === true || hasGst === 'yes' || hasGst === 'true') && gstin && gstin.trim()) {
       gstinSnapshot = gstin.trim().toUpperCase();
-      db.prepare('UPDATE clients SET gstin = ? WHERE id = ?').run(gstinSnapshot, client.id);
+      await db.prepare('UPDATE clients SET gstin = ? WHERE id = ?').run(gstinSnapshot, client.id);
     }
 
     const durDays = parseInt(durationDays, 10) || 30;
@@ -2559,7 +2561,7 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
     const payMethodVal = paymentMethod || 'CASH';
 
     // 1. Generate Invoice in bills table using INV-xxxx pattern
-    const billRow = db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
     let nextBillNo = 'INV-0001';
     if (billRow && billRow.billNo) {
       const match = billRow.billNo.match(/INV-(\d{4})/);
@@ -2571,10 +2573,10 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
     const billId = randomUUID();
     const invoiceDateStr = toDateLabel();
 
-    const gstSettings = db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
+    const gstSettings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
     const gstCalc = computeGstBreakdown(planPrice, gstSettings.gst_rate_percent || 4.8);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, taxable_value, cgst_amount, sgst_amount, gst_rate_snapshot, client_gstin_snapshot)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'GeneralPlan', ?, ?, ?, ?, ?)
     `).run(
@@ -2602,7 +2604,7 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
     // 2. Insert transaction record if paidAmountVal > 0
     if (paidAmountVal > 0) {
       const txId = randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -2617,7 +2619,7 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
     }
 
     // 3. Update client fields: status = 'Active', plan = planName, fromDate = startStr, expiryDate = expiryDateStr
-    db.prepare(`
+    await db.prepare(`
       UPDATE clients SET
         plan = ?,
         fromDate = ?,
@@ -2629,7 +2631,7 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
       WHERE id = ?
     `).run(planName, startStr, expiryDateStr, planPrice, dueAmountVal, paymentStatusVal, client.id);
 
-    const updatedClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(client.id);
+    const updatedClient = await db.prepare('SELECT * FROM clients WHERE id = ?').get(client.id);
 
     const invoiceBillObj = {
       id: billId,
@@ -2663,19 +2665,19 @@ app.post('/api/clients/:id/renew-expired', (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-app.delete('/api/other-services/sales/all', (req, res) => {
+app.delete('/api/other-services/sales/all', async (req, res) => {
   try {
-    db.prepare('DELETE FROM other_service_sales').run();
-    db.prepare("DELETE FROM bills WHERE planName LIKE 'Service:%'").run();
+    await db.prepare('DELETE FROM other_service_sales').run();
+    await db.prepare("DELETE FROM bills WHERE planName LIKE 'Service:%'").run();
     res.json({ success: true, message: 'All other service sales cleared.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/other-services/sales', (req, res) => {
+app.get('/api/other-services/sales', async (req, res) => {
   try {
-    const sales = db.prepare(`
+    const sales = await db.prepare(`
       SELECT 
         s.id,
         s.client_id,
@@ -2711,91 +2713,91 @@ app.get('/api/other-services/sales', (req, res) => {
   }
 });
 
-app.get('/api/other-services', (req, res) => {
+app.get('/api/other-services', async (req, res) => {
   try {
-    const services = db.prepare('SELECT * FROM other_service_tariffs ORDER BY created_at DESC').all();
+    const services = await db.prepare('SELECT * FROM other_service_tariffs ORDER BY created_at DESC').all();
     res.json(services);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/other-services', (req, res) => {
+app.post('/api/other-services', async (req, res) => {
   try {
     const { name, price, duration_days } = req.body;
     if (!name || price === undefined || price === null || !duration_days) {
       return res.status(400).json({ error: 'Name, price, and duration in days are required.' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active)
       VALUES (?, ?, ?, 0, 1)
     `).run(name.trim(), parseFloat(price), parseInt(duration_days, 10));
 
-    const newService = db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(result.lastInsertRowid);
+    const newService = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(newService);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/other-services/:id', (req, res) => {
+app.put('/api/other-services/:id', async (req, res) => {
   try {
     const { name, price, duration_days } = req.body;
     if (!name || price === undefined || price === null || !duration_days) {
       return res.status(400).json({ error: 'Name, price, and duration in days are required.' });
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE other_service_tariffs
       SET name = ?, price = ?, duration_days = ?
       WHERE id = ?
     `).run(name.trim(), parseFloat(price), parseInt(duration_days, 10), req.params.id);
 
-    const updated = db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(req.params.id);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.patch('/api/other-services/:id/hide', (req, res) => {
+app.patch('/api/other-services/:id/hide', async (req, res) => {
   try {
     const { is_hidden } = req.body;
-    db.prepare('UPDATE other_service_tariffs SET is_hidden = ? WHERE id = ?').run(is_hidden ? 1 : 0, req.params.id);
+    await db.prepare('UPDATE other_service_tariffs SET is_hidden = ? WHERE id = ?').run(is_hidden ? 1 : 0, req.params.id);
     res.json({ success: true, is_hidden: !!is_hidden });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.patch('/api/other-services/:id/active', (req, res) => {
+app.patch('/api/other-services/:id/active', async (req, res) => {
   try {
     const { active } = req.body;
-    db.prepare('UPDATE other_service_tariffs SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
+    await db.prepare('UPDATE other_service_tariffs SET active = ? WHERE id = ?').run(active ? 1 : 0, req.params.id);
     res.json({ success: true, active: !!active });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/other-services/sell', (req, res) => {
+app.post('/api/other-services/sell', async (req, res) => {
   try {
     const { client_id, service_id, sale_date, paid_amount, payment_method, hasGst, gstin } = req.body;
     if (!client_id || !service_id) {
       return res.status(400).json({ error: 'Client and Service tariff selections are required.' });
     }
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(client_id, client_id);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(client_id, client_id);
     if (!client) return res.status(404).json({ error: 'Client not found.' });
 
     let gstinSnapshot = null;
     if ((hasGst === true || hasGst === 'yes' || hasGst === 'true') && gstin && gstin.trim()) {
       gstinSnapshot = gstin.trim().toUpperCase();
-      db.prepare('UPDATE clients SET gstin = ? WHERE id = ?').run(gstinSnapshot, client.id || client_id);
+      await db.prepare('UPDATE clients SET gstin = ? WHERE id = ?').run(gstinSnapshot, client.id || client_id);
     }
 
-    const service = db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(service_id);
+    const service = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(service_id);
     if (!service) return res.status(404).json({ error: 'Service tariff not found.' });
 
     const saleDateStr = sale_date || new Date().toISOString().split('T')[0];
@@ -2806,7 +2808,7 @@ app.post('/api/other-services/sell', (req, res) => {
     const payMethodVal = payment_method || 'UPI';
 
     // 1. Generate Invoice in bills using INV-xxxx
-    const billRow = db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
     let nextBillNo = 'INV-0001';
     if (billRow && billRow.billNo) {
       const match = billRow.billNo.match(/INV-(\d{4})/);
@@ -2819,7 +2821,7 @@ app.post('/api/other-services/sell', (req, res) => {
     const invoiceDateStr = toDateLabel();
     const expiryDateStr = calculateExpiryDate(saleDateStr, service.duration_days);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, client_gstin_snapshot)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OtherService', ?)
     `).run(
@@ -2844,7 +2846,7 @@ app.post('/api/other-services/sell', (req, res) => {
     // Create transaction record if paidAmountVal > 0 so Dashboard & Transactions reflect it immediately
     if (paidAmountVal > 0) {
       const txId = randomUUID();
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -2862,16 +2864,16 @@ app.post('/api/other-services/sell', (req, res) => {
     if (dueAmountVal > 0) {
       const currentDue = client.dueAmount || 0;
       const updatedDue = currentDue + dueAmountVal;
-      db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedDue, 'Due', client.id || client_id);
+      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedDue, 'Due', client.id || client_id);
     }
 
     // 2. Insert into other_service_sales
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO other_service_sales (client_id, service_id, price_snapshot, sale_date, invoice_id)
       VALUES (?, ?, ?, ?, ?)
     `).run(String(client.id || client_id), service.id, priceSnapshot, saleDateStr, billId);
 
-    const saleRecord = db.prepare(`
+    const saleRecord = await db.prepare(`
       SELECT s.*, c.name as clientName, t.name as serviceName
       FROM other_service_sales s
       LEFT JOIN clients c ON (s.client_id = c.id OR s.client_id = c.clientId)
@@ -2913,7 +2915,7 @@ app.post('/api/other-services/sell', (req, res) => {
 });
 
 // ─── STATS Route ──────────────────────────────────────────────────────────────
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
     const { month } = req.query;
     const targetMonth = month || new Date().toLocaleDateString('en-GB', { month: 'short' });
@@ -2926,13 +2928,13 @@ app.get('/api/stats', (req, res) => {
     const currentYear = new Date().getFullYear();
     const dateSearch = `/${mm}/${currentYear}`;
 
-    const allTxns = db.prepare('SELECT * FROM transactions').all();
-    const otherServiceSalesAll = db.prepare('SELECT * FROM other_service_sales').all();
+    const allTxns = await db.prepare('SELECT * FROM transactions').all();
+    const otherServiceSalesAll = await db.prepare('SELECT * FROM other_service_sales').all();
     const totalOtherServiceRevenue = otherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0);
 
     const totalRevenueVal = allTxns.reduce((sum, t) => sum + (t.amount || 0), 0) + totalOtherServiceRevenue;
     
-    const monthlyOtherServiceRevenue = db.prepare(`
+    const monthlyOtherServiceRevenue = await db.prepare(`
       SELECT SUM(price_snapshot) as total FROM other_service_sales
       WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
     `).get(mm, String(currentYear))?.total || 0;
@@ -2941,7 +2943,7 @@ app.get('/api/stats', (req, res) => {
       .filter(t => t.date && t.date.includes(dateSearch))
       .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyOtherServiceRevenue;
 
-    const allExpenses = db.prepare('SELECT * FROM expenses').all();
+    const allExpenses = await db.prepare('SELECT * FROM expenses').all();
     const monthlyExpensesVal = allExpenses
       .filter(e => e.date && e.date.includes(dateSearch))
       .reduce((sum, e) => sum + (e.amount || 0), 0);
@@ -2949,39 +2951,39 @@ app.get('/api/stats', (req, res) => {
     const netProfitVal = monthlyCollectionVal - monthlyExpensesVal;
 
     const todayStr = new Date().toISOString().split('T')[0];
-    const activeCount = db.prepare(
+    const activeCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM clients WHERE status = 'Active' OR expiryDate >= ?"
     ).get(todayStr).cnt;
 
-    const expiredCount = db.prepare(
+    const expiredCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM clients WHERE status = 'Expired' OR (expiryDate IS NOT NULL AND expiryDate < ?)"
     ).get(todayStr).cnt;
 
-    const expiredPTCount = db.prepare(
+    const expiredPTCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM clients WHERE ptToDate < ? AND ptCategory != 'None'"
     ).get(todayStr).cnt;
 
-    const inactivePtCount = db.prepare(
+    const inactivePtCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')"
     ).get().cnt;
 
     // --- New Metrics ---
-    const newClientsMonthCount = db.prepare(
+    const newClientsMonthCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM clients WHERE admissionDate LIKE ?"
     ).get(`%-${mm}-%`).cnt;
 
-    const monthlySalesVal = db.prepare(
+    const monthlySalesVal = await db.prepare(
       "SELECT SUM(amount) as total FROM clients WHERE admissionDate LIKE ?"
     ).get(`%-${mm}-%`).total || 0;
 
     const monthlyTxnsCount = allTxns.filter(t => t.date && t.date.includes(dateSearch)).length;
     const renewalsMonthCount = Math.max(0, monthlyTxnsCount - newClientsMonthCount);
 
-    const generalAdvanceCount = db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE status = 'Scheduled'").get().cnt;
-    const ptAdvanceCount = db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE status IN ('Scheduled', 'ReadyToActivate')").get().cnt;
-    const inactiveCount = db.prepare("SELECT COUNT(*) as cnt FROM clients WHERE status = 'inactive' OR status = 'Expired' OR (expiryDate IS NOT NULL AND expiryDate < ?)").get(todayStr).cnt;
+    const generalAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE status = 'Scheduled'").get().cnt;
+    const ptAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE status IN ('Scheduled', 'ReadyToActivate')").get().cnt;
+    const inactiveCount = await db.prepare("SELECT COUNT(*) as cnt FROM clients WHERE status = 'inactive' OR status = 'Expired' OR (expiryDate IS NOT NULL AND expiryDate < ?)").get(todayStr).cnt;
 
-    const monthlyOtherServiceSalesCount = db.prepare(`
+    const monthlyOtherServiceSalesCount = await db.prepare(`
       SELECT COUNT(*) as cnt FROM other_service_sales
       WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
     `).get(mm, String(currentYear))?.cnt || 0;
@@ -3014,10 +3016,10 @@ app.get('/api/stats', (req, res) => {
 });
 
 // ─── REVENUE Route ────────────────────────────────────────────────────────────
-app.get('/api/revenue', (req, res) => {
+app.get('/api/revenue', async (req, res) => {
   try {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const allTxns = db.prepare('SELECT * FROM transactions').all();
+    const allTxns = await db.prepare('SELECT * FROM transactions').all();
 
     const revenueByMonth = months.map(m => ({ month: m, revenue: 0 }));
     allTxns.forEach(txn => {
@@ -3049,9 +3051,9 @@ app.get('/api/revenue', (req, res) => {
 // ─── SETTINGS Routes ─────────────────────────────────────────────────────────
 
 // GET all settings
-app.get('/api/settings', (req, res) => {
+app.get('/api/settings', async (req, res) => {
   try {
-    const settings = db.prepare('SELECT * FROM settings').all();
+    const settings = await db.prepare('SELECT * FROM settings').all();
     const settingsObj = settings.reduce((acc, s) => {
       acc[s.key] = s.value;
       return acc;
@@ -3063,14 +3065,14 @@ app.get('/api/settings', (req, res) => {
 });
 
 // PUT update settings
-app.put('/api/settings', (req, res) => {
+app.put('/api/settings', async (req, res) => {
   try {
     const settings = req.body; // Expecting { key: value, ... }
-    const update = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    const update = await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
 
     // Use a transaction for atomic update
     const transaction = db.transaction((data) => {
-      db.prepare('DELETE FROM settings').run();
+      await db.prepare('DELETE FROM settings').run();
       for (const [key, value] of Object.entries(data)) {
         update.run(key, value);
       }
@@ -3086,17 +3088,17 @@ app.put('/api/settings', (req, res) => {
 // ─── AUTH / USER Routes ──────────────────────────────────────────────────────
 
 // POST login check
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, role, password } = req.body;
     const identifier = username || role;
     
     // 1. Try matching by (username or role) AND password
-    let user = db.prepare('SELECT id, role FROM users WHERE (username = ? OR role = ?) AND password = ?').get(identifier, identifier, password);
+    let user = await db.prepare('SELECT id, role FROM users WHERE (username = ? OR role = ?) AND password = ?').get(identifier, identifier, password);
 
     // 2. Fallback: match by password alone if identifier is generic
     if (!user && password) {
-      user = db.prepare('SELECT id, role FROM users WHERE password = ?').get(password);
+      user = await db.prepare('SELECT id, role FROM users WHERE password = ?').get(password);
     }
 
     if (user) {
@@ -3110,9 +3112,9 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // GET all user credentials (for master management)
-app.get('/api/auth/credentials', (req, res) => {
+app.get('/api/auth/credentials', async (req, res) => {
   try {
-    const users = db.prepare('SELECT id, username, password, role FROM users').all();
+    const users = await db.prepare('SELECT id, username, password, role FROM users').all();
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3120,11 +3122,11 @@ app.get('/api/auth/credentials', (req, res) => {
 });
 
 // PUT update credentials
-app.put('/api/auth/credentials', (req, res) => {
+app.put('/api/auth/credentials', async (req, res) => {
   try {
     const { credentials } = req.body; // Array of { role, username, password }
 
-    const update = db.prepare('UPDATE users SET username = ?, password = ? WHERE role = ?');
+    const update = await db.prepare('UPDATE users SET username = ?, password = ? WHERE role = ?');
 
     const transaction = db.transaction((data) => {
       for (const cred of data) {
@@ -3140,11 +3142,11 @@ app.put('/api/auth/credentials', (req, res) => {
 });
 
 // ─── PERFORMANCE Route ────────────────────────────────────────────────────────
-app.get('/api/performance', (req, res) => {
+app.get('/api/performance', async (req, res) => {
   try {
     const plans = ["Monthly", "Quarterly", "Half-Yearly", "Annual"];
     const results = plans.map(p => {
-      const row = db.prepare(
+      const row = await db.prepare(
         "SELECT COUNT(*) as cnt, COALESCE(SUM(amount),0) as revenue FROM clients WHERE plan = ?"
       ).get(p);
       return {
@@ -3174,13 +3176,13 @@ const getDateOffsetISO = (offsetDays) => {
 };
 
 // GET /api/whatsapp/reminders
-app.get('/api/whatsapp/reminders', (req, res) => {
+app.get('/api/whatsapp/reminders', async (req, res) => {
   try {
     const todayISO = getDateOffsetISO(0);
     const in7DaysISO = getDateOffsetISO(7);
 
     // Clients expiring within 1-7 days
-    const expiringSoon = db.prepare(`
+    const expiringSoon = await db.prepare(`
       SELECT id, clientId, name, phone, plan, expiryDate
       FROM clients
       WHERE date(expiryDate) BETWEEN date(?) AND date(?)
@@ -3189,7 +3191,7 @@ app.get('/api/whatsapp/reminders', (req, res) => {
     `).all(getDateOffsetISO(1), in7DaysISO);
 
     // Clients already expired today or before
-    const expiredAll = db.prepare(`
+    const expiredAll = await db.prepare(`
       SELECT id, clientId, name, phone, plan, expiryDate
       FROM clients
       WHERE date(expiryDate) <= date(?)
@@ -3216,7 +3218,7 @@ app.post('/api/whatsapp/send', async (req, res) => {
 
     const client = { name: clientName, phone };
     // Fetch expiry from DB for template
-    const dbClient = clientId ? db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId) : null;
+    const dbClient = clientId ? await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId) : null;
     if (dbClient) {
       client.plan = dbClient.plan;
       client.expiryDate = dbClient.expiryDate;
@@ -3229,7 +3231,7 @@ app.post('/api/whatsapp/send', async (req, res) => {
     await sendWhatsAppMessage(phone, message);
 
     // Log to DB
-    db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+    await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), clientId || '', clientName, phone, type);
 
     res.json({ success: true, message: 'WhatsApp message sent!' });
@@ -3323,7 +3325,7 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
     }
 
     // Log it
-    db.prepare(
+    await db.prepare(
       'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), '', name || '', phone, 'invoice_pdf');
 
@@ -3339,7 +3341,7 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
 app.post('/api/whatsapp/send-payment-reminder', async (req, res) => {
   try {
     const { clientId } = req.body;
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
     if (!client || !client.phone) return res.status(400).json({ error: 'Client not found or phone missing' });
 
     if (client.dueAmount <= 0) return res.status(400).json({ error: 'No pending due amount' });
@@ -3347,7 +3349,7 @@ app.post('/api/whatsapp/send-payment-reminder', async (req, res) => {
     const message = buildPaymentReminderMsg(client);
     await sendWhatsAppMessage(client.phone, message);
 
-    db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+    await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), client.id, client.name, client.phone, 'payment_reminder');
 
     res.json({ success: true, message: 'Payment reminder sent!' });
@@ -3365,13 +3367,13 @@ app.post('/api/whatsapp/send-bulk', async (req, res) => {
 
     let clients;
     if (type === 'expiring_soon') {
-      clients = db.prepare(`
+      clients = await db.prepare(`
         SELECT id, clientId, name, phone, plan, expiryDate FROM clients
         WHERE date(expiryDate) BETWEEN date(?) AND date(?)
           AND phone IS NOT NULL AND phone != ''
       `).all(getDateOffsetISO(1), in7DaysISO);
     } else {
-      clients = db.prepare(`
+      clients = await db.prepare(`
         SELECT id, clientId, name, phone, plan, expiryDate FROM clients
         WHERE date(expiryDate) <= date(?)
           AND phone IS NOT NULL AND phone != ''
@@ -3385,7 +3387,7 @@ app.post('/api/whatsapp/send-bulk', async (req, res) => {
           ? buildExpiringSoonMsg(client)
           : buildExpiredMsg(client);
         await sendWhatsAppMessage(client.phone, message);
-        db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+        await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
         ).run(randomUUID(), client.id, client.name, client.phone, type);
         results.push({ name: client.name, phone: client.phone, status: 'sent' });
         // Small delay between messages to avoid rate limiting
@@ -3405,9 +3407,9 @@ app.post('/api/whatsapp/send-bulk', async (req, res) => {
 });
 
 // ─── Inquiry API Routes ──────────────────────────────────────────────────────
-app.get('/api/inquiries', (req, res) => {
+app.get('/api/inquiries', async (req, res) => {
   try {
-    const inquiries = db.prepare('SELECT * FROM inquiries ORDER BY timestamp DESC').all();
+    const inquiries = await db.prepare('SELECT * FROM inquiries ORDER BY timestamp DESC').all();
     res.json(inquiries);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3415,9 +3417,9 @@ app.get('/api/inquiries', (req, res) => {
 });
 
 // MUST be before /:id routes
-app.get('/api/inquiries/next-id', (req, res) => {
+app.get('/api/inquiries/next-id', async (req, res) => {
   try {
-    const row = db.prepare('SELECT InquiryId FROM inquiries ORDER BY timestamp DESC LIMIT 1').get();
+    const row = await db.prepare('SELECT InquiryId FROM inquiries ORDER BY timestamp DESC LIMIT 1').get();
     let nextId = 'INQ001';
     if (row && row.InquiryId) {
       const match = row.InquiryId.match(/INQ(\d+)/);
@@ -3432,16 +3434,16 @@ app.get('/api/inquiries/next-id', (req, res) => {
 });
 
 // MUST be before /:id routes
-app.get('/api/inquiries/stats', (req, res) => {
+app.get('/api/inquiries/stats', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const stats = {
-      total: db.prepare('SELECT COUNT(*) as cnt FROM inquiries').get().cnt,
-      today: db.prepare('SELECT COUNT(*) as cnt FROM inquiries WHERE InquiryDate = ?').get(today).cnt,
-      interested: db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Interested'").get().cnt,
-      joined: db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Joined'").get().cnt,
-      pending: db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Follow Up Pending'").get().cnt,
-      notInterested: db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Not Interested'").get().cnt,
+      total: await db.prepare('SELECT COUNT(*) as cnt FROM inquiries').get().cnt,
+      today: await db.prepare('SELECT COUNT(*) as cnt FROM inquiries WHERE InquiryDate = ?').get(today).cnt,
+      interested: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Interested'").get().cnt,
+      joined: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Joined'").get().cnt,
+      pending: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Follow Up Pending'").get().cnt,
+      notInterested: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Not Interested'").get().cnt,
     };
     res.json(stats);
   } catch (err) {
@@ -3449,11 +3451,11 @@ app.get('/api/inquiries/stats', (req, res) => {
   }
 });
 
-app.post('/api/inquiries', (req, res) => {
+app.post('/api/inquiries', async (req, res) => {
   try {
     const data = req.body;
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO inquiries (
         id, InquiryId, name, phone, age, gender, goal, plan, trainerRequired, InquiryDate, status, nextFollowUp,
         marriedStatus, occupation, company, address, email, height, weight, bmi, lbm, fat,
@@ -3471,10 +3473,10 @@ app.post('/api/inquiries', (req, res) => {
   }
 });
 
-app.put('/api/inquiries/:id', (req, res) => {
+app.put('/api/inquiries/:id', async (req, res) => {
   try {
     const data = req.body;
-    db.prepare(`
+    await db.prepare(`
       UPDATE inquiries SET
         name = COALESCE(?, name), phone = COALESCE(?, phone), age = COALESCE(?, age), gender = COALESCE(?, gender), goal = COALESCE(?, goal), 
         plan = COALESCE(?, plan), trainerRequired = COALESCE(?, trainerRequired), InquiryDate = COALESCE(?, InquiryDate), 
@@ -3498,35 +3500,35 @@ app.put('/api/inquiries/:id', (req, res) => {
   }
 });
 
-app.delete('/api/inquiries/:id', (req, res) => {
+app.delete('/api/inquiries/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM inquiries WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM inquiries WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.get('/api/inquiries/:id/followups', (req, res) => {
+app.get('/api/inquiries/:id/followups', async (req, res) => {
   try {
-    const followups = db.prepare('SELECT * FROM follow_ups WHERE InquiryId = ? ORDER BY timestamp DESC').all(req.params.id);
+    const followups = await db.prepare('SELECT * FROM follow_ups WHERE InquiryId = ? ORDER BY timestamp DESC').all(req.params.id);
     res.json(followups);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/inquiries/:id/followups', (req, res) => {
+app.post('/api/inquiries/:id/followups', async (req, res) => {
   try {
     const data = req.body;
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO follow_ups (id, InquiryId, date, notes, clientResponse, nextDate, status)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, req.params.id, data.date, data.notes, data.clientResponse, data.nextDate, data.status);
 
     // Also update the main Inquiry status and next follow-up date
-    db.prepare('UPDATE inquiries SET status = ?, nextFollowUp = ? WHERE id = ?').run(data.status, data.nextDate, req.params.id);
+    await db.prepare('UPDATE inquiries SET status = ?, nextFollowUp = ? WHERE id = ?').run(data.status, data.nextDate, req.params.id);
 
     res.status(201).json({ id, ...data });
   } catch (err) {
@@ -3535,9 +3537,9 @@ app.post('/api/inquiries/:id/followups', (req, res) => {
 });
 
 // GET /api/whatsapp/log — Send history
-app.get('/api/whatsapp/log', (req, res) => {
+app.get('/api/whatsapp/log', async (req, res) => {
   try {
-    const logs = db.prepare('SELECT * FROM whatsapp_log ORDER BY sentAt DESC LIMIT 200').all();
+    const logs = await db.prepare('SELECT * FROM whatsapp_log ORDER BY sentAt DESC LIMIT 200').all();
     res.json(logs);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3559,7 +3561,7 @@ cron.schedule('0 9 * * *', async () => {
   console.log(`📲 [WhatsApp Cron] Running at ${new Date().toLocaleString('en-IN')}`);
 
   // Send expiring-soon reminders (7 days and 3 days before)
-  const soonClients = db.prepare(`
+  const soonClients = await db.prepare(`
     SELECT id, clientId, name, phone, plan, expiryDate FROM clients
     WHERE (date(expiryDate) = date(?) OR date(expiryDate) = date(?)) AND phone IS NOT NULL AND phone != ''
   `).all(in7DaysISO, in3DaysISO);
@@ -3567,7 +3569,7 @@ cron.schedule('0 9 * * *', async () => {
   for (const client of soonClients) {
     try {
       await sendWhatsAppMessage(client.phone, buildExpiringSoonMsg(client));
-      db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+      await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
       ).run(randomUUID(), client.id, client.name, client.phone, 'expiring_soon');
       console.log(`   ✅ Reminder sent → ${client.name} (expires in 7 or 3 days)`);
       await new Promise(r => setTimeout(r, 500));
@@ -3577,7 +3579,7 @@ cron.schedule('0 9 * * *', async () => {
   }
 
   // Send expired-today notifications
-  const expiredClients = db.prepare(`
+  const expiredClients = await db.prepare(`
     SELECT id, clientId, name, phone, plan, expiryDate FROM clients
     WHERE date(expiryDate) = date(?) AND phone IS NOT NULL AND phone != ''
   `).all(todayISO);
@@ -3585,7 +3587,7 @@ cron.schedule('0 9 * * *', async () => {
   for (const client of expiredClients) {
     try {
       await sendWhatsAppMessage(client.phone, buildExpiredMsg(client));
-      db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+      await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
       ).run(randomUUID(), client.id, client.name, client.phone, 'expired');
       console.log(`   ✅ Expiry notice sent → ${client.name}`);
       await new Promise(r => setTimeout(r, 500));
@@ -3600,9 +3602,9 @@ cron.schedule('0 9 * * *', async () => {
 // ─── STAFF Routes ────────────────────────────────────────────────────────────
 
 // GET all staff
-app.get('/api/staff', (req, res) => {
+app.get('/api/staff', async (req, res) => {
   try {
-    const staff = db.prepare('SELECT * FROM staff ORDER BY dateAdded DESC').all();
+    const staff = await db.prepare('SELECT * FROM staff ORDER BY dateAdded DESC').all();
     res.json(staff);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3610,11 +3612,11 @@ app.get('/api/staff', (req, res) => {
 });
 
 // POST create staff
-app.post('/api/staff', (req, res) => {
+app.post('/api/staff', async (req, res) => {
   try {
     const data = req.body;
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO staff (
         id, name, fathersName, mothersName, spouseName, dob, gender, maritalStatus,
         nationality, religion, community, languageRead, languageWrite, languageSpeak,
@@ -3635,9 +3637,9 @@ app.post('/api/staff', (req, res) => {
 });
 
 // GET single staff
-app.get('/api/staff/:id', (req, res) => {
+app.get('/api/staff/:id', async (req, res) => {
   try {
-    const staff = db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
+    const staff = await db.prepare('SELECT * FROM staff WHERE id = ?').get(req.params.id);
     if (!staff) return res.status(404).json({ error: 'Staff not found' });
     res.json(staff);
   } catch (err) {
@@ -3646,10 +3648,10 @@ app.get('/api/staff/:id', (req, res) => {
 });
 
 // PUT update staff
-app.put('/api/staff/:id', (req, res) => {
+app.put('/api/staff/:id', async (req, res) => {
   try {
     const data = req.body;
-    db.prepare(`
+    await db.prepare(`
       UPDATE staff SET
         name = ?, fathersName = ?, mothersName = ?, spouseName = ?, dob = ?, gender = ?, maritalStatus = ?,
         nationality = ?, religion = ?, community = ?, languageRead = ?, languageWrite = ?, languageSpeak = ?,
@@ -3670,9 +3672,9 @@ app.put('/api/staff/:id', (req, res) => {
 });
 
 // DELETE staff
-app.delete('/api/staff/:id', (req, res) => {
+app.delete('/api/staff/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM staff WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM staff WHERE id = ?').run(req.params.id);
     res.json({ message: 'Staff deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3682,9 +3684,9 @@ app.delete('/api/staff/:id', (req, res) => {
 // ─── CLIENT MEASUREMENTS Routes ──────────────────────────────────────────────
 
 // GET measurements for a specific client
-app.get('/api/clients/:clientId/measurements', (req, res) => {
+app.get('/api/clients/:clientId/measurements', async (req, res) => {
   try {
-    const measurements = db.prepare(`
+    const measurements = await db.prepare(`
       SELECT * FROM client_measurements 
       WHERE clientId = ? 
       ORDER BY date DESC, timestamp DESC
@@ -3696,7 +3698,7 @@ app.get('/api/clients/:clientId/measurements', (req, res) => {
 });
 
 // POST add measurement for a client
-app.post('/api/clients/:clientId/measurements', (req, res) => {
+app.post('/api/clients/:clientId/measurements', async (req, res) => {
   try {
     const { clientId } = req.params;
     const {
@@ -3705,7 +3707,7 @@ app.post('/api/clients/:clientId/measurements', (req, res) => {
     } = req.body;
 
     const id = randomUUID();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO client_measurements (
         id, clientId, date, height, weight, bmi, lbm, fat,
         chest_inspiration, chest_expiration, abs, waist, hip, thigh, calf, arm, forearm, hip_waist_ratio
@@ -3715,7 +3717,7 @@ app.post('/api/clients/:clientId/measurements', (req, res) => {
       chest_inspiration || null, chest_expiration || null, abs || null, waist || null, hip || null, thigh || null, calf || null, arm || null, forearm || null, hip_waist_ratio || null
     );
 
-    const newMeasurement = db.prepare('SELECT * FROM client_measurements WHERE id = ?').get(id);
+    const newMeasurement = await db.prepare('SELECT * FROM client_measurements WHERE id = ?').get(id);
     res.status(201).json(newMeasurement);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3723,7 +3725,7 @@ app.post('/api/clients/:clientId/measurements', (req, res) => {
 });
 
 // PUT update a measurement
-app.put('/api/clients/:clientId/measurements/:id', (req, res) => {
+app.put('/api/clients/:clientId/measurements/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -3731,7 +3733,7 @@ app.put('/api/clients/:clientId/measurements/:id', (req, res) => {
       chest_inspiration, chest_expiration, abs, waist, hip, thigh, calf, arm, forearm, hip_waist_ratio
     } = req.body;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE client_measurements SET
         date = ?, height = ?, weight = ?, bmi = ?, lbm = ?, fat = ?,
         chest_inspiration = ?, chest_expiration = ?, abs = ?, waist = ?, hip = ?, thigh = ?, calf = ?, arm = ?, forearm = ?, hip_waist_ratio = ?
@@ -3742,7 +3744,7 @@ app.put('/api/clients/:clientId/measurements/:id', (req, res) => {
       id
     );
 
-    const updated = db.prepare('SELECT * FROM client_measurements WHERE id = ?').get(id);
+    const updated = await db.prepare('SELECT * FROM client_measurements WHERE id = ?').get(id);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3750,9 +3752,9 @@ app.put('/api/clients/:clientId/measurements/:id', (req, res) => {
 });
 
 // DELETE a measurement
-app.delete('/api/clients/:clientId/measurements/:id', (req, res) => {
+app.delete('/api/clients/:clientId/measurements/:id', async (req, res) => {
   try {
-    db.prepare('DELETE FROM client_measurements WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM client_measurements WHERE id = ?').run(req.params.id);
     res.json({ message: 'Measurement deleted' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3789,7 +3791,7 @@ const parseAnyDate = (dateStr) => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-app.get('/api/dashboard/dynamic-stats', (req, res) => {
+app.get('/api/dashboard/dynamic-stats', async (req, res) => {
   try {
     const { topDate, financialStartDate, financialEndDate } = req.query;
 
@@ -3803,10 +3805,10 @@ app.get('/api/dashboard/dynamic-stats', (req, res) => {
     endDateObj.setHours(23, 59, 59, 999);
 
     // Fetch all clients, transactions, bills, expenses
-    const clients = db.prepare('SELECT * FROM clients').all();
-    const transactions = db.prepare('SELECT * FROM transactions').all();
-    const bills = db.prepare('SELECT * FROM bills').all();
-    const expenses = db.prepare('SELECT * FROM expenses').all();
+    const clients = await db.prepare('SELECT * FROM clients').all();
+    const transactions = await db.prepare('SELECT * FROM transactions').all();
+    const bills = await db.prepare('SELECT * FROM bills').all();
+    const expenses = await db.prepare('SELECT * FROM expenses').all();
 
     let genActive = 0, genExp = 0;
     let kidsActive = 0, kidsExp = 0;
@@ -3926,7 +3928,7 @@ app.use('/api/supplements', requireSuperAdmin);
 
 // ─── CATALOG ENDPOINTS ────────────────────────────────────────────────────────
 
-app.get('/api/supplements', (req, res) => {
+app.get('/api/supplements', async (req, res) => {
   try {
     const { activeOnly } = req.query;
     let query = 'SELECT * FROM supplements';
@@ -3934,14 +3936,14 @@ app.get('/api/supplements', (req, res) => {
       query += ' WHERE active = 1';
     }
     query += ' ORDER BY name ASC';
-    const supplements = db.prepare(query).all();
+    const supplements = await db.prepare(query).all();
     res.json(supplements);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/supplements', (req, res) => {
+app.post('/api/supplements', async (req, res) => {
   try {
     const { name, brand, category, unit, low_stock_threshold, default_sale_price } = req.body;
     if (!name || !name.trim()) {
@@ -3951,19 +3953,19 @@ app.post('/api/supplements', (req, res) => {
     const threshold = low_stock_threshold !== undefined && low_stock_threshold !== '' ? parseInt(low_stock_threshold, 10) : 5;
     const salePrice = default_sale_price !== undefined && default_sale_price !== '' ? parseFloat(default_sale_price) : null;
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO supplements (name, brand, category, unit, low_stock_threshold, default_sale_price)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(name.trim(), brand ? brand.trim() : '', category || 'Other', unit ? unit.trim() : 'pack', threshold, salePrice);
 
-    const newSupplement = db.prepare('SELECT * FROM supplements WHERE id = ?').get(result.lastInsertRowid);
+    const newSupplement = await db.prepare('SELECT * FROM supplements WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(newSupplement);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.put('/api/supplements/:id', (req, res) => {
+app.put('/api/supplements/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, brand, category, unit, low_stock_threshold, default_sale_price, active } = req.body;
@@ -3976,27 +3978,27 @@ app.put('/api/supplements/:id', (req, res) => {
     const salePrice = default_sale_price !== undefined && default_sale_price !== '' ? parseFloat(default_sale_price) : null;
     const isActive = active !== undefined ? (active ? 1 : 0) : 1;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE supplements
       SET name = ?, brand = ?, category = ?, unit = ?, low_stock_threshold = ?, default_sale_price = ?, active = ?
       WHERE id = ?
     `).run(name.trim(), brand ? brand.trim() : '', category || 'Other', unit ? unit.trim() : 'pack', threshold, salePrice, isActive, id);
 
-    const updated = db.prepare('SELECT * FROM supplements WHERE id = ?').get(id);
+    const updated = await db.prepare('SELECT * FROM supplements WHERE id = ?').get(id);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.patch('/api/supplements/:id/toggle-active', (req, res) => {
+app.patch('/api/supplements/:id/toggle-active', async (req, res) => {
   try {
     const { id } = req.params;
-    const item = db.prepare('SELECT active FROM supplements WHERE id = ?').get(id);
+    const item = await db.prepare('SELECT active FROM supplements WHERE id = ?').get(id);
     if (!item) return res.status(404).json({ error: 'Supplement not found' });
 
     const newActive = item.active === 1 ? 0 : 1;
-    db.prepare('UPDATE supplements SET active = ? WHERE id = ?').run(newActive, id);
+    await db.prepare('UPDATE supplements SET active = ? WHERE id = ?').run(newActive, id);
     res.json({ success: true, active: newActive });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4005,7 +4007,7 @@ app.patch('/api/supplements/:id/toggle-active', (req, res) => {
 
 // ─── PURCHASE LOG ENDPOINTS ───────────────────────────────────────────────────
 
-app.get('/api/supplements/purchases', (req, res) => {
+app.get('/api/supplements/purchases', async (req, res) => {
   try {
     const { startDate, endDate, supplementId, searchVendor } = req.query;
     let query = `
@@ -4034,14 +4036,14 @@ app.get('/api/supplements/purchases', (req, res) => {
     }
 
     query += ' ORDER BY p.purchase_date DESC, p.created_at DESC';
-    const purchases = db.prepare(query).all(...params);
+    const purchases = await db.prepare(query).all(...params);
     res.json(purchases);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/supplements/purchases', (req, res) => {
+app.post('/api/supplements/purchases', async (req, res) => {
   try {
     const { supplement_id, vendor_name, quantity, purchase_price_per_unit, purchase_date, invoice_ref, notes, created_by } = req.body;
 
@@ -4062,12 +4064,12 @@ app.post('/api/supplements/purchases', (req, res) => {
     const totalCost = Math.round(qty * pricePerUnit * 100) / 100;
 
     const executePurchaseTransaction = db.transaction(() => {
-      const supp = db.prepare('SELECT id FROM supplements WHERE id = ?').get(supplement_id);
+      const supp = await db.prepare('SELECT id FROM supplements WHERE id = ?').get(supplement_id);
       if (!supp) {
         throw new Error('Selected supplement does not exist');
       }
 
-      const insertStmt = db.prepare(`
+      const insertStmt = await db.prepare(`
         INSERT INTO supplement_purchases (
           supplement_id, vendor_name, quantity, purchase_price_per_unit, total_cost, purchase_date, invoice_ref, notes, created_by
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -4076,7 +4078,7 @@ app.post('/api/supplements/purchases', (req, res) => {
         supplement_id, vendor_name.trim(), qty, pricePerUnit, totalCost, purchase_date, invoice_ref ? invoice_ref.trim() : null, notes ? notes.trim() : null, created_by || null
       );
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE supplements
         SET current_stock = current_stock + ?, default_purchase_price = ?
         WHERE id = ?
@@ -4086,7 +4088,7 @@ app.post('/api/supplements/purchases', (req, res) => {
     });
 
     const newPurchaseId = executePurchaseTransaction();
-    const newPurchase = db.prepare(`
+    const newPurchase = await db.prepare(`
       SELECT p.*, s.name as supplement_name, s.unit as supplement_unit
       FROM supplement_purchases p
       JOIN supplements s ON p.supplement_id = s.id
@@ -4101,7 +4103,7 @@ app.post('/api/supplements/purchases', (req, res) => {
 
 // ─── SALE LOG ENDPOINTS ───────────────────────────────────────────────────────
 
-app.get('/api/supplements/sales', (req, res) => {
+app.get('/api/supplements/sales', async (req, res) => {
   try {
     const { startDate, endDate, supplementId, buyerType } = req.query;
     let query = `
@@ -4132,14 +4134,14 @@ app.get('/api/supplements/sales', (req, res) => {
     }
 
     query += ' ORDER BY s.sale_date DESC, s.created_at DESC';
-    const sales = db.prepare(query).all(...params);
+    const sales = await db.prepare(query).all(...params);
     res.json(sales);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/supplements/sales', (req, res) => {
+app.post('/api/supplements/sales', async (req, res) => {
   try {
     const {
       supplement_id, client_id, walkin_name, walkin_phone, quantity,
@@ -4175,7 +4177,7 @@ app.post('/api/supplements/sales', (req, res) => {
     const totalAmount = Math.round(qty * salePrice * 100) / 100;
 
     const executeSaleTransaction = db.transaction(() => {
-      const supplement = db.prepare('SELECT current_stock, default_purchase_price FROM supplements WHERE id = ?').get(supplement_id);
+      const supplement = await db.prepare('SELECT current_stock, default_purchase_price FROM supplements WHERE id = ?').get(supplement_id);
       if (!supplement) {
         throw new Error('Selected supplement does not exist');
       }
@@ -4188,7 +4190,7 @@ app.post('/api/supplements/sales', (req, res) => {
         ? supplement.default_purchase_price
         : 0;
 
-      const result = db.prepare(`
+      const result = await db.prepare(`
         INSERT INTO supplement_sales (
           supplement_id, client_id, walkin_name, walkin_phone, quantity,
           sale_price_per_unit, total_amount, cost_price_snapshot, payment_mode, sale_date, created_by
@@ -4207,13 +4209,13 @@ app.post('/api/supplements/sales', (req, res) => {
         created_by || null
       );
 
-      db.prepare('UPDATE supplements SET current_stock = current_stock - ? WHERE id = ?').run(qty, supplement_id);
+      await db.prepare('UPDATE supplements SET current_stock = current_stock - ? WHERE id = ?').run(qty, supplement_id);
 
       return result.lastInsertRowid;
     });
 
     const newSaleId = executeSaleTransaction();
-    const newSale = db.prepare(`
+    const newSale = await db.prepare(`
       SELECT s.*, sup.name as supplement_name, sup.unit as supplement_unit, c.name as client_name
       FROM supplement_sales s
       JOIN supplements sup ON s.supplement_id = sup.id
@@ -4229,7 +4231,7 @@ app.post('/api/supplements/sales', (req, res) => {
 
 // ─── REVENUE & PROFIT DASHBOARD ENDPOINT ──────────────────────────────────────
 
-app.get('/api/supplements/revenue-report', (req, res) => {
+app.get('/api/supplements/revenue-report', async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
 
@@ -4251,10 +4253,10 @@ app.get('/api/supplements/revenue-report', (req, res) => {
       salesParams.push(endDate);
     }
 
-    const purchaseCostRow = db.prepare(`SELECT SUM(total_cost) as total FROM supplement_purchases ${purchasesWhere}`).get(...purchasesParams);
+    const purchaseCostRow = await db.prepare(`SELECT SUM(total_cost) as total FROM supplement_purchases ${purchasesWhere}`).get(...purchasesParams);
     const totalPurchaseCost = purchaseCostRow && purchaseCostRow.total ? purchaseCostRow.total : 0;
 
-    const salesRow = db.prepare(`
+    const salesRow = await db.prepare(`
       SELECT 
         SUM(total_amount) as totalRevenue,
         SUM(quantity * cost_price_snapshot) as totalCogs
@@ -4267,7 +4269,7 @@ app.get('/api/supplements/revenue-report', (req, res) => {
     const profitMarginPct = totalSaleRevenue > 0 ? (grossProfit / totalSaleRevenue) * 100 : 0;
 
     // Per-supplement breakdown
-    const breakdown = db.prepare(`
+    const breakdown = await db.prepare(`
       SELECT 
         sup.id,
         sup.name,
@@ -4290,14 +4292,14 @@ app.get('/api/supplements/revenue-report', (req, res) => {
     }));
 
     // Daily/Monthly time series chart data
-    const dailySales = db.prepare(`
+    const dailySales = await db.prepare(`
       SELECT sale_date as date, SUM(total_amount) as revenue, SUM(quantity * cost_price_snapshot) as cogs
       FROM supplement_sales ${salesWhere}
       GROUP BY sale_date
       ORDER BY sale_date ASC
     `).all(...salesParams);
 
-    const dailyPurchases = db.prepare(`
+    const dailyPurchases = await db.prepare(`
       SELECT purchase_date as date, SUM(total_cost) as cost
       FROM supplement_purchases ${purchasesWhere}
       GROUP BY purchase_date
@@ -4317,7 +4319,7 @@ app.get('/api/supplements/revenue-report', (req, res) => {
 
     const chartData = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 
-    const lowStockAlerts = db.prepare(`
+    const lowStockAlerts = await db.prepare(`
       SELECT * FROM supplements
       WHERE active = 1 AND current_stock <= low_stock_threshold
       ORDER BY current_stock ASC
@@ -4339,12 +4341,12 @@ app.get('/api/supplements/revenue-report', (req, res) => {
   }
 });
 
-app.get('/api/supplements/dashboard-summary', (req, res) => {
+app.get('/api/supplements/dashboard-summary', async (req, res) => {
   try {
     const now = new Date();
     const currentMonthPrefix = now.toISOString().substring(0, 7);
 
-    const salesRow = db.prepare(`
+    const salesRow = await db.prepare(`
       SELECT 
         SUM(total_amount) as monthRevenue,
         SUM(total_amount - (quantity * cost_price_snapshot)) as monthProfit
@@ -4363,9 +4365,9 @@ app.get('/api/supplements/dashboard-summary', (req, res) => {
 
 // ─── GST REPORT & SETTINGS ENDPOINTS ──────────────────────────────────────────
 
-app.get('/api/gst/settings', (req, res) => {
+app.get('/api/gst/settings', async (req, res) => {
   try {
-    const settings = db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || {
+    const settings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || {
       id: 1,
       business_legal_name: 'OLYMPIA FITNESS A/C UNISEX',
       business_gstin: '332323402248ED',
@@ -4378,10 +4380,10 @@ app.get('/api/gst/settings', (req, res) => {
   }
 });
 
-app.post('/api/gst/settings', (req, res) => {
+app.post('/api/gst/settings', async (req, res) => {
   try {
     const { business_legal_name, business_gstin, business_address, gst_rate_percent } = req.body;
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent)
       VALUES (1, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
@@ -4401,14 +4403,14 @@ app.post('/api/gst/settings', (req, res) => {
   }
 });
 
-app.get('/api/gst/report', (req, res) => {
+app.get('/api/gst/report', async (req, res) => {
   try {
     let { month } = req.query;
     if (!month) {
       month = new Date().toISOString().substring(0, 7); // YYYY-MM
     }
 
-    const settings = db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || {
+    const settings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || {
       id: 1,
       business_legal_name: 'OLYMPIA FITNESS A/C UNISEX',
       business_gstin: '332323402248ED',
@@ -4416,7 +4418,7 @@ app.get('/api/gst/report', (req, res) => {
       gst_rate_percent: 4.8
     };
 
-    const allBills = db.prepare(`
+    const allBills = await db.prepare(`
       SELECT * FROM bills 
       WHERE (invoice_category IS NULL OR invoice_category = 'GeneralPlan')
         AND (planName IS NULL OR planName NOT LIKE 'Service:%')
@@ -4506,18 +4508,18 @@ app.get('/api/gst/report', (req, res) => {
   }
 });
 
-app.post('/api/gst/backfill', (req, res) => {
+app.post('/api/gst/backfill', async (req, res) => {
   try {
-    const gstSettings = db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
+    const gstSettings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
     const rate = gstSettings.gst_rate_percent || 4.8;
 
-    const billsToBackfill = db.prepare(`
+    const billsToBackfill = await db.prepare(`
       SELECT * FROM bills 
       WHERE (planName IS NULL OR planName NOT LIKE 'Service:%')
     `).all();
 
     let count = 0;
-    const updateStmt = db.prepare(`
+    const updateStmt = await db.prepare(`
       UPDATE bills SET
         invoice_category = 'GeneralPlan',
         taxable_value = ?,
@@ -4543,23 +4545,23 @@ app.post('/api/gst/backfill', (req, res) => {
 
 
 // ─── RESET ALL OPERATIONAL DATA ──────────────────────────────────────────────
-app.post('/api/reset-operational-data', (req, res) => {
+app.post('/api/reset-operational-data', async (req, res) => {
   try {
     db.pragma('foreign_keys = OFF');
     const tablesToKeep = ['pt_packages', 'settings', 'users', 'sqlite_sequence'];
-    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
     let clearedCount = 0;
     
     for (const tableRow of tables) {
       const tableName = tableRow.name;
       if (!tablesToKeep.includes(tableName.toLowerCase())) {
-        const result = db.prepare(`DELETE FROM "${tableName}"`).run();
+        const result = await db.prepare(`DELETE FROM "${tableName}"`).run();
         clearedCount += result.changes;
       }
     }
     
     db.pragma('foreign_keys = ON');
-    db.exec('VACUUM;');
+    await db.exec('VACUUM;');
     res.json({ success: true, message: `Cleared ${clearedCount} records. Retained PT Packages, Tariff Settings, and Login Users.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
