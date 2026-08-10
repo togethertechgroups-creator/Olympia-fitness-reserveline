@@ -48,6 +48,7 @@
     }
   },
   "dependencies": {
+    "@libsql/client": "^0.17.4",
     "animejs": "^4.3.6",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.6",

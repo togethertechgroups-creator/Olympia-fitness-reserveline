@@ -76,50 +76,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── SQLite Setup ───────────────────────────────────────────────────────────
-let DB_PATH;
-const fs = require('fs');
-
-if (process.env.VERCEL) {
-  const tmpDbPath = path.join('/tmp', 'beast_fitness.db');
-  if (!fs.existsSync(tmpDbPath)) {
-    const srcDbPath = path.join(__dirname, 'beast_fitness.db');
-    if (fs.existsSync(srcDbPath)) {
-      try { fs.copyFileSync(srcDbPath, tmpDbPath); } catch (e) {}
-    }
-  }
-  DB_PATH = tmpDbPath;
-} else if (process.env.DB_PATH) {
-  // Set explicitly by main.cjs (packaged mode)
-  DB_PATH = process.env.DB_PATH;
-} else {
-  try {
-    // Try to get from Electron app
-    const { app: electronApp } = require('electron');
-    if (electronApp && electronApp.isPackaged) {
-      DB_PATH = path.join(electronApp.getPath('userData'), 'beast_fitness.db');
-    } else {
-      DB_PATH = path.join(__dirname, 'beast_fitness.db');
-    }
-  } catch (e) {
-    // Not running inside Electron (e.g., standalone node)
-    DB_PATH = path.join(__dirname, 'beast_fitness.db');
-  }
-}
-
-// Ensure the directory for the DB exists
-const dbDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
-
-const db = new Database(DB_PATH);
-
-// Enable WAL mode for better performance (if not serverless Vercel)
-if (!process.env.VERCEL) {
-  try { db.pragma('journal_mode = WAL'); } catch (e) {}
-}
-db.pragma('foreign_keys = ON');
+// ─── Database Setup (Turso Cloud DB / SQLite) ──────────────────────────────
+const db = require('./db.js');
 
 // ─── Schema Initialization ───────────────────────────────────────────────────
 db.exec(`
