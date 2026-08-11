@@ -3166,7 +3166,7 @@ app.get('/api/settings', async (req, res) => {
 app.put('/api/settings', async (req, res) => {
   try {
     const settings = req.body; // Expecting { key: value, ... }
-    const update = await db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    const update = await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value');
 
     const transaction = async (data) => {
       await db.prepare('DELETE FROM settings').run();
