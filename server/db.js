@@ -1,86 +1,135 @@
-const { createClient } = require('@libsql/client');
-const path = require('path');
-const fs = require('fs');
+require('dotenv').config();
+const { Pool } = require('pg');
 
-let rawUrl = process.env.TURSO_DATABASE_URL || 'libsql://olympia-reserveline-togethertechgroups-creator.aws-ap-south-1.turso.io';
-const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN || 'eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODYzNTM1NTEsImlkIjoiMDE5ZmVhZjYtZGEwMS03M2QzLTg2NjItMDBlNjYzNWNkNjgzIiwia2lkIjoibDRZZTBadGdtdzJDT2VfSUFLX3haYnI2eTl5V0Q4V25ZbjQ4Zng4b092QSIsInJpZCI6IjUxNDE1YjM0LTUxN2EtNGRlNS04NjRjLWVkNjM2ZTA0YTNiMiJ9.mQQWWxKPLnQIIsUSNPqhVJYWwX_vB_9zJ2Uym2T7IDAeb3TptKIjijHBhOIH_FHLC5YMQgpmigPMGN3g9VkLBg';
+// ─── Neon PostgreSQL Connection ───────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000
+});
 
-if (rawUrl.startsWith('libsql://')) {
-  rawUrl = rawUrl.replace('libsql://', 'https://');
+pool.on('error', (err) => {
+  console.error('Unexpected pg pool error:', err.message);
+});
+
+console.log('☁️ Connected to Neon PostgreSQL Database!');
+
+// Convert SQLite ? positional placeholders → PostgreSQL $1, $2, ...
+function convertPlaceholders(sql) {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
 }
 
-const isTurso = !!(process.env.TURSO_DATABASE_URL || process.env.VERCEL || process.env.USE_TURSO);
-
-let dbClient = null;
-
+// Normalize args — handle (arg1, arg2, ...) or ([arg1, arg2]) or ({key: val})
 function flattenArgs(args) {
+  if (args.length === 0) return [];
   if (args.length === 1 && Array.isArray(args[0])) return args[0];
-  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null && !Array.isArray(args[0])) return args[0];
+  if (
+    args.length === 1 &&
+    typeof args[0] === 'object' &&
+    args[0] !== null &&
+    !Array.isArray(args[0])
+  ) {
+    return Object.values(args[0]);
+  }
   return args;
 }
 
-if (isTurso) {
-  console.log("☁️ Connected to Turso Cloud Database via HTTPS!");
-  const client = createClient({
-    url: rawUrl,
-    authToken: TURSO_TOKEN
-  });
-
-  dbClient = {
-    isTurso: true,
-    client,
-    async exec(sql) {
-      await client.executeMultiple(sql);
-    },
-    prepare(sql) {
-      return {
-        async get(...args) {
-          const res = await client.execute({ sql, args: flattenArgs(args) });
-          return res.rows.length > 0 ? res.rows[0] : undefined;
-        },
-        async all(...args) {
-          const res = await client.execute({ sql, args: flattenArgs(args) });
-          return res.rows;
-        },
-        async run(...args) {
-          const res = await client.execute({ sql, args: flattenArgs(args) });
-          return {
-            changes: Number(res.rowsAffected || 0),
-            lastInsertRowid: res.lastInsertRowid !== undefined ? Number(res.lastInsertRowid) : 0
-          };
-        }
-      };
-    }
-  };
-} else {
-  console.log("📁 Connected to Local SQLite Database!");
-  const Database = require('better-sqlite3');
-  const DB_PATH = path.join(__dirname, 'beast_fitness.db');
-  const sqlite = new Database(DB_PATH);
-  try { sqlite.pragma('journal_mode = WAL'); } catch (e) {}
-  sqlite.pragma('foreign_keys = ON');
-
-  dbClient = {
-    isTurso: false,
-    sqlite,
-    async exec(sql) {
-      sqlite.exec(sql);
-    },
-    prepare(sql) {
-      const stmt = sqlite.prepare(sql);
-      return {
-        async get(...args) {
-          return stmt.get(...flattenArgs(args));
-        },
-        async all(...args) {
-          return stmt.all(...flattenArgs(args));
-        },
-        async run(...args) {
-          return stmt.run(...flattenArgs(args));
-        }
-      };
-    }
-  };
+// Normalize row values — convert boolean-like integers from old SQLite schema
+function normalizeRow(row) {
+  if (!row) return row;
+  const out = {};
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = v;
+  }
+  return out;
 }
 
-module.exports = dbClient;
+const db = {
+  // Tell index.js to skip the SQLite `if (!db.isTurso)` init block
+  isTurso: true,
+  isNeon: true,
+  pool,
+
+  // Run raw SQL (used by migrate-pg.js)
+  async exec(sql) {
+    const client = await pool.connect();
+    try {
+      await client.query(sql);
+    } finally {
+      client.release();
+    }
+  },
+
+  // Stub — not used with PostgreSQL (no PRAGMA support)
+  pragma() {},
+
+  prepare(sql) {
+    const pgSql = convertPlaceholders(sql);
+    const isInsert = /^\s*INSERT/i.test(sql);
+    const hasReturning = /RETURNING/i.test(sql);
+
+    return {
+      // Return first row or undefined
+      async get(...args) {
+        const params = flattenArgs(args);
+        try {
+          const result = await pool.query(pgSql, params.length ? params : undefined);
+          return result.rows.length > 0 ? normalizeRow(result.rows[0]) : undefined;
+        } catch (err) {
+          console.error('pg.get error:', err.message, '\nSQL:', pgSql, '\nParams:', params);
+          throw err;
+        }
+      },
+
+      // Return all rows
+      async all(...args) {
+        const params = flattenArgs(args);
+        try {
+          const result = await pool.query(pgSql, params.length ? params : undefined);
+          return result.rows.map(normalizeRow);
+        } catch (err) {
+          console.error('pg.all error:', err.message, '\nSQL:', pgSql, '\nParams:', params);
+          throw err;
+        }
+      },
+
+      // Run a mutation (INSERT/UPDATE/DELETE), returns { changes, lastInsertRowid }
+      async run(...args) {
+        const params = flattenArgs(args);
+        let querySql = pgSql;
+
+        // For INSERT without RETURNING, append RETURNING id to get auto-generated key
+        if (isInsert && !hasReturning) {
+          querySql = pgSql + ' RETURNING id';
+        }
+
+        try {
+          const result = await pool.query(querySql, params.length ? params : undefined);
+          let lastInsertRowid = 0;
+          if (isInsert && result.rows.length > 0 && result.rows[0].id !== undefined) {
+            lastInsertRowid = result.rows[0].id;
+          }
+          return { changes: result.rowCount || 0, lastInsertRowid };
+        } catch (err) {
+          // If RETURNING id fails (table has no integer id), retry without it
+          if (isInsert && !hasReturning && err.message.includes('id')) {
+            try {
+              const result = await pool.query(pgSql, params.length ? params : undefined);
+              return { changes: result.rowCount || 0, lastInsertRowid: 0 };
+            } catch (err2) {
+              console.error('pg.run retry error:', err2.message, '\nSQL:', pgSql);
+              throw err2;
+            }
+          }
+          console.error('pg.run error:', err.message, '\nSQL:', pgSql, '\nParams:', params);
+          throw err;
+        }
+      }
+    };
+  }
+};
+
+module.exports = db;

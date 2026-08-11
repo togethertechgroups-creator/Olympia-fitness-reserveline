@@ -334,104 +334,104 @@ if (!db.isTurso) {
   );
 `);
 
-try {
-  db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
-} catch (e) { }
+  try {
+    db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
+  } catch (e) { }
 
-// ─── Initialize Settings if empty ───────────────────────────────────────────
-const initialSettings = [
-  { key: 'Monthly', value: 1000 },
-  { key: 'Quarterly', value: 2500 },
-  { key: 'Half-Yearly', value: 4500 },
-  { key: 'Annual', value: 8000 },
-  { key: 'PT_Certified', value: 1000 },
-  { key: 'PT_Pro', value: 1500 },
-  { key: 'Diet', value: 500 }
-];
-
-initialSettings.forEach(setting => {
-  db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
-});
-
-// ─── Initialize Users if empty ──────────────────────────────────────────────
-const initialUsers = [
-  { id: randomUUID(), username: 'olympia', password: 'master123', role: 'superadmin' },
-  { id: randomUUID(), username: 'olympia', password: 'admin123', role: 'admin' }
-];
-
-initialUsers.forEach(user => {
-  const existing = db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
-  if (!existing) {
-    db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
-      user.id, user.username, user.password, user.role
-    );
-  }
-});
-
-// ─── Initialize Default Other Services Tariffs if empty ────────────────────
-try {
-  const serviceCount = db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
-  if (serviceCount === 0) {
-    const defaultOtherServices = [
-      { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
-      { name: 'Monthly Locker Rental', price: 300, duration_days: 30 },
-      { name: 'Steam & Sauna Pass (1 Month)', price: 800, duration_days: 30 },
-      { name: 'Body Composition Analysis (InBody)', price: 250, duration_days: 1 },
-      { name: 'Guest Day Pass', price: 200, duration_days: 1 }
-    ];
-
-    const insertStmt = db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
-    defaultOtherServices.forEach(s => {
-      insertStmt.run(s.name, s.price, s.duration_days);
-    });
-  }
-} catch (e) {
-  console.error("Error seeding initial other_service_tariffs:", e.message);
-}
-
-// ─── Migration: Add new columns if they don't exist ─────────────────────────
-try {
-  const columns = [
-    { name: 'gender', type: 'TEXT' },
-    { name: 'ptCategory', type: 'TEXT' },
-    { name: 'ptFromDate', type: 'TEXT' },
-    { name: 'ptToDate', type: 'TEXT' },
-    { name: 'ptPackage', type: 'TEXT' },
-    { name: 'programType', type: 'TEXT' },
-    { name: 'diet', type: 'INTEGER DEFAULT 0' },
-    { name: 'trainerId', type: 'TEXT' },
-    { name: 'admissionDate', type: 'TEXT' },
-    { name: 'profileImage', type: 'TEXT' },
-    { name: 'paidAmount', type: 'REAL DEFAULT 0' },
-    { name: 'dueAmount', type: 'REAL DEFAULT 0' },
-    { name: 'paymentStatus', type: 'TEXT DEFAULT "Paid"' },
-    { name: 'gstin', type: 'TEXT' }
+  // ─── Initialize Settings if empty ───────────────────────────────────────────
+  const initialSettings = [
+    { key: 'Monthly', value: 1000 },
+    { key: 'Quarterly', value: 2500 },
+    { key: 'Half-Yearly', value: 4500 },
+    { key: 'Annual', value: 8000 },
+    { key: 'PT_Certified', value: 1000 },
+    { key: 'PT_Pro', value: 1500 },
+    { key: 'Diet', value: 500 }
   ];
 
-  columns.forEach(col => {
-    try {
-      db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
-      console.log(`✅ Added column ${col.name} to clients table`);
-    } catch (e) {
-      // Column might already exist
+  initialSettings.forEach(setting => {
+    db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
+  });
+
+  // ─── Initialize Users if empty ──────────────────────────────────────────────
+  const initialUsers = [
+    { id: randomUUID(), username: 'olympia', password: 'master123', role: 'superadmin' },
+    { id: randomUUID(), username: 'olympia', password: 'admin123', role: 'admin' }
+  ];
+
+  initialUsers.forEach(user => {
+    const existing = db.prepare('SELECT id FROM users WHERE role = ?').get(user.role);
+    if (!existing) {
+      db.prepare('INSERT INTO users (id, username, password, role) VALUES (?, ?, ?, ?)').run(
+        user.id, user.username, user.password, user.role
+      );
     }
   });
 
-  try { db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
-  try { db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
-  try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
-
+  // ─── Initialize Default Other Services Tariffs if empty ────────────────────
   try {
-    db.prepare(`
+    const serviceCount = db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
+    if (serviceCount === 0) {
+      const defaultOtherServices = [
+        { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
+        { name: 'Monthly Locker Rental', price: 300, duration_days: 30 },
+        { name: 'Steam & Sauna Pass (1 Month)', price: 800, duration_days: 30 },
+        { name: 'Body Composition Analysis (InBody)', price: 250, duration_days: 1 },
+        { name: 'Guest Day Pass', price: 200, duration_days: 1 }
+      ];
+
+      const insertStmt = db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)');
+      defaultOtherServices.forEach(s => {
+        insertStmt.run(s.name, s.price, s.duration_days);
+      });
+    }
+  } catch (e) {
+    console.error("Error seeding initial other_service_tariffs:", e.message);
+  }
+
+  // ─── Migration: Add new columns if they don't exist ─────────────────────────
+  try {
+    const columns = [
+      { name: 'gender', type: 'TEXT' },
+      { name: 'ptCategory', type: 'TEXT' },
+      { name: 'ptFromDate', type: 'TEXT' },
+      { name: 'ptToDate', type: 'TEXT' },
+      { name: 'ptPackage', type: 'TEXT' },
+      { name: 'programType', type: 'TEXT' },
+      { name: 'diet', type: 'INTEGER DEFAULT 0' },
+      { name: 'trainerId', type: 'TEXT' },
+      { name: 'admissionDate', type: 'TEXT' },
+      { name: 'profileImage', type: 'TEXT' },
+      { name: 'paidAmount', type: 'REAL DEFAULT 0' },
+      { name: 'dueAmount', type: 'REAL DEFAULT 0' },
+      { name: 'paymentStatus', type: 'TEXT DEFAULT "Paid"' },
+      { name: 'gstin', type: 'TEXT' }
+    ];
+
+    columns.forEach(col => {
+      try {
+        db.prepare(`ALTER TABLE clients ADD COLUMN ${col.name} ${col.type}`).run();
+        console.log(`✅ Added column ${col.name} to clients table`);
+      } catch (e) {
+        // Column might already exist
+      }
+    });
+
+    try { db.prepare('ALTER TABLE transactions ADD COLUMN clientId TEXT').run(); } catch (e) { }
+    try { db.prepare('ALTER TABLE transactions ADD COLUMN billId TEXT').run(); } catch (e) { }
+    try { db.prepare('ALTER TABLE bills ADD COLUMN dueNumber INTEGER DEFAULT 0').run(); } catch (e) { }
+    try { db.prepare('ALTER TABLE bills ADD COLUMN totalPlanAmount REAL DEFAULT 0').run(); } catch (e) { }
+    try { db.prepare('ALTER TABLE bills ADD COLUMN remainingBalance REAL DEFAULT 0').run(); } catch (e) { }
+    try { db.prepare('ALTER TABLE bills ADD COLUMN planName TEXT').run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN invoice_category TEXT DEFAULT 'GeneralPlan'").run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN taxable_value REAL").run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN cgst_amount REAL").run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN sgst_amount REAL").run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
+    try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
+
+    try {
+      db.prepare(`
       UPDATE clients 
       SET dueAmount = MAX(0, COALESCE(amount, 0) - COALESCE(paidAmount, amount)),
           paymentStatus = CASE 
@@ -441,49 +441,49 @@ try {
           END
       WHERE amount IS NOT NULL AND paidAmount IS NOT NULL
     `).run();
-    console.log('✅ Synchronized client dueAmount database values');
-  } catch (e) { }
+      console.log('✅ Synchronized client dueAmount database values');
+    } catch (e) { }
 
-  try {
-    db.prepare(`
+    try {
+      db.prepare(`
       UPDATE bills 
       SET remainingBalance = MAX(0, COALESCE(totalPlanAmount, planAmount, 0) - COALESCE(paidAmount, 0))
       WHERE totalPlanAmount IS NOT NULL AND paidAmount IS NOT NULL
     `).run();
-    console.log('✅ Synchronized bills remainingBalance database values');
-  } catch (e) { }
+      console.log('✅ Synchronized bills remainingBalance database values');
+    } catch (e) { }
 
-  try {
-    const InquiryCols = [
-      { name: 'marriedStatus', type: 'TEXT' },
-      { name: 'occupation', type: 'TEXT' },
-      { name: 'company', type: 'TEXT' },
-      { name: 'address', type: 'TEXT' },
-      { name: 'email', type: 'TEXT' },
-      { name: 'height', type: 'TEXT' },
-      { name: 'weight', type: 'TEXT' },
-      { name: 'bmi', type: 'TEXT' },
-      { name: 'lbm', type: 'TEXT' },
-      { name: 'fat', type: 'TEXT' },
-      { name: 'referredBy', type: 'TEXT' },
-      { name: 'lookingFor', type: 'TEXT' },
-      { name: 'enquiredBy', type: 'TEXT' },
-      { name: 'messaged', type: 'TEXT' },
-      { name: 'tariffDiscussed', type: 'TEXT' },
-      { name: 'reminderCall', type: 'TEXT' },
-      { name: 'call1', type: 'TEXT' },
-      { name: 'call2', type: 'TEXT' },
-      { name: 'call3', type: 'TEXT' }
-    ];
-    InquiryCols.forEach(col => {
-      try {
-        db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
-      } catch (e) { }
-    });
-  } catch (err) { }
-} catch (err) {
-  console.error('Outer migration error:', err.message);
-}
+    try {
+      const InquiryCols = [
+        { name: 'marriedStatus', type: 'TEXT' },
+        { name: 'occupation', type: 'TEXT' },
+        { name: 'company', type: 'TEXT' },
+        { name: 'address', type: 'TEXT' },
+        { name: 'email', type: 'TEXT' },
+        { name: 'height', type: 'TEXT' },
+        { name: 'weight', type: 'TEXT' },
+        { name: 'bmi', type: 'TEXT' },
+        { name: 'lbm', type: 'TEXT' },
+        { name: 'fat', type: 'TEXT' },
+        { name: 'referredBy', type: 'TEXT' },
+        { name: 'lookingFor', type: 'TEXT' },
+        { name: 'enquiredBy', type: 'TEXT' },
+        { name: 'messaged', type: 'TEXT' },
+        { name: 'tariffDiscussed', type: 'TEXT' },
+        { name: 'reminderCall', type: 'TEXT' },
+        { name: 'call1', type: 'TEXT' },
+        { name: 'call2', type: 'TEXT' },
+        { name: 'call3', type: 'TEXT' }
+      ];
+      InquiryCols.forEach(col => {
+        try {
+          db.prepare(`ALTER TABLE inquiries ADD COLUMN ${col.name} ${col.type}`).run();
+        } catch (e) { }
+      });
+    } catch (err) { }
+  } catch (err) {
+    console.error('Outer migration error:', err.message);
+  }
 
   // ─── PT Module Migrations & Tables ──────────────────────────────────────────
   try {
@@ -732,25 +732,6 @@ try {
       console.log('✅ Seeded catalog PT packages');
     }
 
-    // Sponsor Payment Update Migration to ₹50,000
-    try {
-      const existingSponsorTariff = db.prepare("SELECT * FROM other_service_tariffs WHERE LOWER(name) LIKE '%spon%'").get();
-      if (existingSponsorTariff) {
-        db.prepare("UPDATE other_service_tariffs SET price = 50000 WHERE id = ?").run(existingSponsorTariff.id);
-      } else {
-        db.prepare("INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES ('Sponsor Payment', 50000, 365, 0, 1)").run();
-      }
-
-      db.prepare("UPDATE other_service_sales SET price_snapshot = 50000 WHERE service_id IN (SELECT id FROM other_service_tariffs WHERE LOWER(name) LIKE '%spon%')").run();
-      db.prepare("UPDATE clients SET amount = 50000, paidAmount = 50000, dueAmount = 0 WHERE LOWER(name) LIKE '%spon%' OR LOWER(plan) LIKE '%spon%'").run();
-      db.prepare("UPDATE bills SET planAmount = 50000, paidAmount = 50000, totalPlanAmount = 50000, remainingBalance = 0 WHERE LOWER(clientName) LIKE '%spon%' OR LOWER(planName) LIKE '%spon%'").run();
-      db.prepare("UPDATE transactions SET amount = 50000 WHERE LOWER(name) LIKE '%spon%'").run();
-      db.prepare("UPDATE expenses SET amount = 50000 WHERE LOWER(name) LIKE '%spon%' OR LOWER(notes) LIKE '%spon%'").run();
-      console.log('✅ Updated Sponsor Payment amount to ₹50,000 across database');
-    } catch (e) {
-      console.error('Sponsor payment migration notice:', e.message);
-    }
-
     // Ensure "100 Days Challenge" package exists in catalog
     const challengePkg = db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
     if (!challengePkg) {
@@ -766,199 +747,197 @@ try {
   }
 }
 
-  // ─── PT Calculation & Auto-Expiry Helpers ────────────────────────────────────
-  const autoExpireAssignments = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const result = await db.prepare(`
+// ─── PT Calculation & Auto-Expiry Helpers ────────────────────────────────────
+const autoExpireAssignments = async () => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const result = await db.prepare(`
         UPDATE pt_assignments
         SET status = 'Expired'
-        WHERE status = 'Active' AND expiry_date IS NOT NULL AND date(expiry_date) < date(?)
+        WHERE status = 'Active' AND expiry_date IS NOT NULL AND expiry_date < ?::date
       `).run(today);
-      if (result && result.changes > 0) {
-        console.log(`⏰ Auto-expired ${result.changes} PT assignments.`);
-      }
-    } catch (e) {
-      console.error('Error auto-expiring PT assignments:', e.message);
+    if (result && result.changes > 0) {
+      console.log(`⏰ Auto-expired ${result.changes} PT assignments.`);
     }
-  };
+  } catch (e) {
+    console.error('Error auto-expiring PT assignments:', e.message);
+  }
+};
 
-  const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedDate, expiryDate) => {
-    try {
-      const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
-      if (!client) return null;
+const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedDate, expiryDate) => {
+  try {
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+    if (!client) return null;
 
-      const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
-      let nextBillNo = 'INV-0001';
-      if (billRow && billRow.billNo) {
-        const match = billRow.billNo.match(/INV-(\d{4})/);
-        if (match) {
-          nextBillNo = `INV-${(parseInt(match[1], 10) + 1).toString().padStart(4, '0')}`;
-        }
+    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
+    let nextBillNo = 'INV-0001';
+    if (billRow && billRow.billNo) {
+      const match = billRow.billNo.match(/INV-(\d{4})/);
+      if (match) {
+        nextBillNo = `INV-${(parseInt(match[1], 10) + 1).toString().padStart(4, '0')}`;
       }
+    }
 
-      const billId = randomUUID();
-      const invoiceDateStr = toDateLabel();
+    const billId = randomUUID();
+    const invoiceDateStr = toDateLabel();
 
-      await db.prepare(`
+    await db.prepare(`
         INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        billId,
-        nextBillNo,
-        clientId,
-        client.name,
-        invoiceDateStr,
-        assignedDate || '',
-        expiryDate || '',
-        priceSnapshot,
-        0,
-        priceSnapshot,
-        'Due',
-        0,
-        priceSnapshot,
-        priceSnapshot
-      );
+      billId,
+      nextBillNo,
+      clientId,
+      client.name,
+      invoiceDateStr,
+      assignedDate || '',
+      expiryDate || '',
+      priceSnapshot,
+      0,
+      priceSnapshot,
+      'Due',
+      0,
+      priceSnapshot,
+      priceSnapshot
+    );
 
-      const currentDue = client.dueAmount || 0;
-      const newDue = currentDue + priceSnapshot;
-      const newPaymentStatus = newDue <= 0 ? 'Paid' : 'Due';
-      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, newPaymentStatus, clientId);
+    const currentDue = client.dueAmount || 0;
+    const newDue = currentDue + priceSnapshot;
+    const newPaymentStatus = newDue <= 0 ? 'Paid' : 'Due';
+    await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, newPaymentStatus, clientId);
 
-      return { billId, billNo: nextBillNo };
-    } catch (err) {
-      console.error('Error generating PT invoice:', err.message);
-      return null;
-    }
-  };
+    return { billId, billNo: nextBillNo };
+  } catch (err) {
+    console.error('Error generating PT invoice:', err.message);
+    return null;
+  }
+};
 
-  const autoActivateAdvanceBookings = async () => {
-    try {
-      const today = new Date().toISOString().split('T')[0];
+const autoActivateAdvanceBookings = async () => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
 
-      // 1. General Package Advance Bookings Auto-Activation
-      const scheduledGenBookings = await db.prepare(`
-        SELECT b.*, c.expiryDate as currentExpiry
+    // 1. General Package Advance Bookings Auto-Activation
+    const scheduledGenBookings = await db.prepare(`
+        SELECT b.*, c."expiryDate" as "currentExpiry"
         FROM general_package_bookings b
         JOIN clients c ON b.client_id = c.id
-        WHERE b.status = 'Scheduled' AND date(b.booking_start_date) <= date(?)
+        WHERE b.status = 'Scheduled' AND b.booking_start_date <= ?::date
       `).all(today);
 
-      for (const b of (scheduledGenBookings || [])) {
-        const isCurrentExpired = !b.currentExpiry || b.currentExpiry < today;
-        if (isCurrentExpired) {
-          await db.prepare(`
+    for (const b of (scheduledGenBookings || [])) {
+      const isCurrentExpired = !b.currentExpiry || b.currentExpiry < today;
+      if (isCurrentExpired) {
+        await db.prepare(`
             UPDATE clients 
             SET plan = ?, fromDate = ?, expiryDate = ?, amount = ?, status = 'active'
             WHERE id = ?
           `).run(b.plan_type, b.booking_start_date, b.booking_end_date, b.price, b.client_id);
 
-          await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
-          console.log(`✅ [Cron] Auto-activated General Package Booking #${b.id} for Client ${b.client_id}`);
-        }
+        await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
+        console.log(`✅ [Cron] Auto-activated General Package Booking #${b.id} for Client ${b.client_id}`);
       }
+    }
 
-      // 2. PT Advance Bookings Flagging to ReadyToActivate
-      const scheduledPtBookings = await db.prepare(`
+    // 2. PT Advance Bookings Flagging to ReadyToActivate
+    const scheduledPtBookings = await db.prepare(`
         SELECT b.*
         FROM pt_advance_bookings b
-        WHERE b.status = 'Scheduled' AND date(b.booking_start_date) <= date(?)
+        WHERE b.status = 'Scheduled' AND b.booking_start_date <= ?::date
       `).all(today);
 
-      for (const b of (scheduledPtBookings || [])) {
-        const activeAssignment = await db.prepare(`
+    for (const b of (scheduledPtBookings || [])) {
+      const activeAssignment = await db.prepare(`
           SELECT id FROM pt_assignments
-          WHERE client_id = ? AND status = 'Active' AND date(expiry_date) >= date(?)
+          WHERE client_id = ? AND status = 'Active' AND expiry_date >= ?::date
         `).get(b.client_id, today);
 
-        if (!activeAssignment) {
-          await db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
-          console.log(`⏰ [Cron] PT Advance Booking #${b.id} marked as ReadyToActivate`);
-        }
+      if (!activeAssignment) {
+        await db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
+        console.log(`⏰ [Cron] PT Advance Booking #${b.id} marked as ReadyToActivate`);
       }
-    } catch (e) {
-      console.error('Error auto-activating advance bookings:', e.message);
     }
-  };
+  } catch (e) {
+    console.error('Error auto-activating advance bookings:', e.message);
+  }
+};
 
-  // Run on startup
-  if (!db.isTurso) {
-  autoExpireAssignments();
-  autoActivateAdvanceBookings();
-}
+// Run on startup
+autoExpireAssignments();
+autoActivateAdvanceBookings();
 
-  const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
-    const baseStr = assignedDateStr || new Date().toISOString().split('T')[0];
-    const parts = baseStr.split('-');
-    if (parts.length !== 3) return baseStr;
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    const d = new Date(year, month, day);
-    d.setDate(d.getDate() + parseInt(durationDays || 30, 10));
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
-  };
+const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
+  const baseStr = assignedDateStr || new Date().toISOString().split('T')[0];
+  const parts = baseStr.split('-');
+  if (parts.length !== 3) return baseStr;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  const d = new Date(year, month, day);
+  d.setDate(d.getDate() + parseInt(durationDays || 30, 10));
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
 
-  const COMMISSION_MATRIX = {
-    'A_PRO_PT': { Slab1: 0.40, Slab2: 0.25 },
-    'A':        { Slab1: 0.40, Slab2: 0.25 },
-    'B':        { Slab1: 0.30, Slab2: 0.25 }
-  };
+const COMMISSION_MATRIX = {
+  'A_PRO_PT': { Slab1: 0.40, Slab2: 0.25 },
+  'A': { Slab1: 0.40, Slab2: 0.25 },
+  'B': { Slab1: 0.30, Slab2: 0.25 }
+};
 
-  const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
-    const row = await db.prepare(`
-      SELECT SUM(a.package_price_snapshot / a.total_classes_snapshot) as baseRevenue
+const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
+  const row = await db.prepare(`
+      SELECT SUM(a.package_price_snapshot / a.total_classes_snapshot) as "baseRevenue"
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
+      WHERE l.trainer_id = ? AND TO_CHAR(l.class_date::date, 'YYYY-MM') = ?
     `).get(trainerId, yearMonthStr);
-    return row && row.baseRevenue ? row.baseRevenue : 0;
-  };
+  return row && row.baseRevenue ? row.baseRevenue : 0;
+};
 
-  const getSlabForRevenue = (baseRevenue) => {
-    return baseRevenue > 300000 ? 'Slab1' : 'Slab2';
-  };
+const getSlabForRevenue = (baseRevenue) => {
+  return baseRevenue > 300000 ? 'Slab1' : 'Slab2';
+};
 
-  const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
-    let commRate = 0.25;
-    if (trainer && trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '') {
-      commRate = parseFloat(trainer.custom_commission_percent) / 100;
-    } else if (trainer && trainer.grade && COMMISSION_MATRIX[trainer.grade]) {
-      commRate = COMMISSION_MATRIX[trainer.grade][slab] || 0.25;
-    }
-    return (packagePrice * commRate) / totalClasses;
-  };
+const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
+  let commRate = 0.25;
+  if (trainer && trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '') {
+    commRate = parseFloat(trainer.custom_commission_percent) / 100;
+  } else if (trainer && trainer.grade && COMMISSION_MATRIX[trainer.grade]) {
+    commRate = COMMISSION_MATRIX[trainer.grade][slab] || 0.25;
+  }
+  return (packagePrice * commRate) / totalClasses;
+};
 
-  const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
-    const totalRevenue = await getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
-    const currentSlab = getSlabForRevenue(totalRevenue);
-    
-    const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
-    if (!trainer) return currentSlab;
+const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
+  const totalRevenue = await getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
+  const currentSlab = getSlabForRevenue(totalRevenue);
 
-    const logs = await db.prepare(`
+  const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
+  if (!trainer) return currentSlab;
+
+  const logs = await db.prepare(`
       SELECT l.id, a.package_price_snapshot, a.total_classes_snapshot
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
+      WHERE l.trainer_id = ? AND TO_CHAR(l.class_date::date, 'YYYY-MM') = ?
     `).all(trainerId, yearMonthStr);
 
-    const updateStmt = await db.prepare(`
+  const updateStmt = await db.prepare(`
       UPDATE pt_class_log
       SET per_class_rate_snapshot = ?, slab_applied = ?
       WHERE id = ?
     `);
 
-    for (const log of (logs || [])) {
-      const rate = calculatePerClassRate(log.package_price_snapshot, log.total_classes_snapshot, trainer, currentSlab);
-      await updateStmt.run(rate, currentSlab, log.id);
-    }
+  for (const log of (logs || [])) {
+    const rate = calculatePerClassRate(log.package_price_snapshot, log.total_classes_snapshot, trainer, currentSlab);
+    await updateStmt.run(rate, currentSlab, log.id);
+  }
 
-    return currentSlab;
-  };
+  return currentSlab;
+};
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 const toDateLabel = (d = new Date()) => {
@@ -1608,8 +1587,8 @@ app.post('/api/pt-assignments', async (req, res) => {
     const today = new Date().toISOString().split('T')[0];
     const existingActive = await db.prepare(`
       SELECT * FROM pt_assignments
-      WHERE client_id = ? AND status = 'Active' AND date(expiry_date) >= date(?)
-      ORDER BY date(expiry_date) DESC LIMIT 1
+      WHERE client_id = ? AND status = 'Active' AND expiry_date >= ?::date
+      ORDER BY expiry_date DESC LIMIT 1
     `).get(client_id, today);
 
     if (existingActive) {
@@ -1803,8 +1782,8 @@ app.post('/api/pt-advance-bookings', async (req, res) => {
 
     const latestPt = await db.prepare(`
       SELECT * FROM pt_assignments
-      WHERE client_id = ? AND (status = 'Active' OR date(expiry_date) >= date('now'))
-      ORDER BY date(expiry_date) DESC LIMIT 1
+      WHERE client_id = ? AND (status = 'Active' OR expiry_date >= CURRENT_DATE)
+      ORDER BY expiry_date DESC LIMIT 1
     `).get(client_id);
 
     if (latestPt && latestPt.expiry_date) {
@@ -2055,7 +2034,7 @@ app.get('/api/pt-class-log/history', async (req, res) => {
     const params = [];
 
     if (month && month !== 'undefined') {
-      sql += " AND strftime('%Y-%m', l.class_date) = ?";
+      sql += " AND TO_CHAR(l.class_date::date, 'YYYY-MM') = ?";
       params.push(targetMonth);
     }
     if (client_id && client_id !== 'undefined') {
@@ -2099,23 +2078,23 @@ async function getMonthlyGymTotalRevenue(targetMonth) {
       }
       if (matches) total += (parseFloat(t.amount) || 0);
     });
-  } catch (e) {}
+  } catch (e) { }
 
   try {
     const row = await db.prepare(`
-      SELECT SUM(price_snapshot) as sumVal FROM other_service_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
+      SELECT SUM(price_snapshot) as "sumVal" FROM other_service_sales
+      WHERE TO_CHAR(sale_date::date, 'YYYY-MM') = ?
     `).get(targetMonth);
     if (row && row.sumVal) total += parseFloat(row.sumVal);
-  } catch (e) {}
+  } catch (e) { }
 
   try {
     const row = await db.prepare(`
-      SELECT SUM(total_price) as sumVal FROM supplement_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
+      SELECT SUM(total_amount) as "sumVal" FROM supplement_sales
+      WHERE TO_CHAR(sale_date::date, 'YYYY-MM') = ?
     `).get(targetMonth);
     if (row && row.sumVal) total += parseFloat(row.sumVal);
-  } catch (e) {}
+  } catch (e) { }
 
   return total;
 }
@@ -2132,7 +2111,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
     const gymTotalRevenue = await getMonthlyGymTotalRevenue(targetMonth);
     const isRevenueBelow3Lakhs = gymTotalRevenue < 300000;
 
-    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE strftime('%Y-%m', class_date) = ?) ORDER BY name ASC").all(targetMonth);
+    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE TO_CHAR(class_date::date, 'YYYY-MM') = ?) ORDER BY name ASC").all(targetMonth);
 
     const reportData = await Promise.all(trainers.map(async (tr) => {
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
@@ -2152,7 +2131,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
         JOIN trainers t ON l.trainer_id = t.id
         JOIN trainers at ON a.trainer_id = at.id
         JOIN pt_packages p ON a.pt_package_id = p.id
-        WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
+        WHERE l.trainer_id = ? AND TO_CHAR(l.class_date::date, 'YYYY-MM') = ?
         ORDER BY l.class_date DESC
       `).all(tr.id, targetMonth);
 
@@ -2265,7 +2244,7 @@ app.post('/api/trainer-payroll-adjustments', async (req, res) => {
       trainer_id, month, basic_pay, bonus, bonus_note,
       incentive_amount, incentive_type, other_amount, other_type, other_label, user_role
     } = req.body;
-    
+
     // Superadmin Access Control
     if (user_role !== 'superadmin') {
       return res.status(403).json({ error: 'Access denied. Master / Superadmin access only.' });
@@ -2449,9 +2428,9 @@ app.get('/api/stats/pt-summary', async (req, res) => {
     const currentMonthStr = new Date().toISOString().substring(0, 7);
 
     const totalRow = await db.prepare(`
-      SELECT SUM(per_class_rate_snapshot) as totalPayable
+      SELECT SUM(per_class_rate_snapshot) as "totalPayable"
       FROM pt_class_log
-      WHERE strftime('%Y-%m', class_date) = ?
+      WHERE TO_CHAR(class_date::date, 'YYYY-MM') = ?
     `).get(currentMonthStr);
 
     const totalPtCommissionPayable = totalRow && totalRow.totalPayable ? totalRow.totalPayable : 0;
@@ -3032,10 +3011,10 @@ app.get('/api/stats', async (req, res) => {
     const totalOtherServiceRevenue = otherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0);
 
     const totalRevenueVal = allTxns.reduce((sum, t) => sum + (t.amount || 0), 0) + totalOtherServiceRevenue;
-    
+
     const monthlyOtherServiceRevenue = await db.prepare(`
       SELECT SUM(price_snapshot) as total FROM other_service_sales
-      WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
+      WHERE TO_CHAR(sale_date::date, 'MM') = ? AND TO_CHAR(sale_date::date, 'YYYY') = ?
     `).get(mm, String(currentYear))?.total || 0;
 
     const monthlyCollectionVal = allTxns
@@ -3099,13 +3078,13 @@ app.get('/api/stats', async (req, res) => {
     const monthlyTxnsCount = allTxns.filter(t => t.date && t.date.includes(dateSearch)).length;
     const renewalsMonthCount = Math.max(0, monthlyTxnsCount - newClientsMonthCount);
 
-    const generalAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get().cnt;
-    const ptAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get().cnt;
+    const generalAdvanceCount = (await db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get())?.cnt || 0;
+    const ptAdvanceCount = (await db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get())?.cnt || 0;
 
-    const monthlyOtherServiceSalesCount = await db.prepare(`
+    const monthlyOtherServiceSalesCount = (await db.prepare(`
       SELECT COUNT(*) as cnt FROM other_service_sales
-      WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
-    `).get(mm, String(currentYear))?.cnt || 0;
+      WHERE TO_CHAR(sale_date::date, 'MM') = ? AND TO_CHAR(sale_date::date, 'YYYY') = ?
+    `).get(mm, String(currentYear)))?.cnt || 0;
 
     const recentTxns = allTxns.slice(0, 5);
 
@@ -3210,7 +3189,7 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, role, password } = req.body;
     const identifier = username || role;
-    
+
     // 1. Try matching by (username or role) AND password
     let user = await db.prepare('SELECT id, role FROM users WHERE (username = ? OR role = ?) AND password = ?').get(identifier, identifier, password);
 
@@ -3300,22 +3279,27 @@ app.get('/api/whatsapp/reminders', async (req, res) => {
     const in7DaysISO = getDateOffsetISO(7);
 
     // Clients expiring within 1-7 days
-    const expiringSoon = await db.prepare(`
-      SELECT id, clientId, name, phone, plan, expiryDate
+    // Note: expiryDate stored as DD/MM/YYYY text — filter in JS
+    const allClientsForReminder = await db.prepare(`
+      SELECT id, "clientId", name, phone, plan, "expiryDate"
       FROM clients
-      WHERE date(expiryDate) BETWEEN date(?) AND date(?)
-        AND phone IS NOT NULL AND phone != ''
-      ORDER BY date(expiryDate) ASC
-    `).all(getDateOffsetISO(1), in7DaysISO);
+      WHERE phone IS NOT NULL AND phone != ''
+    `).all();
 
-    // Clients already expired today or before
-    const expiredAll = await db.prepare(`
-      SELECT id, clientId, name, phone, plan, expiryDate
-      FROM clients
-      WHERE date(expiryDate) <= date(?)
-        AND phone IS NOT NULL AND phone != ''
-      ORDER BY date(expiryDate) DESC
-    `).all(todayISO);
+    const todayObj = new Date(getDateOffsetISO(0));
+    const in1DayObj = new Date(getDateOffsetISO(1));
+    const in7DayObj = new Date(getDateOffsetISO(7));
+
+    const expiringSoon = allClientsForReminder.filter(c => {
+      const d = parseAnyDate(c.expiryDate);
+      return d && d >= in1DayObj && d <= in7DayObj;
+    });
+    const expiredAll = allClientsForReminder.filter(c => {
+      const d = parseAnyDate(c.expiryDate);
+      return d && d <= todayObj;
+    });
+    expiringSoon.sort((a,b) => (parseAnyDate(a.expiryDate)||0) - (parseAnyDate(b.expiryDate)||0));
+    expiredAll.sort((a,b) => (parseAnyDate(b.expiryDate)||0) - (parseAnyDate(a.expiryDate)||0));
 
     res.json({
       expiringSoon,
@@ -3485,17 +3469,14 @@ app.post('/api/whatsapp/send-bulk', async (req, res) => {
 
     let clients;
     if (type === 'expiring_soon') {
-      clients = await db.prepare(`
-        SELECT id, clientId, name, phone, plan, expiryDate FROM clients
-        WHERE date(expiryDate) BETWEEN date(?) AND date(?)
-          AND phone IS NOT NULL AND phone != ''
-      `).all(getDateOffsetISO(1), in7DaysISO);
+      const in1DayObj = new Date(getDateOffsetISO(1));
+      const in7DayObj = new Date(getDateOffsetISO(7));
+      const all = await db.prepare(`SELECT id, "clientId", name, phone, plan, "expiryDate" FROM clients WHERE phone IS NOT NULL AND phone != ''`).all();
+      clients = all.filter(c => { const d = parseAnyDate(c.expiryDate); return d && d >= in1DayObj && d <= in7DayObj; });
     } else {
-      clients = await db.prepare(`
-        SELECT id, clientId, name, phone, plan, expiryDate FROM clients
-        WHERE date(expiryDate) <= date(?)
-          AND phone IS NOT NULL AND phone != ''
-      `).all(todayISO);
+      const todayObj2 = new Date(getDateOffsetISO(0));
+      const all = await db.prepare(`SELECT id, "clientId", name, phone, plan, "expiryDate" FROM clients WHERE phone IS NOT NULL AND phone != ''`).all();
+      clients = all.filter(c => { const d = parseAnyDate(c.expiryDate); return d && d <= todayObj2; });
     }
 
     const results = [];
@@ -3679,10 +3660,13 @@ cron.schedule('0 9 * * *', async () => {
   console.log(`📲 [WhatsApp Cron] Running at ${new Date().toLocaleString('en-IN')}`);
 
   // Send expiring-soon reminders (7 days and 3 days before)
-  const soonClients = await db.prepare(`
-    SELECT id, clientId, name, phone, plan, expiryDate FROM clients
-    WHERE (date(expiryDate) = date(?) OR date(expiryDate) = date(?)) AND phone IS NOT NULL AND phone != ''
-  `).all(in7DaysISO, in3DaysISO);
+  const allClientsForCron = await db.prepare(`SELECT id, "clientId", name, phone, plan, "expiryDate" FROM clients WHERE phone IS NOT NULL AND phone != ''`).all();
+  const in7DaysObj = new Date(in7DaysISO);
+  const in3DaysObj = new Date(in3DaysISO);
+  const soonClients = allClientsForCron.filter(c => {
+    const d = parseAnyDate(c.expiryDate);
+    return d && (d.toISOString().split('T')[0] === in7DaysISO || d.toISOString().split('T')[0] === in3DaysISO);
+  });
 
   for (const client of soonClients) {
     try {
@@ -3697,10 +3681,10 @@ cron.schedule('0 9 * * *', async () => {
   }
 
   // Send expired-today notifications
-  const expiredClients = await db.prepare(`
-    SELECT id, clientId, name, phone, plan, expiryDate FROM clients
-    WHERE date(expiryDate) = date(?) AND phone IS NOT NULL AND phone != ''
-  `).all(todayISO);
+  const expiredClients = allClientsForCron.filter(c => {
+    const d = parseAnyDate(c.expiryDate);
+    return d && d.toISOString().split('T')[0] === todayISO;
+  });
 
   for (const client of expiredClients) {
     try {
@@ -3946,7 +3930,7 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
 
       const isExpired = expDate ? (expDate < refDateObj) : false;
       const isExpiringSoon = expDate ? (expDate >= refDateObj && (expDate - refDateObj) / (1000 * 3600 * 24) <= 7) : false;
-      
+
       const isExplicitInactive = statusLower === 'inactive' || statusLower === 'expired';
       const isActiveStatus = !isExplicitInactive && !isExpired;
 
@@ -4466,10 +4450,10 @@ app.get('/api/supplements/dashboard-summary', async (req, res) => {
 
     const salesRow = await db.prepare(`
       SELECT 
-        SUM(total_amount) as monthRevenue,
-        SUM(total_amount - (quantity * cost_price_snapshot)) as monthProfit
+        SUM(total_amount) as "monthRevenue",
+        SUM(total_amount - (quantity * cost_price_snapshot)) as "monthProfit"
       FROM supplement_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
+      WHERE TO_CHAR(sale_date::date, 'YYYY-MM') = ?
     `).get(currentMonthPrefix);
 
     res.json({
@@ -4665,21 +4649,23 @@ app.post('/api/gst/backfill', async (req, res) => {
 // ─── RESET ALL OPERATIONAL DATA ──────────────────────────────────────────────
 app.post('/api/reset-operational-data', async (req, res) => {
   try {
-    db.pragma('foreign_keys = OFF');
-    const tablesToKeep = ['pt_packages', 'settings', 'users', 'sqlite_sequence'];
-    const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    const tablesToClear = [
+      'transactions', 'bills', 'expenses', 'clients', 'attendance',
+      'whatsapp_log', 'inquiries', 'follow_ups', 'client_measurements',
+      'supplement_sales', 'supplement_purchases', 'supplements',
+      'other_service_sales', 'pt_class_log', 'trainer_daily_status',
+      'trainer_payroll_adjustments', 'payroll_locks', 'pt_assignments',
+      'pt_advance_bookings', 'general_package_bookings', 'staff'
+    ];
     let clearedCount = 0;
-    
-    for (const tableRow of tables) {
-      const tableName = tableRow.name;
-      if (!tablesToKeep.includes(tableName.toLowerCase())) {
+
+    for (const tableName of tablesToClear) {
+      try {
         const result = await db.prepare(`DELETE FROM "${tableName}"`).run();
         clearedCount += result.changes;
-      }
+      } catch (e) { /* table may not exist yet */ }
     }
-    
-    db.pragma('foreign_keys = ON');
-    await db.exec('VACUUM;');
+
     res.json({ success: true, message: `Cleared ${clearedCount} records. Retained PT Packages, Tariff Settings, and Login Users.` });
   } catch (err) {
     res.status(500).json({ error: err.message });

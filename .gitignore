@@ -41,3 +41,8 @@ build/
 
 .vercel
 scratch/
+server/check-neon.js
+server/check_output.txt
+server/migration_output.txt
+server/neon_tables.txt
+server/server_test.txt

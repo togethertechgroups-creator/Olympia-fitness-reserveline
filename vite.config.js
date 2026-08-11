@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     host: true, // Listen on 0.0.0.0 to support LAN and tunnels like ngrok
     port: 5173,
-    allowedHosts: true,
+    allowedHosts: ['.ngrok-free.dev', '.ngrok.io', 'frizzlier-hollis-nonbitter.ngrok-free.dev'],
     proxy: {
       '/api': {
         target: 'http://localhost:5000',
