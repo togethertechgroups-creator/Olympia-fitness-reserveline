@@ -9,7 +9,8 @@
   top: 0;
   left: 0;
   overflow: hidden;
-  background: #ffffff; /* Pure white background behind the box */
+  background: #ffffff;
+  /* Pure white background behind the box */
   font-family: 'Outfit', sans-serif;
   box-sizing: border-box;
 }
@@ -23,7 +24,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff; /* White background behind login box */
+  background: #ffffff;
+  /* White background behind login box */
   padding: 2.5rem 2rem;
   position: relative;
   z-index: 10;
@@ -34,7 +36,8 @@
 .beast-login-card {
   width: 100%;
   max-width: 400px;
-  background: #0B0F19; /* High-contrast sleek dark card */
+  background: #0B0F19;
+  /* High-contrast sleek dark card */
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 24px;
   padding: 2.5rem 2rem;
@@ -160,17 +163,18 @@
 .beast-login-input {
   width: 100% !important;
   background: rgba(255, 255, 255, 0.05) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
   border-radius: 14px !important;
-  padding: 1.05rem 1.25rem !important;
+  padding: 1.05rem 3.5rem 1.05rem 1.25rem !important;
   font-family: var(--font-sans) !important;
   color: #ffffff !important;
-  font-size: 0.95rem !important;
+  font-size: 1.05rem !important;
+  letter-spacing: 0.1em !important;
   transition: all 0.2s ease !important;
 }
 
 .beast-login-input::placeholder {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: rgba(255, 255, 255, 0.4) !important;
 }
 
 .beast-login-input:focus {
@@ -178,6 +182,48 @@
   border-color: #dc2626 !important;
   background: rgba(220, 38, 38, 0.08) !important;
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2) !important;
+  color: #ffffff !important;
+}
+
+/* Chrome Autofill fix: keep dark background by default */
+.beast-login-input:-webkit-autofill,
+.beast-login-input:-webkit-autofill:hover, 
+.beast-login-input:-webkit-autofill:focus, 
+.beast-login-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #131825 inset !important;
+  box-shadow: 0 0 0 1000px #131825 inset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Revealed state: ONLY when eye icon is clicked, change background to solid white */
+.beast-login-input.revealed {
+  background: #ffffff !important;
+  color: #0f172a !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.05em !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.25) !important;
+}
+
+.beast-login-input.revealed:focus {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.beast-login-input.revealed::placeholder {
+  color: #64748b !important;
+}
+
+.beast-login-input.revealed:-webkit-autofill,
+.beast-login-input.revealed:-webkit-autofill:hover, 
+.beast-login-input.revealed:-webkit-autofill:focus, 
+.beast-login-input.revealed:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a !important;
 }
 
 .eye-btn {
@@ -189,11 +235,15 @@
   border: none;
   padding: 0;
   cursor: pointer;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.5);
   transition: color 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.eye-btn.active {
+  color: #dc2626 !important;
 }
 
 .eye-btn:hover {

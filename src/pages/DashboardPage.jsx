@@ -47,7 +47,7 @@ const DashboardPage = () => {
         setClients(clientsData.slice(0, 8));
         setPtSummary(ptData);
         setSupplementsSummary(suppSummaryData);
-        const activeCount = (ptAssignData || []).filter(a => a.status === 'Active').length;
+        const activeCount = (ptAssignData || []).filter(a => (a.status || '').toLowerCase() === 'active').length;
         setActivePtCount(activeCount);
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);

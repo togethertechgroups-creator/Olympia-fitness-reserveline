@@ -1,0 +1,15 @@
+node_modules/
+server/node_modules/
+release/
+build/
+dist/
+*.exe
+*.asar
+*.pak
+*.db
+*.db-shm
+*.db-wal
+BEAST GYM SETUP/
+olympia Fitness/
+.git/
+.vscode/

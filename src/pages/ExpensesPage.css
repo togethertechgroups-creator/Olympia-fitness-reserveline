@@ -67,6 +67,12 @@
   border-radius: 12px;
   box-shadow: 0 4px 15px rgba(0,0,0,0.05);
   overflow: hidden;
+  padding-bottom: 1rem;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
 }
 
 .expenses-table {
@@ -90,6 +96,39 @@
   font-size: 14px;
 }
 
+/* Column Widths & No-Wrap Rules */
+.exp-date-col {
+  width: 14%;
+  white-space: nowrap !important;
+  font-weight: 600;
+}
+
+.exp-name-col {
+  width: 22%;
+}
+
+.exp-cat-col {
+  width: 16%;
+}
+
+.expense-amount {
+  width: 14%;
+  color: #ef4444;
+  font-weight: 700;
+}
+
+.exp-mode-col {
+  width: 12%;
+}
+
+.exp-notes-col {
+  width: 14%;
+}
+
+.exp-actions-col {
+  width: 8%;
+}
+
 .empty-state {
   text-align: center !important;
   color: #94a3b8 !important;
@@ -103,11 +142,6 @@
   border-radius: 20px;
   font-size: 12px;
   font-weight: 600;
-}
-
-.expense-amount {
-  color: #ef4444;
-  font-weight: 700;
 }
 
 .btn-delete {
@@ -124,6 +158,94 @@
 
 .btn-delete:hover {
   background: #fecaca;
+}
+
+/* Pagination Footer Controls */
+.expenses-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem 0.5rem 1.5rem;
+  border-top: 1px solid #f1f5f9;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.expenses-pagination .pagination-info {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.expenses-pagination .pagination-info span {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.expenses-pagination .pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.expenses-pagination .rows-per-page {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.expenses-pagination .rows-per-page select {
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+  outline: none;
+  cursor: pointer;
+}
+
+.expenses-pagination .pagination-pages {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.expenses-pagination .btn-page-nav {
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.expenses-pagination .btn-page-nav:hover:not(:disabled) {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+}
+
+.expenses-pagination .btn-page-nav:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.expenses-pagination .page-indicator {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.expenses-pagination .page-indicator strong {
+  color: #0f172a;
 }
 
 .expenses-page .modal-overlay {
@@ -157,7 +279,7 @@
 }
 
 .expense-form .form-group {
-  margin-bottom: 0; /* Let grid handle the gap */
+  margin-bottom: 0;
 }
 
 .expense-form .full-width {

@@ -431,6 +431,29 @@ try {
   try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
 
   try {
+    db.prepare(`
+      UPDATE clients 
+      SET dueAmount = MAX(0, COALESCE(amount, 0) - COALESCE(paidAmount, amount)),
+          paymentStatus = CASE 
+            WHEN MAX(0, COALESCE(amount, 0) - COALESCE(paidAmount, amount)) <= 0 THEN 'Paid'
+            WHEN COALESCE(paidAmount, 0) > 0 THEN 'Partial'
+            ELSE 'Due'
+          END
+      WHERE amount IS NOT NULL AND paidAmount IS NOT NULL
+    `).run();
+    console.log('✅ Synchronized client dueAmount database values');
+  } catch (e) { }
+
+  try {
+    db.prepare(`
+      UPDATE bills 
+      SET remainingBalance = MAX(0, COALESCE(totalPlanAmount, planAmount, 0) - COALESCE(paidAmount, 0))
+      WHERE totalPlanAmount IS NOT NULL AND paidAmount IS NOT NULL
+    `).run();
+    console.log('✅ Synchronized bills remainingBalance database values');
+  } catch (e) { }
+
+  try {
     const InquiryCols = [
       { name: 'marriedStatus', type: 'TEXT' },
       { name: 'occupation', type: 'TEXT' },
@@ -707,6 +730,25 @@ try {
       `);
       seedPackages.forEach(pkg => stmt.run(pkg.name, pkg.price, pkg.total_classes, pkg.category, pkg.duration_days, pkg.eligible_grades));
       console.log('✅ Seeded catalog PT packages');
+    }
+
+    // Sponsor Payment Update Migration to ₹50,000
+    try {
+      const existingSponsorTariff = db.prepare("SELECT * FROM other_service_tariffs WHERE LOWER(name) LIKE '%spon%'").get();
+      if (existingSponsorTariff) {
+        db.prepare("UPDATE other_service_tariffs SET price = 50000 WHERE id = ?").run(existingSponsorTariff.id);
+      } else {
+        db.prepare("INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES ('Sponsor Payment', 50000, 365, 0, 1)").run();
+      }
+
+      db.prepare("UPDATE other_service_sales SET price_snapshot = 50000 WHERE service_id IN (SELECT id FROM other_service_tariffs WHERE LOWER(name) LIKE '%spon%')").run();
+      db.prepare("UPDATE clients SET amount = 50000, paidAmount = 50000, dueAmount = 0 WHERE LOWER(name) LIKE '%spon%' OR LOWER(plan) LIKE '%spon%'").run();
+      db.prepare("UPDATE bills SET planAmount = 50000, paidAmount = 50000, totalPlanAmount = 50000, remainingBalance = 0 WHERE LOWER(clientName) LIKE '%spon%' OR LOWER(planName) LIKE '%spon%'").run();
+      db.prepare("UPDATE transactions SET amount = 50000 WHERE LOWER(name) LIKE '%spon%'").run();
+      db.prepare("UPDATE expenses SET amount = 50000 WHERE LOWER(name) LIKE '%spon%' OR LOWER(notes) LIKE '%spon%'").run();
+      console.log('✅ Updated Sponsor Payment amount to ₹50,000 across database');
+    } catch (e) {
+      console.error('Sponsor payment migration notice:', e.message);
     }
 
     // Ensure "100 Days Challenge" package exists in catalog
@@ -1021,7 +1063,19 @@ app.get('/api/clients', async (req, res) => {
       LEFT JOIN trainers t ON c.trainerId = t.id 
       ORDER BY c.dateAdded DESC
     `).all();
-    res.json(clients.map(c => ({ ...c, personalTraining: !!c.personalTraining })));
+    res.json(clients.map(c => {
+      const tot = Number(c.amount || 0);
+      const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
+      const due = Math.max(0, tot - pd);
+      const status = due <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+      return {
+        ...c,
+        personalTraining: !!c.personalTraining,
+        paidAmount: pd,
+        dueAmount: due,
+        paymentStatus: status
+      };
+    }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1062,7 +1116,17 @@ app.get('/api/clients/:id', async (req, res) => {
   try {
     const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
     if (!client) return res.status(404).json({ message: 'Client not found' });
-    res.json({ ...client, personalTraining: !!client.personalTraining });
+    const tot = Number(client.amount || 0);
+    const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : tot;
+    const due = Math.max(0, tot - pd);
+    const status = due <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+    res.json({
+      ...client,
+      personalTraining: !!client.personalTraining,
+      paidAmount: pd,
+      dueAmount: due,
+      paymentStatus: status
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2914,6 +2978,41 @@ app.post('/api/other-services/sell', async (req, res) => {
   }
 });
 
+app.delete('/api/other-services/sales/:id', async (req, res) => {
+  try {
+    const saleId = req.params.id;
+    const sale = await db.prepare('SELECT * FROM other_service_sales WHERE id = ?').get(saleId);
+    if (!sale) {
+      return res.status(404).json({ error: 'Service sale record not found.' });
+    }
+
+    const invoiceId = sale.invoice_id;
+
+    // 1. Delete from child table other_service_sales first to release foreign key reference to bills
+    await db.prepare('DELETE FROM other_service_sales WHERE id = ?').run(saleId);
+
+    // 2. Clean up associated transaction and bill records safely
+    if (invoiceId) {
+      try {
+        await db.prepare('DELETE FROM transactions WHERE billId = ?').run(invoiceId);
+      } catch (txErr) {
+        console.warn('Notice: Could not delete associated transactions:', txErr.message);
+      }
+
+      try {
+        await db.prepare('DELETE FROM bills WHERE id = ?').run(invoiceId);
+      } catch (billErr) {
+        console.warn('Notice: Could not delete associated bill:', billErr.message);
+      }
+    }
+
+    res.json({ success: true, message: 'Service sale record deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting other service sale:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── STATS Route ──────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
@@ -2950,18 +3049,39 @@ app.get('/api/stats', async (req, res) => {
 
     const netProfitVal = monthlyCollectionVal - monthlyExpensesVal;
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const activeCount = await db.prepare(
-      "SELECT COUNT(*) as cnt FROM clients WHERE status = 'Active' OR expiryDate >= ?"
-    ).get(todayStr).cnt;
+    const todayObj = new Date();
+    todayObj.setHours(0, 0, 0, 0);
 
-    const expiredCount = await db.prepare(
-      "SELECT COUNT(*) as cnt FROM clients WHERE status = 'Expired' OR (expiryDate IS NOT NULL AND expiryDate < ?)"
-    ).get(todayStr).cnt;
+    const allClientsList = await db.prepare('SELECT * FROM clients').all();
+    let activeCount = 0;
+    let inactiveCount = 0;
+    let expiredCount = 0;
+    let expiredPTCount = 0;
 
-    const expiredPTCount = await db.prepare(
-      "SELECT COUNT(*) as cnt FROM clients WHERE ptToDate < ? AND ptCategory != 'None'"
-    ).get(todayStr).cnt;
+    allClientsList.forEach(c => {
+      const st = (c.status || '').toLowerCase().trim();
+      const expDate = parseAnyDate(c.expiryDate);
+      if (expDate) expDate.setHours(0, 0, 0, 0);
+
+      const ptExpDate = parseAnyDate(c.ptToDate);
+      if (ptExpDate) ptExpDate.setHours(0, 0, 0, 0);
+
+      const isExplicitInactive = st === 'inactive';
+      const isExplicitExpired = st === 'expired';
+      const isDateExpired = expDate ? (expDate < todayObj) : false;
+
+      if (isExplicitInactive) {
+        inactiveCount++;
+      } else if (isExplicitExpired || isDateExpired) {
+        expiredCount++;
+      } else {
+        activeCount++;
+      }
+
+      if (c.ptCategory && c.ptCategory !== 'None' && ptExpDate && ptExpDate < todayObj) {
+        expiredPTCount++;
+      }
+    });
 
     const inactivePtCount = await db.prepare(
       "SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')"
@@ -2979,9 +3099,8 @@ app.get('/api/stats', async (req, res) => {
     const monthlyTxnsCount = allTxns.filter(t => t.date && t.date.includes(dateSearch)).length;
     const renewalsMonthCount = Math.max(0, monthlyTxnsCount - newClientsMonthCount);
 
-    const generalAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE status = 'Scheduled'").get().cnt;
-    const ptAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE status IN ('Scheduled', 'ReadyToActivate')").get().cnt;
-    const inactiveCount = await db.prepare("SELECT COUNT(*) as cnt FROM clients WHERE status = 'inactive' OR status = 'Expired' OR (expiryDate IS NOT NULL AND expiryDate < ?)").get(todayStr).cnt;
+    const generalAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get().cnt;
+    const ptAdvanceCount = await db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get().cnt;
 
     const monthlyOtherServiceSalesCount = await db.prepare(`
       SELECT COUNT(*) as cnt FROM other_service_sales

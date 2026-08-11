@@ -13,6 +13,10 @@ const TransactionsPage = () => {
 
   const [clientsMap, setClientsMap] = useState({});
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef(null);
@@ -110,9 +114,29 @@ const TransactionsPage = () => {
     txn.method.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Pagination Math
+  const totalPages = Math.ceil(filteredTxns.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredTxns.length);
+  const currentTxns = filteredTxns.slice(startIndex, endIndex);
+
+  const handleSearchChange = (e) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const getDisplayClientId = (txn) => {
+    if (clientsMap[txn.name]) return clientsMap[txn.name];
+    const baseName = txn.name ? txn.name.split(' - ')[0].trim() : '';
+    if (clientsMap[baseName]) return clientsMap[baseName];
+    if (txn.clientId && !txn.clientId.includes('-') && txn.clientId.length < 15) return txn.clientId;
+    if (txn.clientId && (txn.clientId.length >= 15 || txn.clientId.includes('-'))) return 'SERVICE';
+    return txn.clientId || 'N/A';
+  };
+
   return (
     <div className="premium-dashboard">
-      <main className="dashboard-main">
+      <main className="dashboard-main" style={{ paddingBottom: '5rem' }}>
         <header className="main-header">
             <div className="header-greeting">
                 <h1 style={{ fontSize: '2.5rem', fontWeight: '900', margin: 0, display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -167,7 +191,7 @@ const TransactionsPage = () => {
               type="text" 
               placeholder="Search by name, ID, or method..." 
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
             />
           </div>
         </div>
@@ -190,9 +214,9 @@ const TransactionsPage = () => {
                 <tr><td colSpan="6" className="text-center">Loading transactions...</td></tr>
               ) : filteredTxns.length === 0 ? (
                 <tr><td colSpan="6" className="text-center">No transactions found.</td></tr>
-              ) : filteredTxns.map(txn => (
+              ) : currentTxns.map(txn => (
                 <tr key={txn.id}>
-                  <td className="id-col">{clientsMap[txn.name] || txn.clientId || txn.id}</td>
+                  <td className="id-col">{getDisplayClientId(txn)}</td>
                   <td className="name-col">{txn.name}</td>
                   <td className="method-col">
                     <span className={`method-pill ${txn.method.toLowerCase()}`}>
@@ -212,11 +236,52 @@ const TransactionsPage = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
-      <footer className="transactions-footer">
-        <p>Showing {filteredTxns.length} transactions in total</p>
-      </footer>
+        {/* Pagination Controls */}
+        {!loading && filteredTxns.length > 0 && (
+          <div className="txn-pagination">
+            <div className="pagination-info">
+              Showing <span>{startIndex + 1}</span> to <span>{endIndex}</span> of <span>{filteredTxns.length}</span> transactions
+            </div>
+            <div className="pagination-controls">
+              <div className="rows-per-page">
+                <label>Rows per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+              <div className="pagination-pages">
+                <button
+                  className="btn-page-nav"
+                  onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  ‹ Prev
+                </button>
+                <span className="page-indicator">
+                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                </span>
+                <button
+                  className="btn-page-nav"
+                  onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       </main>
     </div>
   );

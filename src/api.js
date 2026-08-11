@@ -761,6 +761,13 @@ export const getOtherServicesSales = async () => {
 
 export const getOtherServiceSales = getOtherServicesSales;
 
+export const deleteOtherServiceSale = async (id) => {
+  const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
+    method: 'DELETE'
+  });
+  return handleResponse(response);
+};
+
 // ─── GST API Functions ────────────────────────────────────────────────────────
 export const getGstSettings = async () => {
   const response = await fetch(`${BASE_URL}/gst/settings`);

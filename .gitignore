@@ -29,3 +29,15 @@ server/.env
 *.db
 *.db-shm
 *.db-wal
+
+# Build & Release Binaries
+release/
+build/
+*.exe
+*.asar
+*.pak
+"BEAST GYM SETUP/"
+"olympia Fitness/"
+
+.vercel
+scratch/

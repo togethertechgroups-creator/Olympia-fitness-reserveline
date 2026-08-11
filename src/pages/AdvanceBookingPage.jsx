@@ -240,42 +240,9 @@ const AdvanceBookingPage = () => {
   };
 
   const getOrCreateClientId = async (clientType) => {
-    if (clientMode === 'existing') {
-      const selectedId = clientType === 'gen' ? genForm.client_id : ptForm.client_id;
-      if (!selectedId) throw new Error('Please select an existing client.');
-      return selectedId;
-    } else {
-      if (!newClient.name || newClient.name.trim().length < 2) {
-        throw new Error('Please enter a valid client name.');
-      }
-      if (!newClient.phone || !/^\d{10}$/.test(newClient.phone.replace(/\D/g, ''))) {
-        throw new Error('Please enter a valid 10-digit mobile number.');
-      }
-
-      let code = newClient.clientId;
-      if (!code) {
-        try {
-          const res = await getNextClientId();
-          code = res.nextClientId;
-        } catch (e) {
-          code = `GYM${Date.now().toString().slice(-6)}`;
-        }
-      }
-
-      const created = await addClient({
-        clientId: code,
-        name: newClient.name.trim(),
-        phone: newClient.phone.trim(),
-        gender: newClient.gender,
-        plan: clientType === 'gen' ? (genForm.plan_type || 'Monthly') : 'Monthly',
-        fromDate: clientType === 'gen' ? genForm.booking_start_date : ptForm.booking_start_date,
-        expiryDate: clientType === 'gen' ? (genForm.booking_end_date || genForm.booking_start_date) : ptForm.booking_start_date,
-        amount: clientType === 'gen' ? parseFloat(genForm.price || 0) : 0,
-        paidAmount: 0,
-        status: 'Active'
-      });
-      return created.id;
-    }
+    const selectedId = clientType === 'gen' ? genForm.client_id : ptForm.client_id;
+    if (!selectedId) throw new Error('Please select an existing client.');
+    return selectedId;
   };
 
   const handleGenerateGeneralInvoice = (booking) => {
@@ -650,97 +617,33 @@ const AdvanceBookingPage = () => {
               </button>
             </div>
 
-            {/* Client Mode Switcher: Existing Client vs New Client */}
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.2rem', background: '#f8fafc', padding: '6px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-              <button
-                type="button"
-                style={{
-                  flex: 1, padding: '0.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '0.82rem',
-                  background: clientMode === 'existing' ? '#1e1b4b' : 'transparent',
-                  color: clientMode === 'existing' ? '#ffffff' : '#64748b'
-                }}
-                onClick={() => setClientMode('existing')}
-              >
-                👤 Existing Client
-              </button>
-              <button
-                type="button"
-                style={{
-                  flex: 1, padding: '0.5rem', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: '800', fontSize: '0.82rem',
-                  background: clientMode === 'new' ? '#1e1b4b' : 'transparent',
-                  color: clientMode === 'new' ? '#ffffff' : '#64748b'
-                }}
-                onClick={() => setClientMode('new')}
-              >
-                ✨ New Client
-              </button>
-            </div>
-
             {activeTab === 'general' ? (
               <form onSubmit={handleSaveGeneralBooking} className="adv-form">
 
-                {clientMode === 'existing' ? (
-                  <div className="form-group">
-                    <label>Select Existing Client</label>
-                    <input
-                      type="text"
-                      placeholder="🔍 Search client by name, code or phone..."
-                      value={clientSearch}
-                      onChange={e => setClientSearch(e.target.value)}
-                      style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
-                    />
-                    <select
-                      value={genForm.client_id}
-                      onChange={e => handleGenClientChange(e.target.value)}
-                      required
-                    >
-                      <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
-                      {filteredClientsForSelect.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.clientId || 'No Code'}) • Current Plan Expiry: {c.expiryDate ? formatDateDDMMYYYY(c.expiryDate) : 'None'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div className="form-group">
-                      <label>Client Full Name *</label>
-                      <input
-                        type="text"
-                        placeholder="Enter full name"
-                        value={newClient.name}
-                        onChange={e => setNewClient({ ...newClient, name: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-row-2">
-                      <div className="form-group">
-                        <label>Mobile Number *</label>
-                        <input
-                          type="tel"
-                          placeholder="10-digit mobile"
-                          value={newClient.phone}
-                          onChange={e => setNewClient({ ...newClient, phone: e.target.value })}
-                          required
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Gender</label>
-                        <select
-                          value={newClient.gender}
-                          onChange={e => setNewClient({ ...newClient, gender: e.target.value })}
-                        >
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <div className="form-group">
+                  <label>Select Existing Client *</label>
+                  <input
+                    type="text"
+                    placeholder="🔍 Search client by name, code or phone..."
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
+                  />
+                  <select
+                    value={genForm.client_id}
+                    onChange={e => handleGenClientChange(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
+                    {filteredClientsForSelect.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.clientId || 'No Code'}) • Current Plan Expiry: {c.expiryDate ? formatDateDDMMYYYY(c.expiryDate) : 'None'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                {clientMode === 'existing' && selectedGenClient && (
+                {selectedGenClient && (
                   <div className="client-summary-banner">
                     <span>Active Plan: <strong>{selectedGenClient.plan || 'None'}</strong></span>
                     <span>Current Expiry: <strong>{selectedGenClient.expiryDate ? formatDateDDMMYYYY(selectedGenClient.expiryDate) : 'N/A'}</strong></span>
@@ -807,66 +710,28 @@ const AdvanceBookingPage = () => {
             ) : (
               <form onSubmit={handleSavePtBooking} className="adv-form">
 
-                {clientMode === 'existing' ? (
-                  <div className="form-group">
-                    <label>Select Existing Client</label>
-                    <input
-                      type="text"
-                      placeholder="🔍 Search client by name, code or phone..."
-                      value={clientSearch}
-                      onChange={e => setClientSearch(e.target.value)}
-                      style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
-                    />
-                    <select
-                      value={ptForm.client_id}
-                      onChange={e => handlePtClientChange(e.target.value)}
-                      required
-                    >
-                      <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
-                      {filteredClientsForSelect.map(c => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.clientId || 'No Code'}) • Phone: {c.phone || 'N/A'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div className="form-group">
-                      <label>Client Full Name *</label>
-                      <input
-                        type="text"
-                        placeholder="Enter full name"
-                        value={newClient.name}
-                        onChange={e => setNewClient({ ...newClient, name: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="form-row-2">
-                      <div className="form-group">
-                        <label>Mobile Number *</label>
-                        <input
-                          type="tel"
-                          placeholder="10-digit mobile"
-                          value={newClient.phone}
-                          onChange={e => setNewClient({ ...newClient, phone: e.target.value })}
-                          required
-                        />
-                      </div>
-                      <div className="form-group">
-                        <label>Gender</label>
-                        <select
-                          value={newClient.gender}
-                          onChange={e => setNewClient({ ...newClient, gender: e.target.value })}
-                        >
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <div className="form-group">
+                  <label>Select Existing Client *</label>
+                  <input
+                    type="text"
+                    placeholder="🔍 Search client by name, code or phone..."
+                    value={clientSearch}
+                    onChange={e => setClientSearch(e.target.value)}
+                    style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
+                  />
+                  <select
+                    value={ptForm.client_id}
+                    onChange={e => handlePtClientChange(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
+                    {filteredClientsForSelect.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.clientId || 'No Code'}) • Phone: {c.phone || 'N/A'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <div className="form-group">
                   <label>Select PT Package</label>

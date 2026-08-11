@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient } from '../api';
+import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import ExpiredPlansModal from '../components/ExpiredPlansModal';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
@@ -182,10 +182,20 @@ const ManageClientsPage = () => {
     return () => document.body.removeAttribute('data-alert-open');
   }, [isAlertOpen, viewClientModal.isOpen, paymentModal.isOpen, deleteConfirm.isOpen, invoicePreviewClient, renewModal.isOpen]);
 
+  const [advanceBookings, setAdvanceBookings] = useState({ general: [], pt: [] });
+
   const fetchClients = async () => {
     try {
-      const data = await getClients();
+      const [data, genBookings, ptBookings] = await Promise.all([
+        getClients(),
+        getGeneralBookings().catch(() => []),
+        getPtAdvanceBookings().catch(() => [])
+      ]);
       setClients(data);
+      setAdvanceBookings({
+        general: Array.isArray(genBookings) ? genBookings : [],
+        pt: Array.isArray(ptBookings) ? ptBookings : []
+      });
 
       // Unified Expiry Check
       const todayISO = new Date().toISOString().split('T')[0];
@@ -366,9 +376,14 @@ const ManageClientsPage = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     const isExpiringSoon = diffDays >= 0 && diffDays <= 5;
 
+    const actualTotal = Number(client.amount || 0);
+    const actualPaid = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
+    const effectiveDue = Math.max(0, actualTotal - actualPaid);
+
     if (activeFilter === 'Active') return !isExpired;
     if (activeFilter === 'Expired') return isExpired;
     if (activeFilter === 'Reminder') return isExpiringSoon;
+    if (activeFilter === 'Due Payment') return effectiveDue > 0;
 
     return true;
 
@@ -450,11 +465,21 @@ const ManageClientsPage = () => {
         </div>
 
         <div className="stats-bar">
-          <div className="stat-item">
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('All')}>
             <span className="stat-label">Total Strength</span>
             <span className="stat-value">{stats.total}</span>
           </div>
-          <div className="stat-item">
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Due Payment')}>
+            <span className="stat-label">Clients With Due</span>
+            <span className="stat-value" style={{ color: '#ea580c' }}>
+              {clients.filter(c => {
+                const tot = Number(c.amount || 0);
+                const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
+                return Math.max(0, tot - pd) > 0;
+              }).length}
+            </span>
+          </div>
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Expired')}>
             <span className="stat-label">Expired Plans</span>
             <span className="stat-value red">{stats.expired}</span>
           </div>
@@ -497,24 +522,32 @@ const ManageClientsPage = () => {
             disabled={isExporting || isImporting}
             style={{ padding: '0.4rem 0.75rem', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '100px', cursor: 'pointer', fontWeight: 600, color: '#334155', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.78rem', height: '38px' }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
             {isImporting ? '...' : 'IMP'}
           </button>
         </div>
 
         <div className="filter-group">
           <div className="filter-pills">
-            {['All', 'Active', 'Expired', 'Reminder'].map(filter => (
-              <button
-                key={filter}
-                className={`filter-pill ${activeFilter === filter ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveFilter(filter);
-                }}
-              >
-                {filter}
-              </button>
-            ))}
+            {['All', 'Active', 'Due Payment', 'Expired', 'Reminder'].map(filter => {
+              const dueCount = clients.filter(c => {
+                const tot = Number(c.amount || 0);
+                const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
+                return Math.max(0, tot - pd) > 0;
+              }).length;
+              const label = filter === 'Due Payment' ? `Due Payment (${dueCount})` : filter;
+              return (
+                <button
+                  key={filter}
+                  className={`filter-pill ${activeFilter === filter ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveFilter(filter);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -524,19 +557,20 @@ const ManageClientsPage = () => {
           <table className="clients-table">
             <thead>
               <tr>
-                <th style={{ width: '10%' }}>ID ↑↓</th>
-                <th style={{ width: '22%' }}>Client Name</th>
-                <th style={{ width: '15%' }}>Phone Number</th>
-                <th style={{ width: '14%' }}>Program</th>
-                <th style={{ width: '18%' }}>Validity</th>
-                <th style={{ textAlign: 'right', width: '21%' }}>Actions</th>
+                <th style={{ width: '7%' }}>ID ↑↓</th>
+                <th style={{ width: '18%' }}>Client Name</th>
+                <th style={{ width: '12%' }}>Phone Number</th>
+                <th style={{ width: '11%' }}>Program</th>
+                <th style={{ width: '22%' }}>Payment / Due Status</th>
+                <th style={{ width: '13%' }}>Validity</th>
+                <th style={{ textAlign: 'right', width: '17%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '3rem' }}>Loading clients...</td></tr>
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem' }}>Loading clients...</td></tr>
               ) : filteredClients.length === 0 ? (
-                <tr><td colSpan="6" style={{ textAlign: 'center', padding: '3rem' }}>No clients found.</td></tr>
+                <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem' }}>No clients found.</td></tr>
               ) : filteredClients.map(client => {
                 const validity = getValidityDisplay(client.expiryDate);
                 return (
@@ -572,6 +606,62 @@ const ManageClientsPage = () => {
                       <div className="plan-display-group">
                         <span className="plan-pill">{client.plan}</span>
                       </div>
+                    </td>
+                    <td>
+                      {(() => {
+                        const actualTotal = Number(client.amount || 0);
+                        const actualPaid = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
+                        const effectiveDue = Math.max(0, actualTotal - actualPaid);
+
+                        if (effectiveDue > 0) {
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                              <span style={{ background: '#fff7ed', color: '#ea580c', border: '1px solid #ffedd5', padding: '3px 8px', borderRadius: '6px', fontSize: '0.78rem', fontWeight: '800', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                ⚠️ Due: ₹{effectiveDue.toLocaleString()}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                Paid ₹{actualPaid.toLocaleString()} of ₹{actualTotal.toLocaleString()}
+                              </span>
+                              <button
+                                className="btn-pay-due-action"
+                                onClick={() => setPaymentModal({
+                                  isOpen: true,
+                                  client: client,
+                                  amount: effectiveDue,
+                                  method: 'CASH',
+                                  date: new Date().toISOString().split('T')[0]
+                                })}
+                                title={`Collect & Close Due Amount for ${client.name} (₹${effectiveDue.toLocaleString()})`}
+                                style={{
+                                  background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)',
+                                  color: '#ffffff',
+                                  border: '1px solid #ea580c',
+                                  padding: '0.35rem 0.75rem',
+                                  borderRadius: '100px',
+                                  fontWeight: '800',
+                                  fontSize: '0.75rem',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  cursor: 'pointer',
+                                  boxShadow: '0 2px 6px rgba(234, 88, 12, 0.3)',
+                                  whiteSpace: 'nowrap',
+                                  marginTop: '2px'
+                                }}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+                                Pay Due (₹{effectiveDue.toLocaleString()})
+                              </button>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', display: 'inline-block' }}>
+                              ✓ Fully Paid (₹{actualTotal.toLocaleString()})
+                            </span>
+                          );
+                        }
+                      })()}
                     </td>
                     <td className="validity-cell">
                       <div className="validity-wrapper">
@@ -691,8 +781,8 @@ const ManageClientsPage = () => {
       {viewClientModal.isOpen && viewClientModal.client && (
         <div className="alert-modal-overlay">
           <div className="alert-modal-card view-modal-card reveal">
-            <button className="btn-close-modal" onClick={() => setViewClientModal({ isOpen: false, client: null })}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
+            <button className="btn-close-modal" onClick={() => setViewClientModal({ isOpen: false, client: null })} title="Close / Exit">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
 
             <div className="view-modal-header">
@@ -727,24 +817,37 @@ const ManageClientsPage = () => {
                 <span className="detail-label">Membership Plan</span>
                 <span className="detail-value"><span className="plan-pill">{viewClientModal.client.plan}</span></span>
               </div>
-              <div className="detail-group">
-                <span className="detail-label">Total Amount</span>
-                <span className="detail-value">₹ {(viewClientModal.client.amount || 0).toLocaleString()}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Amount Paid</span>
-                <span className="detail-value text-green">₹ {(viewClientModal.client.paidAmount !== undefined ? viewClientModal.client.paidAmount : viewClientModal.client.amount || 0).toLocaleString()}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Due Amount</span>
-                <span className="detail-value" style={{ color: viewClientModal.client.dueAmount > 0 ? '#ff9800' : 'inherit' }}>₹ {(viewClientModal.client.dueAmount || 0).toLocaleString()}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Payment Status</span>
-                <span className={`badge-status ${getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'inactive' : (viewClientModal.client.paymentStatus === 'Paid' ? 'active' : (viewClientModal.client.paymentStatus === 'Partial' ? 'warning' : 'inactive'))}`}>
-                  {getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'Expired' : (viewClientModal.client.paymentStatus || 'Paid')}
-                </span>
-              </div>
+              {(() => {
+                const vmTotal = Number(viewClientModal.client.amount || 0);
+                const vmPaid = viewClientModal.client.paidAmount !== undefined && viewClientModal.client.paidAmount !== null ? Number(viewClientModal.client.paidAmount) : vmTotal;
+                const vmDue = Math.max(0, vmTotal - vmPaid);
+                const vmStatus = vmDue <= 0 ? 'Paid' : (vmPaid > 0 ? 'Partial' : 'Due');
+
+                return (
+                  <>
+                    <div className="detail-group">
+                      <span className="detail-label">Total Amount</span>
+                      <span className="detail-value">₹ {vmTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="detail-group">
+                      <span className="detail-label">Amount Paid</span>
+                      <span className="detail-value text-green">₹ {vmPaid.toLocaleString()}</span>
+                    </div>
+                    <div className="detail-group">
+                      <span className="detail-label">Due Amount</span>
+                      <span className="detail-value" style={{ color: vmDue > 0 ? '#ea580c' : '#16a34a', fontWeight: '800' }}>
+                        ₹ {vmDue.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="detail-group">
+                      <span className="detail-label">Payment Status</span>
+                      <span className={`badge-status ${getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'inactive' : (vmStatus === 'Paid' ? 'active' : 'warning')}`}>
+                        {getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'Expired' : vmStatus}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
               <div className="detail-group">
                 <span className="detail-label">Join Date</span>
                 <span className="detail-value">{formatDateDDMMYYYY(viewClientModal.client.fromDate)}</span>
@@ -753,9 +856,91 @@ const ManageClientsPage = () => {
                 <span className="detail-label">Expiry Date</span>
                 <span className="detail-value">{formatDateDDMMYYYY(viewClientModal.client.expiryDate)}</span>
               </div>
+
+              {/* Advance Booking Details Section */}
+              {(() => {
+                const clientGenBookings = (advanceBookings.general || []).filter(b => 
+                  (b.client_id === viewClientModal.client.id || b.clientId === viewClientModal.client.id || b.clientCode === viewClientModal.client.clientId) &&
+                  b.status !== 'Cancelled'
+                );
+
+                const clientPtBookings = (advanceBookings.pt || []).filter(b => 
+                  (b.client_id === viewClientModal.client.id || b.clientId === viewClientModal.client.id || b.clientCode === viewClientModal.client.clientId) &&
+                  b.status !== 'Cancelled'
+                );
+
+                const totalAdvCount = clientGenBookings.length + clientPtBookings.length;
+
+                return (
+                  <div className="detail-group" style={{ gridColumn: '1 / -1', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px dashed #cbd5e1' }}>
+                    <span className="detail-label" style={{ color: '#ea580c', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', fontSize: '0.78rem' }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                      ADVANCE BOOKING DETAILS {totalAdvCount > 0 ? `(${totalAdvCount})` : ''}
+                    </span>
+
+                    {totalAdvCount > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%' }}>
+                        {clientGenBookings.map(b => (
+                          <div key={`gen-${b.id}`} style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '0.75rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#9a3412', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span>🏷 General: {b.plan_type}</span>
+                                <span style={{ background: '#ea580c', color: '#ffffff', fontSize: '0.68rem', padding: '2px 7px', borderRadius: '100px', fontWeight: '700' }}>
+                                  {b.status}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '0.2rem' }}>
+                                Booked Period: <strong>{formatDateDDMMYYYY(b.booking_start_date)}</strong> ➔ <strong>{formatDateDDMMYYYY(b.booking_end_date)}</strong>
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '0.92rem', fontWeight: '900', color: '#16a34a' }}>₹ {(b.price || 0).toLocaleString()}</div>
+                              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Paid</div>
+                            </div>
+                          </div>
+                        ))}
+
+                        {clientPtBookings.map(b => (
+                          <div key={`pt-${b.id}`} style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '12px', padding: '0.75rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#166534', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span>🏋️ PT: {b.packageName}</span>
+                                <span style={{ background: '#16a34a', color: '#ffffff', fontSize: '0.68rem', padding: '2px 7px', borderRadius: '100px', fontWeight: '700' }}>
+                                  {b.status}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '0.2rem' }}>
+                                Trainer: <strong>{b.trainerName || 'Assigned Trainer'}</strong> ({b.total_classes_snapshot || 0} Classes)
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.1rem' }}>
+                                Starts: <strong>{formatDateDDMMYYYY(b.booking_start_date)}</strong>
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: '0.92rem', fontWeight: '900', color: '#16a34a' }}>₹ {(b.price_snapshot || 0).toLocaleString()}</div>
+                              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Paid</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="detail-value" style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>No active advance bookings</span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
-            <div className="view-modal-footer" style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '1rem' }}>
+            <div className="view-modal-footer" style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <button
+                className="btn-modal-close-footer"
+                style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#334155', fontWeight: 700 }}
+                onClick={() => setViewClientModal({ isOpen: false, client: null })}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                Close
+              </button>
+
               <button
                 className="btn-cancel-gray"
                 style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', border: '1px solid var(--border-color)' }}
@@ -768,68 +953,108 @@ const ManageClientsPage = () => {
                 View Bill PDF
               </button>
 
-              {viewClientModal.client.dueAmount > 0 && (
-                <button
-                  className="btn-save-green"
-                  style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem' }}
-                  onClick={() => setPaymentModal({ isOpen: true, client: viewClientModal.client, amount: viewClientModal.client.dueAmount, method: 'CASH', date: new Date().toISOString().split('T')[0] })}
-                >
-                  Add Payment
-                </button>
-              )}
+              {(() => {
+                const vmTotal = Number(viewClientModal.client.amount || 0);
+                const vmPaid = viewClientModal.client.paidAmount !== undefined && viewClientModal.client.paidAmount !== null ? Number(viewClientModal.client.paidAmount) : vmTotal;
+                const vmDue = Math.max(0, vmTotal - vmPaid);
+
+                return vmDue > 0 ? (
+                  <button
+                    className="btn-save-green"
+                    style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}
+                    onClick={() => setPaymentModal({ isOpen: true, client: viewClientModal.client, amount: vmDue, method: 'CASH', date: new Date().toISOString().split('T')[0] })}
+                  >
+                    Add Payment (₹{vmDue.toLocaleString()})
+                  </button>
+                ) : null;
+              })()}
             </div>
           </div>
         </div>
       )}
 
       {/* Payment Modal */}
-      {paymentModal.isOpen && paymentModal.client && (
-        <div className="alert-modal-overlay">
-          <div className="payment-modal-card">
-            <h3>Add Payment</h3>
-            <form onSubmit={handleAddPaymentSubmit}>
-              <div className="payment-form-group">
-                <label className="payment-form-label">Amount to Pay (Max Due: ₹{paymentModal.client.dueAmount})</label>
-                <input
-                  type="number"
-                  max={paymentModal.client.dueAmount}
-                  className="payment-form-input"
-                  value={paymentModal.amount}
-                  onChange={e => setPaymentModal({ ...paymentModal, amount: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="payment-form-group">
-                <label className="payment-form-label">Payment Method</label>
-                <select
-                  className="payment-form-input"
-                  value={paymentModal.method}
-                  onChange={e => setPaymentModal({ ...paymentModal, method: e.target.value })}
+      {paymentModal.isOpen && paymentModal.client && (() => {
+        const pmTotal = Number(paymentModal.client.amount || 0);
+        const pmPaid = paymentModal.client.paidAmount !== undefined && paymentModal.client.paidAmount !== null ? Number(paymentModal.client.paidAmount) : pmTotal;
+        const pmDue = Math.max(0, pmTotal - pmPaid);
+
+        return (
+          <div className="alert-modal-overlay">
+            <div className="payment-modal-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+                <h3 style={{ margin: 0 }}>Close Due Payment</h3>
+                <button
+                  style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+                  onClick={() => setPaymentModal({ isOpen: false, client: null, amount: '', method: 'CASH', date: '' })}
                 >
-                  <option value="CASH">CASH</option>
-                  <option value="UPI">UPI</option>
-                  <option value="CARD">CARD</option>
-                  <option value="BANK TRANSFER">BANK TRANSFER</option>
-                </select>
+                  ✕
+                </button>
               </div>
-              <div className="payment-form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="payment-form-label">Date</label>
-                <input
-                  type="date"
-                  className="payment-form-input"
-                  value={paymentModal.date}
-                  onChange={e => setPaymentModal({ ...paymentModal, date: e.target.value })}
-                  required
-                />
+
+              <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                  <span style={{ color: '#64748b' }}>Client Name:</span>
+                  <strong style={{ color: '#0f172a' }}>{paymentModal.client.name} ({paymentModal.client.clientId || 'No ID'})</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                  <span style={{ color: '#64748b' }}>Total Plan Amount:</span>
+                  <strong style={{ color: '#0f172a' }}>₹ {pmTotal.toLocaleString()}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                  <span style={{ color: '#64748b' }}>Amount Paid:</span>
+                  <strong style={{ color: '#16a34a' }}>₹ {pmPaid.toLocaleString()}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #fdba74', paddingTop: '0.4rem', marginTop: '0.4rem' }}>
+                  <span style={{ color: '#ea580c', fontWeight: '800' }}>Pending Due Balance:</span>
+                  <strong style={{ color: '#ea580c', fontWeight: '800', fontSize: '0.95rem' }}>₹ {pmDue.toLocaleString()}</strong>
+                </div>
               </div>
-              <div className="payment-modal-actions">
-                <button type="button" className="btn-payment-cancel" onClick={() => setPaymentModal({ isOpen: false, client: null, amount: '', method: 'CASH', date: '' })}>Cancel</button>
-                <button type="submit" className="btn-payment-submit">Submit Payment</button>
-              </div>
-            </form>
+
+              <form onSubmit={handleAddPaymentSubmit}>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Amount to Pay (Max Due: ₹{pmDue.toLocaleString()})</label>
+                  <input
+                    type="number"
+                    max={pmDue}
+                    className="payment-form-input"
+                    value={paymentModal.amount}
+                    onChange={e => setPaymentModal({ ...paymentModal, amount: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Payment Method</label>
+                  <select
+                    className="payment-form-input"
+                    value={paymentModal.method}
+                    onChange={e => setPaymentModal({ ...paymentModal, method: e.target.value })}
+                  >
+                    <option value="CASH">CASH</option>
+                    <option value="UPI">UPI</option>
+                    <option value="CARD">CARD</option>
+                    <option value="BANK TRANSFER">BANK TRANSFER</option>
+                  </select>
+                </div>
+                <div className="payment-form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="payment-form-label">Date</label>
+                  <input
+                    type="date"
+                    className="payment-form-input"
+                    value={paymentModal.date}
+                    onChange={e => setPaymentModal({ ...paymentModal, date: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="payment-modal-actions">
+                  <button type="button" className="btn-payment-cancel" onClick={() => setPaymentModal({ isOpen: false, client: null, amount: '', method: 'CASH', date: '' })}>Cancel</button>
+                  <button type="submit" className="btn-payment-submit">Submit Payment</button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Expired Plans Alert Modal */}
       <ExpiredPlansModal

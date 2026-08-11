@@ -380,11 +380,32 @@
   font-size: 0.9rem;
 }
 
+.btn-action-renew-service {
+  background: #ffedd5;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-action-renew-service:hover {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+}
+
 .btn-action-view-invoice {
   background: #e0e7ff;
   color: #4338ca;
   border: 1px solid #c7d2fe;
-  padding: 0.45rem 1rem;
+  padding: 0.45rem 0.85rem;
   border-radius: 8px;
   font-weight: 800;
   font-size: 0.82rem;
@@ -398,6 +419,27 @@
 .btn-action-view-invoice:hover {
   background: #c7d2fe;
   color: #312e81;
+}
+
+.btn-action-delete-service {
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  padding: 0.45rem 0.65rem;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-action-delete-service:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
 }
 
 /* Modal Styling */

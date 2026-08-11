@@ -1,8 +1,10 @@
 /* SupplementPurchasePage.css */
 
 .supplement-purchases-page {
-  padding: 2rem;
+  padding: 1.5rem 2rem 3rem 2rem;
   max-width: 1400px;
+  width: 100%;
+  box-sizing: border-box;
   margin: 0 auto;
 }
 

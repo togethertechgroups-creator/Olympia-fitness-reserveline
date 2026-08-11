@@ -5,25 +5,39 @@ export const generateInvoice = (client) => {
   const rawDate = client.invoiceDate ? client.invoiceDate : new Date();
   const invoiceDate = formatDateDDMMYYYY(rawDate);
 
-  const isDuePayment = client.dueNumber !== undefined && client.dueNumber !== null && client.dueNumber > 0;
+  const isDuePayment = (client.dueNumber !== undefined && client.dueNumber !== null && client.dueNumber > 0) ||
+                       (client.totalPlanAmount !== undefined && client.totalPlanAmount > 0 && client.planAmount !== undefined && Number(client.planAmount) < Number(client.totalPlanAmount));
   const dueNumber = client.dueNumber || 0;
 
-  const totalPlanAmount = parseFloat(client.totalPlanAmount || client.planAmount || client.amount || 0);
-  const paidThisInvoice = parseFloat(client.paidAmount !== undefined ? client.paidAmount : (client.amount || 0));
-  const remainingBalance = parseFloat(client.remainingBalance !== undefined ? client.remainingBalance : (client.dueAmount || 0));
+  // The actual money collected in this invoice transaction
+  const invoiceAmount = isDuePayment
+    ? parseFloat(client.planAmount || client.paidAmount || 0)
+    : parseFloat(client.planAmount || client.amount || client.totalPlanAmount || 0);
+
+  const fullPlanTotal = parseFloat(client.totalPlanAmount || client.amount || invoiceAmount);
+
+  let remainingBalance = 0;
+  if (client.remainingBalance !== undefined && client.remainingBalance !== null) {
+    remainingBalance = Math.max(0, parseFloat(client.remainingBalance));
+  } else if (client.dueAmount !== undefined && client.dueAmount !== null) {
+    remainingBalance = Math.max(0, parseFloat(client.dueAmount));
+  } else {
+    remainingBalance = Math.max(0, fullPlanTotal - invoiceAmount);
+  }
 
   const billNo = client.billNo || `INV-${client.clientId || Math.floor(Math.random() * 10000)}`;
 
-  // GST calculation (4.8% split as CGST 2.4% + SGST 2.4%)
+  // GST calculation (4.8% split as CGST 2.4% + SGST 2.4%) calculated on THIS invoice's amount
   const gstRate = 0.048;
-  const baseAmount = totalPlanAmount / (1 + gstRate);
-  const cgst = totalPlanAmount - baseAmount;
+  const baseAmount = invoiceAmount / (1 + gstRate);
+  const cgst = (invoiceAmount - baseAmount) / 2;
   const sgst = cgst;
   const taxTotal = cgst + sgst;
 
-  const planLabel = client.planName || client.plan
-    ? (client.planName || client.plan)
-    : 'Gym Membership';
+  const rawPlanLabel = client.planName || client.plan || 'Gym Membership';
+  const itemTitle = isDuePayment
+    ? `Due Payment Settlement — ${rawPlanLabel}${dueNumber > 0 ? ` (#Due ${dueNumber})` : ''}`
+    : rawPlanLabel;
 
   const numberToWords = (num) => {
     const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
@@ -38,7 +52,7 @@ export const generateInvoice = (client) => {
     return words.trim();
   };
 
-  const amountInWords = numberToWords(Math.round(paidThisInvoice)) + ' Only';
+  const amountInWords = numberToWords(Math.round(invoiceAmount)) + ' Only';
 
   const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -381,8 +395,9 @@ export const generateInvoice = (client) => {
 
   <!-- TOP BANNER -->
   <div class="top-banner">
-    <span class="tax-invoice-label">TAX INVOICE</span>
+    <span class="tax-invoice-label">${isDuePayment ? 'DUE PAYMENT RECEIPT' : 'TAX INVOICE'}</span>
     <span class="original-badge">ORIGINAL FOR RECIPIENT</span>
+    ${isDuePayment ? `<span style="font-weight:800;font-size:9.5px;color:#166534;margin-left:auto;background:#dcfce7;border:1px solid #86efac;padding:2px 8px;border-radius:4px">✓ DUE PAYMENT CLEARANCE</span>` : ''}
   </div>
 
   <!-- COMPANY HEADER -->
@@ -434,24 +449,24 @@ export const generateInvoice = (client) => {
     </thead>
     <tbody>
       <tr>
-        <td>${planLabel}${isDuePayment ? ` — Due Payment #${dueNumber}` : ''}</td>
-        <td class="right">${totalPlanAmount.toFixed(2)}</td>
+        <td><strong>${itemTitle}</strong></td>
+        <td class="right">${invoiceAmount.toFixed(2)}</td>
         <td class="right">0.00</td>
         <td class="center">0.00<br><span class="tax-small">(0%)</span></td>
         <td class="center">${taxTotal.toFixed(2)}<br><span class="tax-small">(4.8%)</span></td>
-        <td class="right">${totalPlanAmount.toFixed(2)}</td>
+        <td class="right">${invoiceAmount.toFixed(2)}</td>
       </tr>
       <tr class="subtotal-row">
         <td colspan="3"></td>
         <td class="right">₹ 0.00</td>
         <td class="right">₹ ${taxTotal.toFixed(2)}</td>
-        <td class="right">₹ ${totalPlanAmount.toFixed(2)}</td>
+        <td class="right">₹ ${invoiceAmount.toFixed(2)}</td>
       </tr>
       <tr class="subtotal-row">
         <td colspan="3"><strong>SUBTOTAL</strong></td>
         <td class="right"><strong>₹ 0.00</strong></td>
         <td class="right"><strong>₹ ${taxTotal.toFixed(2)}</strong></td>
-        <td class="right"><strong>₹ ${totalPlanAmount.toFixed(2)}</strong></td>
+        <td class="right"><strong>₹ ${invoiceAmount.toFixed(2)}</strong></td>
       </tr>
     </tbody>
   </table>
@@ -487,13 +502,17 @@ export const generateInvoice = (client) => {
 
     <!-- RIGHT: Amounts Summary -->
     <div class="bottom-right">
-      <div class="summary-row"><span>Taxable Amount:</span><span>₹ ${(totalPlanAmount - taxTotal).toFixed(2)}</span></div>
-      <div class="summary-row"><span>CGST:</span><span>₹ ${cgst.toFixed(2)}</span></div>
-      <div class="summary-row"><span>SGST:</span><span>₹ ${sgst.toFixed(2)}</span></div>
+      <div class="summary-row"><span>Taxable Amount:</span><span>₹ ${(invoiceAmount - taxTotal).toFixed(2)}</span></div>
+      <div class="summary-row"><span>CGST (2.4%):</span><span>₹ ${cgst.toFixed(2)}</span></div>
+      <div class="summary-row"><span>SGST (2.4%):</span><span>₹ ${sgst.toFixed(2)}</span></div>
       <div class="summary-row"><span>Discount:</span><span>- ₹ 0.00</span></div>
-      <div class="summary-row total"><span>Total Amount ₹${totalPlanAmount.toFixed(2)}</span></div>
-      <div class="summary-row received"><span>Received Amount:</span><span>₹ ${paidThisInvoice.toFixed(2)}</span></div>
-      ${remainingBalance > 0 ? `<div class="summary-row" style="color:#cc0000;font-weight:700"><span>Balance Due:</span><span>₹ ${remainingBalance.toFixed(2)}</span></div>` : ''}
+      <div class="summary-row total"><span>Invoice Amount ₹${invoiceAmount.toFixed(2)}</span></div>
+      <div class="summary-row received"><span>Amount Received:</span><span>₹ ${invoiceAmount.toFixed(2)}</span></div>
+      ${remainingBalance > 0
+        ? `<div class="summary-row" style="color:#cc0000;font-weight:700"><span>Pending Due Balance:</span><span>₹ ${remainingBalance.toFixed(2)}</span></div>`
+        : (isDuePayment ? `<div class="summary-row" style="color:#166534;font-weight:700;background:#f0fdf4;padding:3px 6px;border-radius:4px;margin-top:4px"><span>Due Status:</span><span>✓ SETTLED & CLOSED</span></div>` : '')
+      }
+      ${isDuePayment ? `<div class="summary-row" style="color:#64748b;font-size:8.5px;margin-top:4px"><span>(Original Full Pack Value: ₹${fullPlanTotal.toFixed(2)})</span></div>` : ''}
       <div class="words-amount">
         <span class="words-label">Total Amount (in words)</span><br>
         ${amountInWords}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
-import { getOtherServicesSales, getOtherServices, sellOtherService, getClients } from '../api';
+import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './OtherServicesPage.css';
 
@@ -19,7 +19,7 @@ const OtherServicesPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Sell Modal State
+  // Sell / Renew Modal State
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
   const [sellFormData, setSellFormData] = useState({
     client_id: '',
@@ -81,6 +81,48 @@ const OtherServicesPage = () => {
     } catch (err) {
       console.error("Error loading modal data:", err);
       setIsSellModalOpen(true);
+    }
+  };
+
+  const handleOpenRenewModal = async (item) => {
+    try {
+      const [freshServices, freshClients] = await Promise.all([
+        getOtherServices(),
+        getClients()
+      ]);
+      const currentServices = freshServices || [];
+      const currentClients = freshClients || [];
+      setServices(currentServices);
+      setClients(currentClients);
+
+      const matchedClient = currentClients.find(c => String(c.id) === String(item.client_id) || c.name === item.clientName);
+      const matchedService = currentServices.find(s => String(s.id) === String(item.service_id) || s.name === item.serviceName) || (currentServices.length > 0 ? currentServices[0] : null);
+
+      setSellFormData({
+        client_id: matchedClient ? matchedClient.id : (item.client_id || ''),
+        service_id: matchedService ? matchedService.id : '',
+        sale_date: new Date().toISOString().split('T')[0],
+        paid_amount: matchedService ? matchedService.price : (item.price_snapshot || 0),
+        payment_method: 'UPI'
+      });
+      setIsSellModalOpen(true);
+    } catch (err) {
+      console.error("Error loading renew modal data:", err);
+      setIsSellModalOpen(true);
+    }
+  };
+
+  const handleDeleteSale = async (item) => {
+    if (!window.confirm(`Are you sure you want to delete the service subscription "${item.serviceName}" for ${item.clientName}? This action cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteOtherServiceSale(item.id);
+      setToastMessage(`Service subscription record deleted successfully.`);
+      await fetchData();
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      alert(err.message || "Failed to delete service subscription.");
     }
   };
 
@@ -342,17 +384,44 @@ const OtherServicesPage = () => {
                     </td>
                     <td className="col-invoice">{item.billNo || 'INV-0000'}</td>
                     <td className="col-actions">
-                      <button
-                        className="btn-action-view-invoice"
-                        onClick={() => setInvoiceModal({ isOpen: true, data: billObj })}
-                        title="View / Print Invoice"
-                      >
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                          <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                        Invoice
-                      </button>
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {isExpired && (
+                          <button
+                            className="btn-action-renew-service"
+                            onClick={() => handleOpenRenewModal(item)}
+                            title="Renew Service Subscription"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="23 4 23 10 17 10"></polyline>
+                              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                            </svg>
+                            Renew
+                          </button>
+                        )}
+
+                        <button
+                          className="btn-action-view-invoice"
+                          onClick={() => setInvoiceModal({ isOpen: true, data: billObj })}
+                          title="View / Print Invoice"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                          </svg>
+                          Invoice
+                        </button>
+
+                        <button
+                          className="btn-action-delete-service"
+                          onClick={() => handleDeleteSale(item)}
+                          title="Delete Subscription Record"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

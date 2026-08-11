@@ -7,6 +7,11 @@ const ExpensesPage = () => {
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const [formData, setFormData] = useState({
     date: formatDateDDMMYYYY(new Date()),
     name: '',
@@ -74,9 +79,15 @@ const ExpensesPage = () => {
 
   const totalExpenses = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
+  // Pagination math
+  const totalPages = Math.ceil(expenses.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, expenses.length);
+  const currentExpenses = expenses.slice(startIndex, endIndex);
+
   return (
     <div className="premium-dashboard">
-      <main className="dashboard-main">
+      <main className="dashboard-main" style={{ paddingBottom: '5rem' }}>
         <div className="expenses-page">
           <div className="expenses-header">
             <div>
@@ -94,42 +105,89 @@ const ExpensesPage = () => {
           </div>
 
           <div className="expenses-table-container">
-            <table className="expenses-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Expense Name</th>
-                  <th>Category</th>
-                  <th>Amount</th>
-                  <th>Mode</th>
-                  <th>Notes</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.length === 0 ? (
+            <div className="table-responsive">
+              <table className="expenses-table">
+                <thead>
                   <tr>
-                    <td colSpan="7" className="empty-state">No expenses recorded yet.</td>
+                    <th>Date</th>
+                    <th>Expense Name</th>
+                    <th>Category</th>
+                    <th>Amount</th>
+                    <th>Mode</th>
+                    <th>Notes</th>
+                    <th>Actions</th>
                   </tr>
-                ) : (
-                  expenses.map(exp => (
-                    <tr key={exp.id}>
-                      <td>{formatDateDDMMYYYY(exp.date)}</td>
-                      <td><strong>{exp.name}</strong></td>
-                      <td><span className="category-badge">{exp.category}</span></td>
-                      <td className="expense-amount">₹{exp.amount?.toLocaleString()}</td>
-                      <td>{exp.paymentMode}</td>
-                      <td>{exp.notes || '-'}</td>
-                      <td>
-                        <button className="btn-delete" onClick={() => handleDelete(exp.id)}>
-                          Delete
-                        </button>
-                      </td>
+                </thead>
+                <tbody>
+                  {expenses.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="empty-state">No expenses recorded yet.</td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    currentExpenses.map(exp => (
+                      <tr key={exp.id}>
+                        <td className="exp-date-col">{formatDateDDMMYYYY(exp.date)}</td>
+                        <td className="exp-name-col"><strong>{exp.name}</strong></td>
+                        <td className="exp-cat-col"><span className="category-badge">{exp.category}</span></td>
+                        <td className="expense-amount">₹{exp.amount?.toLocaleString()}</td>
+                        <td className="exp-mode-col">{exp.paymentMode}</td>
+                        <td className="exp-notes-col">{exp.notes || '-'}</td>
+                        <td className="exp-actions-col">
+                          <button className="btn-delete" onClick={() => handleDelete(exp.id)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            {!loading && expenses.length > 0 && (
+              <div className="expenses-pagination">
+                <div className="pagination-info">
+                  Showing <span>{startIndex + 1}</span> to <span>{endIndex}</span> of <span>{expenses.length}</span> expenses
+                </div>
+                <div className="pagination-controls">
+                  <div className="rows-per-page">
+                    <label>Rows per page:</label>
+                    <select
+                      value={itemsPerPage}
+                      onChange={(e) => {
+                        setItemsPerPage(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                    </select>
+                  </div>
+                  <div className="pagination-pages">
+                    <button
+                      className="btn-page-nav"
+                      onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                      disabled={currentPage === 1}
+                    >
+                      ‹ Prev
+                    </button>
+                    <span className="page-indicator">
+                      Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                    </span>
+                    <button
+                      className="btn-page-nav"
+                      onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {showModal && (

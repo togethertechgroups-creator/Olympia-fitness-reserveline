@@ -750,7 +750,7 @@ const PTAssignmentPage = () => {
             <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem', color: '#334155' }}>
               <div><strong>Package:</strong> {historyModal.assignment.packageName} ({historyModal.assignment.classes_completed} / {historyModal.assignment.total_classes_snapshot} Classes Conducted)</div>
               <div><strong>Trainer:</strong> {historyModal.assignment.trainerName} ({historyModal.assignment.trainerGrade || 'No Grade'})</div>
-              <div><strong>Expiry Date:</strong> {historyModal.assignment.expiry_date || '—'}</div>
+              <div><strong>Expiry Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.expiry_date)}</div>
             </div>
 
             {historyModal.loading ? (
@@ -773,7 +773,7 @@ const PTAssignmentPage = () => {
                   <tbody>
                     {historyModal.logs.map(log => (
                       <tr key={log.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: '700' }}>{log.class_date}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: '700' }}>{formatDateDDMMYYYY(log.class_date)}</td>
                         <td style={{ padding: '10px 12px' }}>
                           <span style={{ background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700' }}>
                             {log.session_slot || 'Morning'}
