@@ -16,9 +16,10 @@ export function expressToFetch(expressApp) {
     // ── Pre-read the body as text ──────────────────────────────────────────
     let rawBody = '';
     let parsedBody = undefined;
-    if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+    if (request.body && !request.bodyUsed && request.method !== 'GET' && request.method !== 'HEAD') {
       try {
-        rawBody = await request.text();
+        const reqClone = request.clone();
+        rawBody = await reqClone.text();
         if (rawBody) {
           const ct = (request.headers.get('content-type') || '').toLowerCase();
           if (ct.includes('application/json')) {
@@ -28,7 +29,7 @@ export function expressToFetch(expressApp) {
           }
         }
       } catch (_) {
-        parsedBody = rawBody || undefined;
+        parsedBody = undefined;
       }
     }
 
