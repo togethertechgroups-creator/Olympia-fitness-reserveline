@@ -1,8 +1,8 @@
 /**
  * Native Express → Cloudflare Worker Fetch API Bridge
  *
- * Strategy: pre-parse the JSON body ourselves, set req.body directly,
- * and set a flag so Express's body-parser skips re-parsing.
+ * Strategy: pre-parse the body safely via arrayBuffer, set req.body directly,
+ * and push buffer to req stream (req.push(null)) so readable stream is complete.
  * This bypasses all stream/readable issues in the Workers runtime.
  */
 
@@ -13,13 +13,13 @@ export function expressToFetch(expressApp) {
   return async function fetchHandler(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ── Pre-read the body as text ──────────────────────────────────────────
+    // ── 1. Read request body safely ─────────────────────────────────────────
     let rawBody = '';
     let parsedBody = undefined;
     if (request.body && !request.bodyUsed && request.method !== 'GET' && request.method !== 'HEAD') {
       try {
-        const reqClone = request.clone();
-        rawBody = await reqClone.text();
+        const buffer = await request.arrayBuffer();
+        rawBody = new TextDecoder().decode(buffer);
         if (rawBody) {
           const ct = (request.headers.get('content-type') || '').toLowerCase();
           if (ct.includes('application/json')) {
@@ -29,21 +29,22 @@ export function expressToFetch(expressApp) {
           }
         }
       } catch (_) {
+        rawBody = '';
         parsedBody = undefined;
       }
     }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       try {
-        // ── Mock socket ───────────────────────────────────────────────────
+        // ── 2. Mock Socket ──────────────────────────────────────────────────
         const dummySocket = new EventEmitter();
-        dummySocket.encrypted    = true;
+        dummySocket.encrypted     = true;
         dummySocket.remoteAddress = '127.0.0.1';
-        dummySocket.destroy      = () => {};
-        dummySocket.write        = () => {};
-        dummySocket.end          = () => {};
+        dummySocket.destroy       = () => {};
+        dummySocket.write         = () => {};
+        dummySocket.end           = () => {};
 
-        // ── Mock IncomingMessage ──────────────────────────────────────────
+        // ── 3. Mock IncomingMessage ─────────────────────────────────────────
         const req = new http.IncomingMessage(dummySocket);
         req.url    = url.pathname + url.search;
         req.method = request.method;
@@ -58,13 +59,18 @@ export function expressToFetch(expressApp) {
         }
         req.headers = reqHeaders;
 
-        // ── Pre-set body so body-parser middleware skips streaming ─────────
+        // ── 4. Feed Stream & End it ─────────────────────────────────────────
+        if (rawBody) {
+          req.push(Buffer.from(rawBody));
+        }
+        req.push(null); // Signal EOF to Stream.Readable
+
         if (parsedBody !== undefined) {
-          req.body = parsedBody;         // Express reads req.body directly if set
-          req._body = true;              // tell body-parser it's already parsed
+          req.body = parsedBody;
+          req._body = true;
         }
 
-        // ── Mock ServerResponse ───────────────────────────────────────────
+        // ── 5. Mock ServerResponse ──────────────────────────────────────────
         const res = new http.ServerResponse(req);
         const chunks = [];
 
@@ -101,11 +107,14 @@ export function expressToFetch(expressApp) {
           }));
         };
 
-        // ── Hand off to Express (no body stream needed) ───────────────────
+        // ── 6. Hand off to Express ──────────────────────────────────────────
         expressApp(req, res);
 
       } catch (err) {
-        reject(err);
+        resolve(new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }));
       }
     });
   };
