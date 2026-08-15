@@ -2645,52 +2645,67 @@ app.post('/api/restore', async (req, res) => {
         await db.prepare('DELETE FROM trainers').run();
       }
 
-      if (trainersData.length > 0) {
-        const insertTrainer = await db.prepare(`
-          INSERT INTO trainers (id, trainerId, name, specialization, experience, status, dateAdded)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `);
+      const chunkSize = 40;
 
-        for (const t of trainersData) {
-          await insertTrainer.run(
-            t.id || randomUUID(), t.trainerId || '', t.name || '',
-            t.specialization || '', t.experience || '', t.status || 'Active',
-            t.dateAdded || null
-          );
+      if (trainersData.length > 0) {
+        for (let i = 0; i < trainersData.length; i += chunkSize) {
+          const chunk = trainersData.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => `(?, ?, ?, ?, ?, ?, ?)`).join(', ');
+          const sql = `INSERT INTO trainers (id, trainerId, name, specialization, experience, status, dateAdded) VALUES ${placeholders}`;
+          const params = [];
+          for (const t of chunk) {
+            params.push(
+              t.id || randomUUID(), t.trainerId || '', t.name || '',
+              t.specialization || '', t.experience || '', t.status || 'Active',
+              t.dateAdded || null
+            );
+          }
+          await db.prepare(sql).run(params);
         }
       }
 
-      const insertClient = await db.prepare(`
-        INSERT INTO clients (
-          id, clientId, name, phone, plan, fromDate, expiryDate, amount, 
-          personalTraining, status, gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet, dateAdded, trainerId, admissionDate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)
-      `);
-
-      const insertTxn = await db.prepare(`
-        INSERT INTO transactions (id, name, method, date, amount, status, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-      `);
-
-      for (const c of clientsData) {
-        const safeTrainerId = (c.trainerId && String(c.trainerId).trim() !== '') ? String(c.trainerId).trim() : null;
-        await insertClient.run(
-          c.id || randomUUID(), c.clientId || '', c.name || 'Unknown', c.phone || '', c.plan || '',
-          c.fromDate || '', c.expiryDate || '', c.amount || 0,
-          c.personalTraining ? 1 : 0, c.status || 'active',
-          c.gender || '', c.ptCategory || '', c.ptFromDate || '', c.ptToDate || '',
-          c.ptPackage || '', c.programType || '', c.diet ? 1 : 0,
-          c.dateAdded || null,
-          safeTrainerId,
-          c.admissionDate || null
-        );
+      if (clientsData.length > 0) {
+        for (let i = 0; i < clientsData.length; i += chunkSize) {
+          const chunk = clientsData.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => `(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)`).join(', ');
+          const sql = `
+            INSERT INTO clients (
+              id, clientId, name, phone, plan, fromDate, expiryDate, amount, 
+              personalTraining, status, gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet, dateAdded, trainerId, admissionDate
+            ) VALUES ${placeholders}
+          `;
+          const params = [];
+          for (const c of chunk) {
+            const safeTrainerId = (c.trainerId && String(c.trainerId).trim() !== '') ? String(c.trainerId).trim() : null;
+            params.push(
+              c.id || randomUUID(), c.clientId || '', c.name || 'Unknown', c.phone || '', c.plan || '',
+              c.fromDate || '', c.expiryDate || '', c.amount || 0,
+              c.personalTraining ? 1 : 0, c.status || 'active',
+              c.gender || '', c.ptCategory || '', c.ptFromDate || '', c.ptToDate || '',
+              c.ptPackage || '', c.programType || '', c.diet ? 1 : 0,
+              c.dateAdded || null,
+              safeTrainerId,
+              c.admissionDate || null
+            );
+          }
+          await db.prepare(sql).run(params);
+        }
       }
 
-      for (const t of txnsData) {
-        await insertTxn.run(
-          t.id || randomUUID(), t.name || '', t.method || 'CASH', t.date || '',
-          t.amount || 0, t.status || 'CAPTURED', t.timestamp || null
-        );
+      if (txnsData.length > 0) {
+        for (let i = 0; i < txnsData.length; i += chunkSize) {
+          const chunk = txnsData.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => `(?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`).join(', ');
+          const sql = `INSERT INTO transactions (id, name, method, date, amount, status, timestamp) VALUES ${placeholders}`;
+          const params = [];
+          for (const t of chunk) {
+            params.push(
+              t.id || randomUUID(), t.name || '', t.method || 'CASH', t.date || '',
+              t.amount || 0, t.status || 'CAPTURED', t.timestamp || null
+            );
+          }
+          await db.prepare(sql).run(params);
+        }
       }
 
       try {
