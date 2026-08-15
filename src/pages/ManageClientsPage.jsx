@@ -9,6 +9,7 @@ import './ManageClientsPage.css';
 
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
+import { parseUploadedExcel } from '../utils/excelParser';
 
 const getDurationDays = (planName) => {
   if (planName === 'Quarterly') return 90;
@@ -509,20 +510,19 @@ const ManageClientsPage = () => {
       const data = await file.arrayBuffer();
       const wb = read(data);
 
-      const clientsData = wb.Sheets["Clients"] ? utils.sheet_to_json(wb.Sheets["Clients"]) : [];
-      const txnsData = wb.Sheets["Transactions"] ? utils.sheet_to_json(wb.Sheets["Transactions"]) : [];
+      const { clientsData, txnsData } = parseUploadedExcel(wb);
 
       if (clientsData.length === 0 && txnsData.length === 0) {
-        alert("No valid data found in the uploaded Excel file.");
+        alert("No valid data found in the uploaded Excel file. Please check that your sheet contains member columns like Name, Phone, and Plan.");
         return;
       }
 
       await restoreData({ clients: clientsData, transactions: txnsData });
-      alert(`Restored successfully! Clients: ${clientsData.length}, Transactions: ${txnsData.length}`);
+      alert(`Import & restore successful! Mapped ${clientsData.length} Clients and ${txnsData.length} Transactions.`);
       await fetchClients();
     } catch (error) {
       console.error('Import failed:', error);
-      alert('Failed to import data. Please check the file format or ensure connection to the server.');
+      alert('Failed to import data: ' + (error.message || 'Please check file format.'));
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = null;
