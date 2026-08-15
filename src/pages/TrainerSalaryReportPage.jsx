@@ -27,6 +27,14 @@ const TrainerSalaryReportPage = () => {
   const [revenueWarningChoiceConfirmed, setRevenueWarningChoiceConfirmed] = useState(false);
   const [lowRevenueModal, setLowRevenueModal] = useState({ isOpen: false, pendingAction: null, trainer: null });
 
+  // Close & Lock / Unlock In-Page Confirmation Modal State
+  const [lockModal, setLockModal] = useState({
+    isOpen: false,
+    action: 'lock', // 'lock' | 'unlock'
+    isSubmitting: false,
+    successData: null
+  });
+
   // Review-Before-Send Modal State
   const [modalConfig, setModalConfig] = useState({
     isOpen: false,
@@ -174,32 +182,48 @@ const TrainerSalaryReportPage = () => {
     doCloseMonth();
   };
 
-  const doCloseMonth = async () => {
-    if (window.confirm(`Are you sure you want to CLOSE & LOCK payroll for ${selectedMonth}? No further class log edits or adjustment changes will be permitted for this month.`)) {
-      try {
+  const doCloseMonth = () => {
+    setLockModal({ isOpen: true, action: 'lock', isSubmitting: false, successData: null });
+  };
+
+  const handleUnlockMonth = () => {
+    setLockModal({ isOpen: true, action: 'unlock', isSubmitting: false, successData: null });
+  };
+
+  const confirmLockAction = async () => {
+    setLockModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      if (lockModal.action === 'lock') {
         await closePayrollMonth({
           month: selectedMonth,
           locked_by: 'Superadmin',
           total_payroll: grandTotalPayable
         });
-        alert(`Payroll for ${selectedMonth} is now locked. Total Payroll payable (₹${grandTotalPayable.toLocaleString('en-IN')}) is now subtracted from Net Profit.`);
-        fetchReport();
-      } catch (error) {
-        alert(error.message || 'Failed to lock month');
-      }
-    }
-  };
-
-  const handleUnlockMonth = async () => {
-    if (window.confirm(`Are you sure you want to UNLOCK payroll for ${selectedMonth}?\n\nUnlocking allows editing class logs and payroll adjustments again, and removes the locked payroll deduction from Net Profit.`)) {
-      try {
+        setLockModal({
+          isOpen: true,
+          action: 'lock',
+          isSubmitting: false,
+          successData: {
+            title: 'Payroll Month Locked Successfully!',
+            message: `Payroll for ${selectedMonth} is now locked. Total Payroll payable (₹${grandTotalPayable.toLocaleString('en-IN')}) has been subtracted from Net Profit.`
+          }
+        });
+      } else {
         await unlockPayrollMonth(selectedMonth);
-        setSaveSuccessMsg(`Payroll for ${selectedMonth} is now unlocked.`);
-        setTimeout(() => setSaveSuccessMsg(''), 4000);
-        fetchReport();
-      } catch (error) {
-        alert(error.message || 'Failed to unlock month.');
+        setLockModal({
+          isOpen: true,
+          action: 'unlock',
+          isSubmitting: false,
+          successData: {
+            title: 'Payroll Month Unlocked Successfully!',
+            message: `Payroll for ${selectedMonth} is now unlocked. You can edit trainer class logs and adjustments again.`
+          }
+        });
       }
+      fetchReport();
+    } catch (error) {
+      setLockModal(prev => ({ ...prev, isSubmitting: false }));
+      alert(error.message || 'Action failed.');
     }
   };
 
@@ -1258,6 +1282,108 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Close & Lock / Unlock Confirmation & Success Popup Modal */}
+      {lockModal.isOpen && (
+        <div className="adj-modal-overlay">
+          <div className="lock-modal-card">
+            {lockModal.successData ? (
+              <>
+                <div className="lock-modal-header lock-type" style={{ background: '#ecfdf5' }}>
+                  <div className="lock-modal-icon green">✓</div>
+                  <div className="lock-modal-title-box">
+                    <h3 style={{ color: '#065f46' }}>{lockModal.successData.title}</h3>
+                    <p style={{ color: '#047857' }}>Month: {selectedMonth}</p>
+                  </div>
+                </div>
+                <div className="lock-modal-body">
+                  <p style={{ fontSize: '0.95rem', color: '#1e293b', lineHeight: 1.5, margin: 0 }}>
+                    {lockModal.successData.message}
+                  </p>
+                </div>
+                <div className="lock-modal-actions">
+                  <button
+                    type="button"
+                    className="btn-lock-confirm-purple"
+                    style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                    onClick={() => setLockModal({ isOpen: false, action: 'lock', isSubmitting: false, successData: null })}
+                  >
+                    Done
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={`lock-modal-header ${lockModal.action === 'lock' ? 'lock-type' : 'unlock-type'}`}>
+                  <div className={`lock-modal-icon ${lockModal.action === 'lock' ? 'red' : 'purple'}`}>
+                    {lockModal.action === 'lock' ? '🔒' : '🔓'}
+                  </div>
+                  <div className="lock-modal-title-box">
+                    <h3>{lockModal.action === 'lock' ? `Close & Lock Month (${selectedMonth})` : `Unlock Month (${selectedMonth})`}</h3>
+                    <p>{lockModal.action === 'lock' ? 'Finalize trainer salaries & payroll expenses' : 'Reopen month for edits and adjustments'}</p>
+                  </div>
+                </div>
+
+                <div className="lock-modal-body">
+                  <div className="lock-summary-box">
+                    <div className="lock-summary-row">
+                      <span>Selected Month:</span>
+                      <strong>{selectedMonth}</strong>
+                    </div>
+                    <div className="lock-summary-row">
+                      <span>Active Trainers:</span>
+                      <strong>{reportData?.trainers?.length || 0} Trainers</strong>
+                    </div>
+                    <div className="lock-summary-row">
+                      <span>Total Payroll Payable:</span>
+                      <span className="highlight-val">₹{grandTotalPayable.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+
+                  {lockModal.action === 'lock' ? (
+                    <div className="lock-notice-box">
+                      <span>⚠️</span>
+                      <div>
+                        <strong>Important:</strong> Locking will disable further class log edits and adjustment modifications for this month. <strong>₹{grandTotalPayable.toLocaleString('en-IN')}</strong> will be subtracted from Net Profit.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="lock-notice-box" style={{ background: '#f5f3ff', borderColor: '#ddd6fe', color: '#5b21b6' }}>
+                      <span>🔓</span>
+                      <div>
+                        <strong>Notice:</strong> Unlocking will enable edits to class logs and payroll adjustments. The payroll expense deduction will be reopened until locked again.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="lock-modal-actions">
+                  <button
+                    type="button"
+                    className="btn-lock-cancel"
+                    onClick={() => setLockModal({ isOpen: false, action: 'lock', isSubmitting: false, successData: null })}
+                    disabled={lockModal.isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className={lockModal.action === 'lock' ? 'btn-lock-confirm-red' : 'btn-lock-confirm-purple'}
+                    onClick={confirmLockAction}
+                    disabled={lockModal.isSubmitting}
+                  >
+                    {lockModal.isSubmitting
+                      ? 'Processing...'
+                      : lockModal.action === 'lock'
+                        ? '🔒 Yes, Lock Month'
+                        : '🔓 Yes, Unlock Month'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
