@@ -1,13 +1,18 @@
 export const formatShortId = (id) => {
-  if (!id) return 'N/A';
+  if (!id && id !== 0) return 'N/A';
   const str = String(id).trim();
   if (!str) return 'N/A';
 
-  // If it's a short human-assigned ID (e.g. 001, 1234, TRN01, GYM001), return as is
-  if (str.length <= 6) return str;
+  // If it's a formatted ID like CLI-2789, CLI-0010, TRN-001, return as is
+  if (/^(CLI|TRN|BILL|PT|SUB|ADM|GST)-/i.test(str)) {
+    return str.toUpperCase();
+  }
 
-  // For long UUIDs or IDs > 6 characters, take the first 4 characters/digits
-  return str.slice(0, 4).toUpperCase();
+  // If length <= 10, return as is
+  if (str.length <= 10) return str.toUpperCase();
+
+  // For long raw UUIDs, return first 8 chars
+  return str.slice(0, 8).toUpperCase();
 };
 
 export default formatShortId;
