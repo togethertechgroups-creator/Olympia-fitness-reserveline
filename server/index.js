@@ -730,7 +730,7 @@ async function initDb() {
     `);
 
       try {
-        db.prepare("ALTER TABLE payroll_locks ADD COLUMN total_payroll REAL DEFAULT 0").run();
+        await db.prepare("ALTER TABLE payroll_locks ADD COLUMN total_payroll REAL DEFAULT 0").run();
         console.log('✅ Added total_payroll column to payroll_locks table');
       } catch (e) { }
 
@@ -742,9 +742,9 @@ async function initDb() {
         { name: 'other_type', type: "TEXT CHECK(other_type IN ('Add','Subtract')) NOT NULL DEFAULT 'Add'" },
         { name: 'other_label', type: 'TEXT' }
       ];
-      adjCols.forEach(col => {
-        try { db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
-      });
+      for (const col of adjCols) {
+        try { await db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
+      }
 
       // Seed catalog pt_packages if empty
       const existingPkgCount = db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;

@@ -364,9 +364,10 @@ CREATE TABLE IF NOT EXISTS pt_class_log (
 );
 
 CREATE TABLE IF NOT EXISTS payroll_locks (
-  month     TEXT PRIMARY KEY,
-  locked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  locked_by TEXT REFERENCES users(id)
+  month         TEXT PRIMARY KEY,
+  locked_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+  locked_by     TEXT,
+  total_payroll REAL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS trainer_payroll_adjustments (
