@@ -2635,21 +2635,29 @@ app.post('/api/restore', async (req, res) => {
     }
 
     const restoreTx = async (clientsData, txnsData, trainersData) => {
+      try {
+        await db.prepare('PRAGMA foreign_keys = OFF').run();
+      } catch (_) {}
+
       await db.prepare('DELETE FROM clients').run();
       await db.prepare('DELETE FROM transactions').run();
-      await db.prepare('DELETE FROM trainers').run();
+      if (trainersData.length > 0) {
+        await db.prepare('DELETE FROM trainers').run();
+      }
 
-      const insertTrainer = await db.prepare(`
-        INSERT INTO trainers (id, trainerId, name, specialization, experience, status, dateAdded)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
+      if (trainersData.length > 0) {
+        const insertTrainer = await db.prepare(`
+          INSERT INTO trainers (id, trainerId, name, specialization, experience, status, dateAdded)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
 
-      for (const t of trainersData) {
-        insertTrainer.run(
-          t.id || randomUUID(), t.trainerId || '', t.name || '',
-          t.specialization || '', t.experience || '', t.status || 'Active',
-          t.dateAdded || null
-        );
+        for (const t of trainersData) {
+          await insertTrainer.run(
+            t.id || randomUUID(), t.trainerId || '', t.name || '',
+            t.specialization || '', t.experience || '', t.status || 'Active',
+            t.dateAdded || null
+          );
+        }
       }
 
       const insertClient = await db.prepare(`
@@ -2665,14 +2673,15 @@ app.post('/api/restore', async (req, res) => {
       `);
 
       for (const c of clientsData) {
-        insertClient.run(
+        const safeTrainerId = (c.trainerId && String(c.trainerId).trim() !== '') ? String(c.trainerId).trim() : null;
+        await insertClient.run(
           c.id || randomUUID(), c.clientId || '', c.name || 'Unknown', c.phone || '', c.plan || '',
           c.fromDate || '', c.expiryDate || '', c.amount || 0,
           c.personalTraining ? 1 : 0, c.status || 'active',
           c.gender || '', c.ptCategory || '', c.ptFromDate || '', c.ptToDate || '',
           c.ptPackage || '', c.programType || '', c.diet ? 1 : 0,
           c.dateAdded || null,
-          c.trainerId || null,
+          safeTrainerId,
           c.admissionDate || null
         );
       }
@@ -2683,6 +2692,10 @@ app.post('/api/restore', async (req, res) => {
           t.amount || 0, t.status || 'CAPTURED', t.timestamp || null
         );
       }
+
+      try {
+        await db.prepare('PRAGMA foreign_keys = ON').run();
+      } catch (_) {}
     };
 
     await restoreTx(clients, transactions, trainers);
