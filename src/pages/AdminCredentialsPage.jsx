@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCredentials, updateCredentials } from '../api';
+import { getCredentials, updateCredentials, getGstSettings, updateGstSettings } from '../api';
 import './AdminCredentialsPage.css';
 
 const AdminCredentialsPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGstSubmitting, setIsGstSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [showGstSuccess, setShowGstSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [gstError, setGstError] = useState('');
   
   const [creds, setCreds] = useState({
     superadmin: { username: '', password: '' },
@@ -20,20 +23,36 @@ const AdminCredentialsPage = () => {
     admin: false
   });
 
+  const [gstSettings, setGstSettings] = useState({
+    business_legal_name: '',
+    business_gstin: '',
+    business_address: '',
+    gst_rate_percent: 4.8
+  });
+
   useEffect(() => {
-    fetchCreds();
+    fetchAll();
   }, []);
 
-  const fetchCreds = async () => {
+  const fetchAll = async () => {
     try {
-      const data = await getCredentials();
+      const [credsData, gstData] = await Promise.all([
+        getCredentials(),
+        getGstSettings()
+      ]);
       const mapped = {};
-      data.forEach(u => {
+      credsData.forEach(u => {
         mapped[u.role] = { username: u.username, password: u.password };
       });
       setCreds(mapped);
+      setGstSettings({
+        business_legal_name: gstData.business_legal_name || '',
+        business_gstin: gstData.business_gstin || '',
+        business_address: gstData.business_address || '',
+        gst_rate_percent: gstData.gst_rate_percent ?? 4.8
+      });
     } catch (err) {
-      setError('Failed to fetch credentials');
+      setError('Failed to load settings');
     } finally {
       setLoading(false);
     }
@@ -54,7 +73,6 @@ const AdminCredentialsPage = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
-    
     try {
       const payload = Object.entries(creds).map(([role, data]) => ({
         role,
@@ -67,6 +85,22 @@ const AdminCredentialsPage = () => {
       setError(err.message || 'Failed to update credentials');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleGstSubmit = async (e) => {
+    e.preventDefault();
+    setGstError('');
+    setIsGstSubmitting(true);
+
+    try {
+      await updateGstSettings(gstSettings);
+      setShowGstSuccess(true);
+      setTimeout(() => setShowGstSuccess(false), 3000);
+    } catch (err) {
+      setGstError(err.message || 'Failed to update GST settings');
+    } finally {
+      setIsGstSubmitting(false);
     }
   };
 
@@ -88,7 +122,7 @@ const AdminCredentialsPage = () => {
                         style={{ width: '58px', height: '58px', objectFit: 'contain', mixBlendMode: 'multiply' }} 
                     />
                 </h1>
-                <p style={{ color: '#64748b', marginTop: '0.75rem', textTransform: 'none', letterSpacing: 'normal', fontSize: '1rem', fontWeight: '500' }}>Manage administrative access levels and passwords</p>
+                <p style={{ color: '#64748b', marginTop: '0.75rem', textTransform: 'none', letterSpacing: 'normal', fontSize: '1rem', fontWeight: '500' }}>Manage administrative access levels, passwords, and GST registration</p>
             </div>
             <div className="header-controls">
                 {/* Logo removed as requested - only for Home page */}
@@ -118,7 +152,7 @@ const AdminCredentialsPage = () => {
                   <label>Username</label>
                   <input 
                     type="text" 
-                    value={creds.superadmin.username}
+                    value={creds.superadmin?.username || ''}
                     onChange={(e) => handleInputChange('superadmin', 'username', e.target.value)}
                     placeholder="Enter Master username"
                     required
@@ -129,7 +163,7 @@ const AdminCredentialsPage = () => {
                   <div className="password-input-wrapper">
                     <input 
                       type={showPasswords.superadmin ? "text" : "password"}
-                      value={creds.superadmin.password}
+                      value={creds.superadmin?.password || ''}
                       onChange={(e) => handleInputChange('superadmin', 'password', e.target.value)}
                       placeholder="Enter Master password"
                       required
@@ -158,7 +192,7 @@ const AdminCredentialsPage = () => {
                   <label>Username</label>
                   <input 
                     type="text" 
-                    value={creds.admin.username}
+                    value={creds.admin?.username || ''}
                     onChange={(e) => handleInputChange('admin', 'username', e.target.value)}
                     placeholder="Enter Admin username"
                     required
@@ -169,7 +203,7 @@ const AdminCredentialsPage = () => {
                   <div className="password-input-wrapper">
                     <input 
                       type={showPasswords.admin ? "text" : "password"}
-                      value={creds.admin.password}
+                      value={creds.admin?.password || ''}
                       onChange={(e) => handleInputChange('admin', 'password', e.target.value)}
                       placeholder="Enter Admin password"
                       required
@@ -196,6 +230,86 @@ const AdminCredentialsPage = () => {
             </button>
           </div>
         </form>
+
+        {/* ─── GST Registration Section ─────────────────────────────────────────── */}
+        <div className="gst-section-divider">
+          <span>GST &amp; Business Registration</span>
+        </div>
+
+        {showGstSuccess && (
+          <div className="creds-success-banner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <span>GST settings updated successfully!</span>
+          </div>
+        )}
+
+        {gstError && <div className="creds-error-banner">{gstError}</div>}
+
+        <form onSubmit={handleGstSubmit} className="creds-form">
+          <div className="creds-card gst-card" style={{ maxWidth: '100%' }}>
+            <div className="card-badge gst-badge">GST REGISTRATION</div>
+            <div className="card-header">
+              <h3>Business GST Details</h3>
+              <p>GSTIN and business info printed on all invoices and GST reports</p>
+            </div>
+            <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem' }}>
+              <div className="input-group">
+                <label>Business Legal Name</label>
+                <input
+                  type="text"
+                  value={gstSettings.business_legal_name}
+                  onChange={(e) => setGstSettings(p => ({ ...p, business_legal_name: e.target.value }))}
+                  placeholder="e.g. OLYMPIA FITNESS A/C UNISEX"
+                />
+              </div>
+
+              <div className="input-group">
+                <label>GSTIN (15-digit)</label>
+                <input
+                  type="text"
+                  value={gstSettings.business_gstin}
+                  onChange={(e) => setGstSettings(p => ({ ...p, business_gstin: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. 33ABCDE1234F1Z5"
+                  maxLength={15}
+                  style={{ letterSpacing: '0.08em', fontFamily: 'monospace', fontSize: '1rem' }}
+                />
+              </div>
+
+              <div className="input-group" style={{ gridColumn: '1 / -1' }}>
+                <label>Business Address</label>
+                <input
+                  type="text"
+                  value={gstSettings.business_address}
+                  onChange={(e) => setGstSettings(p => ({ ...p, business_address: e.target.value }))}
+                  placeholder="Full registered business address"
+                />
+              </div>
+
+              <div className="input-group">
+                <label>GST Rate (%)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="28"
+                  value={gstSettings.gst_rate_percent}
+                  onChange={(e) => setGstSettings(p => ({ ...p, gst_rate_percent: parseFloat(e.target.value) || 0 }))}
+                  placeholder="e.g. 4.8"
+                />
+                <small style={{ color: '#94a3b8', fontSize: '0.78rem', marginTop: '0.3rem', display: 'block' }}>
+                  Split equally as CGST + SGST on invoices
+                </small>
+              </div>
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <button type="submit" className="btn-primary" disabled={isGstSubmitting}>
+              {isGstSubmitting ? 'Saving GST Settings...' : 'Update GST Settings'}
+            </button>
+          </div>
+        </form>
+
       </main>
     </div>
   );

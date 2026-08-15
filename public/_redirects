@@ -1,0 +1,4 @@
+# _redirects is intentionally empty.
+# Routing is handled in worker/index.js:
+#   /api/* → Express + Cloudflare D1
+#   everything else → env.ASSETS (static dist) with SPA index.html fallback

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSettings, updateSettings, getGstSettings, updateGstSettings } from '../api';
+import { getSettings, updateSettings } from '../api';
 import './PricingSettingsPage.css';
 
 const PricingSettingsPage = () => {
@@ -13,15 +13,6 @@ const PricingSettingsPage = () => {
         Annual_Strengthening: 0,
         Annual_Cardio: 0
     });
-    const [gstConfig, setGstConfig] = useState({
-        business_gstin: '332323402248ED',
-        business_legal_name: 'OLYMPIA FITNESS A/C UNISEX',
-        business_address: 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014',
-        gst_rate_percent: 4.8,
-        gst_effective_from: '2026-01-01'
-    });
-    const [isSavingGst, setIsSavingGst] = useState(false);
-    const [gstMessage, setGstMessage] = useState({ text: '', type: '' });
 
     const [isSaving, setIsSaving] = useState(false);
     const [editingPlanKey, setEditingPlanKey] = useState(null);
@@ -32,7 +23,6 @@ const PricingSettingsPage = () => {
 
     useEffect(() => {
         fetchSettings();
-        fetchGstConfig();
     }, []);
 
     const fetchSettings = async () => {
@@ -44,35 +34,6 @@ const PricingSettingsPage = () => {
         }
     };
 
-    const fetchGstConfig = async () => {
-        try {
-            const data = await getGstSettings();
-            if (data) setGstConfig(data);
-        } catch (error) {
-            console.error('Failed to fetch GST settings');
-        }
-    };
-
-    const handleSaveGst = async (e) => {
-        e.preventDefault();
-        const rate = parseFloat(gstConfig.gst_rate_percent);
-        if (isNaN(rate) || rate <= 0 || rate > 100) {
-            setGstMessage({ text: 'GST Rate must be greater than 0% and less than or equal to 100%.', type: 'error' });
-            return;
-        }
-        setIsSavingGst(true);
-        setGstMessage({ text: '', type: '' });
-        try {
-            const updated = await updateGstSettings(gstConfig);
-            setGstConfig(updated);
-            setGstMessage({ text: 'GST configuration updated successfully!', type: 'success' });
-            setTimeout(() => setGstMessage({ text: '', type: '' }), 4000);
-        } catch (err) {
-            setGstMessage({ text: err.message || 'Failed to save GST configuration.', type: 'error' });
-        } finally {
-            setIsSavingGst(false);
-        }
-    };
 
     const handleChange = (key, value) => {
         setSettings(prev => ({ ...prev, [key]: parseFloat(value) || 0 }));
@@ -103,7 +64,10 @@ const PricingSettingsPage = () => {
     };
 
     const handleDeletePlan = async (baseKey, e) => {
-        if (e) e.stopPropagation();
+        if (e) {
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
+        }
         if (window.confirm(`Are you sure you want to permanently delete the '${baseKey}' plan format and its tariff settings?`)) {
             const updatedSettings = { ...settings };
             delete updatedSettings[`${baseKey}_Strengthening`];
@@ -381,108 +345,7 @@ const PricingSettingsPage = () => {
                     </div>
                 </form>
 
-                {/* GST Settings Form */}
-                <div style={{ marginTop: '3rem', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '20px', padding: '2rem', boxShadow: '0 4px 14px rgba(0,0,0,0.02)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                    <div>
-                      <h2 style={{ fontSize: '1.5rem', fontWeight: '900', color: '#1e1b4b', margin: 0 }}>GST Configuration (Superadmin)</h2>
-                      <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.2rem' }}>Configure business GSTIN, legal header details, and editable GST rate % (applied to General Plans).</p>
-                    </div>
-                    <span style={{ background: '#ecfdf5', color: '#047857', padding: '4px 12px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: '800' }}>
-                      Audit Config Active
-                    </span>
-                  </div>
 
-                  {gstMessage.text && (
-                    <div style={{
-                      padding: '0.85rem 1.25rem', borderRadius: '10px', marginBottom: '1.25rem', fontWeight: '700', fontSize: '0.9rem',
-                      background: gstMessage.type === 'error' ? '#fef2f2' : '#ecfdf5',
-                      color: gstMessage.type === 'error' ? '#991b1b' : '#065f46',
-                      border: `1px solid ${gstMessage.type === 'error' ? '#fca5a5' : '#a7f3d0'}`
-                    }}>
-                      {gstMessage.text}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleSaveGst}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Business 15-Digit GSTIN *</label>
-                        <input
-                          type="text"
-                          required
-                          value={gstConfig.business_gstin}
-                          onChange={(e) => setGstConfig({ ...gstConfig, business_gstin: e.target.value })}
-                          style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Business Legal Name *</label>
-                        <input
-                          type="text"
-                          required
-                          value={gstConfig.business_legal_name}
-                          onChange={(e) => setGstConfig({ ...gstConfig, business_legal_name: e.target.value })}
-                          style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: '1.25rem' }}>
-                      <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Business Header Address *</label>
-                      <input
-                        type="text"
-                        required
-                        value={gstConfig.business_address}
-                        onChange={(e) => setGstConfig({ ...gstConfig, business_address: e.target.value })}
-                        style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                      />
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.5rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>GST Rate (%) *</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0.1"
-                          max="100"
-                          required
-                          value={gstConfig.gst_rate_percent}
-                          onChange={(e) => setGstConfig({ ...gstConfig, gst_rate_percent: e.target.value })}
-                          style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                        />
-                        <span style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
-                          Split evenly as CGST ({(parseFloat(gstConfig.gst_rate_percent || 4.8) / 2).toFixed(2)}%) + SGST ({(parseFloat(gstConfig.gst_rate_percent || 4.8) / 2).toFixed(2)}%).
-                        </span>
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Effective From Date *</label>
-                        <input
-                          type="date"
-                          required
-                          value={gstConfig.gst_effective_from}
-                          onChange={(e) => setGstConfig({ ...gstConfig, gst_effective_from: e.target.value })}
-                          style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                        />
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        type="submit"
-                        disabled={isSavingGst}
-                        style={{
-                          background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', border: 'none',
-                          padding: '0.85rem 2rem', borderRadius: '12px', fontWeight: '800', cursor: 'pointer',
-                          boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)'
-                        }}
-                      >
-                        {isSavingGst ? 'Saving GST Config...' : 'Save GST Configuration'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
             </main>
         </div>
     );

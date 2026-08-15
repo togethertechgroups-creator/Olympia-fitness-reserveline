@@ -2,8 +2,10 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import './Sidebar.css';
 
-const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
+const Sidebar = ({ onLogout, isCollapsed, onToggle, userRole }) => {
   const navigate = useNavigate();
+  const role = userRole || localStorage.getItem('userRole') || 'admin';
+  const isSuperAdmin = role === 'superadmin';
 
   return (
     <nav className={`sidebar-global ${isCollapsed ? 'collapsed' : 'expanded'}`}>
@@ -39,32 +41,24 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
       </div>
 
       <div className="sidebar-global-links">
-        
-        {/* 1. Dashboard */}
-        <NavLink to="/dashboard" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="7" height="9" rx="1"/>
-            <rect x="14" y="3" width="7" height="5" rx="1"/>
-            <rect x="14" y="12" width="7" height="9" rx="1"/>
-            <rect x="3" y="16" width="7" height="5" rx="1"/>
-          </svg>
-          <span className="sidebar-link-text">Dashboard</span>
-          <span className="sidebar-tooltip">Dashboard</span>
-        </NavLink>
 
-        {/* 2. Manage Clients */}
-        <NavLink to="/manage-clients" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
-          <span className="sidebar-link-text">Manage Clients</span>
-          <span className="sidebar-tooltip">Manage Clients</span>
-        </NavLink>
+        {/* ─── 1. CORE ─── */}
+        {isSuperAdmin && (
+          <NavLink to="/dashboard" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="9" rx="1"/>
+              <rect x="14" y="3" width="7" height="5" rx="1"/>
+              <rect x="14" y="12" width="7" height="9" rx="1"/>
+              <rect x="3" y="16" width="7" height="5" rx="1"/>
+            </svg>
+            <span className="sidebar-link-text">Dashboard</span>
+            <span className="sidebar-tooltip">Dashboard</span>
+          </NavLink>
+        )}
 
-        {/* 2. Add Client */}
+        {/* ─── 2. CLIENT MANAGEMENT ─── */}
+        {!isCollapsed && <div className="sidebar-section-header">CLIENTS</div>}
+
         <NavLink to="/add-client" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
@@ -76,74 +70,28 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">Add Client</span>
         </NavLink>
 
-        {/* 3. Create Invoice */}
-        <NavLink to="/create-invoice" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+        <NavLink to="/manage-clients" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <path d="M14 2v6h6"/>
-            <line x1="12" y1="11" x2="12" y2="17"/>
-            <line x1="9" y1="14" x2="15" y2="14"/>
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
           </svg>
-          <span className="sidebar-link-text">Create Invoice</span>
-          <span className="sidebar-tooltip">Create Invoice</span>
+          <span className="sidebar-link-text">Manage Clients</span>
+          <span className="sidebar-tooltip">Manage Clients</span>
         </NavLink>
 
-        {/* 4. Tariff Management */}
-        <NavLink to="/settings" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-            <circle cx="7" cy="7" r="1.5"/>
-          </svg>
-          <span className="sidebar-link-text">Tariff Management</span>
-          <span className="sidebar-tooltip">Tariff Management</span>
-        </NavLink>
-
-        {/* 5. GST Sales Register */}
-        <NavLink to="/gst-report" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+        <NavLink to="/service-sales-history" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <path d="M14 2v6h6"/>
+            <polyline points="14 2 14 8 20 8"/>
             <line x1="16" y1="13" x2="8" y2="13"/>
             <line x1="16" y1="17" x2="8" y2="17"/>
-            <line x1="10" y1="9" x2="14" y2="9"/>
           </svg>
-          <span className="sidebar-link-text">GST Sales Register</span>
-          <span className="sidebar-tooltip">GST Sales Register</span>
+          <span className="sidebar-link-text">Service Sales History</span>
+          <span className="sidebar-tooltip">Service Sales History</span>
         </NavLink>
 
-        {/* 6. Other Services */}
-        <NavLink to="/other-services" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
-          </svg>
-          <span className="sidebar-link-text">Other Services</span>
-          <span className="sidebar-tooltip">Other Services</span>
-        </NavLink>
-
-        {/* 7. Financial Transactions */}
-        <NavLink to="/transactions" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
-            <line x1="1" y1="10" x2="23" y2="10"/>
-            <rect x="4" y="14" width="4" height="3" rx="0.5"/>
-          </svg>
-          <span className="sidebar-link-text">Financial Transactions</span>
-          <span className="sidebar-tooltip">Financial Transactions</span>
-        </NavLink>
-
-        {/* 8. Expenses */}
-        <NavLink to="/expenses" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 7h-7L10 3H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
-            <circle cx="16" cy="13" r="1.5"/>
-          </svg>
-          <span className="sidebar-link-text">Expenses</span>
-          <span className="sidebar-tooltip">Expenses</span>
-        </NavLink>
-
-        {/* 9. Measurements */}
         <NavLink to="/measurements" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="5" width="20" height="14" rx="2"/>
@@ -156,16 +104,9 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">Measurements</span>
         </NavLink>
 
-        {/* 10. Trainers */}
-        <NavLink to="/trainers" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M6.5 6.5h11M6.5 17.5h11M4 9v6M20 9v6M9 4v16M15 4v16"/>
-          </svg>
-          <span className="sidebar-link-text">Trainers</span>
-          <span className="sidebar-tooltip">Trainers</span>
-        </NavLink>
+        {/* ─── 3. PT & TRAINING ─── */}
+        {!isCollapsed && <div className="sidebar-section-header">PERSONAL TRAINING</div>}
 
-        {/* 11. PT Assignments */}
         <NavLink to="/pt-assignments" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -176,7 +117,6 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">PT Assignments</span>
         </NavLink>
 
-        {/* 12. PT Class Log */}
         <NavLink to="/pt-class-log" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
@@ -187,7 +127,6 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">PT Class Log</span>
         </NavLink>
 
-        {/* 13. Advance Bookings */}
         <NavLink to="/advance-bookings" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -200,18 +139,46 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">Advance Bookings</span>
         </NavLink>
 
-        {/* 14. Trainer Salary Report */}
-        <NavLink to="/trainer-salary-report" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+        {/* ─── 4. TRAINERS & PAYROLL ─── */}
+        {!isCollapsed && <div className="sidebar-section-header">TRAINERS & PAYROLL</div>}
+
+        <NavLink to="/trainers" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="6" width="20" height="12" rx="2"/>
-            <circle cx="12" cy="12" r="2"/>
-            <path d="M6 12h.01M18 12h.01"/>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
           </svg>
-          <span className="sidebar-link-text">Trainer Salary Report</span>
-          <span className="sidebar-tooltip">Trainer Salary Report</span>
+          <span className="sidebar-link-text">Trainer Management</span>
+          <span className="sidebar-tooltip">Trainer Management</span>
         </NavLink>
 
-        {/* 15. Supplements Module */}
+        {isSuperAdmin && (
+          <NavLink to="/trainer-salary-report" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            <span className="sidebar-link-text">Trainer Salary Report</span>
+            <span className="sidebar-tooltip">Trainer Salary Report</span>
+          </NavLink>
+        )}
+
+        {/* ─── 5. SERVICES & TARIFFS ─── */}
+        {!isCollapsed && <div className="sidebar-section-header">SERVICES & TARIFFS</div>}
+
+        {isSuperAdmin && (
+          <NavLink to="/settings" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+              <circle cx="7" cy="7" r="1.5"/>
+            </svg>
+            <span className="sidebar-link-text">Tariff Management</span>
+            <span className="sidebar-tooltip">Tariff Management</span>
+          </NavLink>
+        )}
+
         <NavLink to="/supplements" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10.5 20.5l-7-7a5 5 0 0 1 7.07-7.07l7 7a5 5 0 0 1-7.07 7.07z"/>
@@ -221,16 +188,82 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle }) => {
           <span className="sidebar-tooltip">Supplements</span>
         </NavLink>
 
-        {/* 16. Login Page Management */}
-        <NavLink to="/admin-credentials" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+        <NavLink to="/other-services" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-            <circle cx="12" cy="16" r="1.5"/>
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+            <polyline points="2 17 12 22 22 17"/>
+            <polyline points="2 12 12 17 22 12"/>
           </svg>
-          <span className="sidebar-link-text">Login Page Management</span>
-          <span className="sidebar-tooltip">Login Page Management</span>
+          <span className="sidebar-link-text">Other Services Client List</span>
+          <span className="sidebar-tooltip">Other Services Client List</span>
         </NavLink>
+
+        {/* ─── 5. BILLING & FINANCIALS ─── */}
+        {!isCollapsed && <div className="sidebar-section-header">INVOICES & FINANCIALS</div>}
+
+        {isSuperAdmin && (
+          <NavLink to="/create-invoice" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <path d="M14 2v6h6"/>
+              <line x1="12" y1="11" x2="12" y2="17"/>
+              <line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+            <span className="sidebar-link-text">Create Invoice</span>
+            <span className="sidebar-tooltip">Create Invoice</span>
+          </NavLink>
+        )}
+
+        {isSuperAdmin && (
+          <NavLink to="/gst-report" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <path d="M14 2v6h6"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            <span className="sidebar-link-text">GST Sales Register</span>
+            <span className="sidebar-tooltip">GST Sales Register</span>
+          </NavLink>
+        )}
+
+        {isSuperAdmin && (
+          <NavLink to="/transactions" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/>
+              <line x1="1" y1="10" x2="23" y2="10"/>
+              <rect x="4" y="14" width="4" height="3" rx="0.5"/>
+            </svg>
+            <span className="sidebar-link-text">Transactions</span>
+            <span className="sidebar-tooltip">Transactions</span>
+          </NavLink>
+        )}
+
+        <NavLink to="/expenses" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 7h-7L10 3H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+            <circle cx="16" cy="13" r="1.5"/>
+          </svg>
+          <span className="sidebar-link-text">Expenses</span>
+          <span className="sidebar-tooltip">Expenses</span>
+        </NavLink>
+
+
+
+        {/* ─── 7. SETTINGS ─── */}
+        {isSuperAdmin && !isCollapsed && <div className="sidebar-section-header">SYSTEM</div>}
+
+        {isSuperAdmin && (
+          <NavLink to="/admin-credentials" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              <circle cx="12" cy="16" r="1.5"/>
+            </svg>
+            <span className="sidebar-link-text">Admin Credentials</span>
+            <span className="sidebar-tooltip">Admin Credentials</span>
+          </NavLink>
+        )}
 
       </div>
 

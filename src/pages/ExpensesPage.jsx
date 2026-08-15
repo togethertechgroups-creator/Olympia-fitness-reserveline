@@ -4,6 +4,7 @@ import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './ExpensesPage.css';
 
 const ExpensesPage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -13,13 +14,66 @@ const ExpensesPage = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const [formData, setFormData] = useState({
-    date: formatDateDDMMYYYY(new Date()),
+    date: new Date().toISOString().split('T')[0],
     name: '',
     category: '',
     amount: '',
     paymentMode: 'CASH',
     notes: ''
   });
+
+  // Navigation Blocker State
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
+
+  useEffect(() => {
+    const dirty = Boolean(showModal && (formData.name || formData.category || formData.amount || formData.notes));
+    setIsDirty(dirty);
+  }, [showModal, formData]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.modal-content')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      if (href && !href.startsWith('#/expenses') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    if (blockedTargetUrl) {
+      window.location.hash = blockedTargetUrl.startsWith('#') ? blockedTargetUrl : `#${blockedTargetUrl}`;
+    }
+  };
 
   const fetchExpensesData = async () => {
     try {
@@ -49,7 +103,7 @@ const ExpensesPage = () => {
       });
       setShowModal(false);
       setFormData({
-        date: formatDateDDMMYYYY(new Date()),
+        date: new Date().toISOString().split('T')[0],
         name: '',
         category: '',
         amount: '',
@@ -115,13 +169,13 @@ const ExpensesPage = () => {
                     <th>Amount</th>
                     <th>Mode</th>
                     <th>Notes</th>
-                    <th>Actions</th>
+                    {isSuperAdmin && <th>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {expenses.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="empty-state">No expenses recorded yet.</td>
+                      <td colSpan={isSuperAdmin ? "7" : "6"} className="empty-state">No expenses recorded yet.</td>
                     </tr>
                   ) : (
                     currentExpenses.map(exp => (
@@ -132,11 +186,13 @@ const ExpensesPage = () => {
                         <td className="expense-amount">₹{exp.amount?.toLocaleString()}</td>
                         <td className="exp-mode-col">{exp.paymentMode}</td>
                         <td className="exp-notes-col">{exp.notes || '-'}</td>
-                        <td className="exp-actions-col">
-                          <button className="btn-delete" onClick={() => handleDelete(exp.id)}>
-                            Delete
-                          </button>
-                        </td>
+                        {isSuperAdmin && (
+                          <td className="exp-actions-col">
+                            <button className="btn-delete" onClick={() => handleDelete(exp.id)}>
+                              Delete
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -195,14 +251,11 @@ const ExpensesPage = () => {
               <div className="modal-content">
                 <h2>Add New Expense</h2>
                 <form onSubmit={handleSubmit} className="expense-form">
-                  <div className="form-group">
-                    <label>Date (DD-MM-YYYY)</label>
-                    <input type="text" name="date" value={formData.date} onChange={handleChange} required />
-                  </div>
-                  <div className="form-group">
+                  <div className="form-group full-width">
                     <label>Expense Name / Title</label>
                     <input type="text" name="name" value={formData.name} onChange={handleChange} required placeholder="e.g., Electricity Bill" />
                   </div>
+                  
                   <div className="form-group">
                     <label>Category</label>
                     <select name="category" value={formData.category} onChange={handleChange} required>
@@ -215,10 +268,17 @@ const ExpensesPage = () => {
                       <option value="Miscellaneous">Miscellaneous</option>
                     </select>
                   </div>
+                  
                   <div className="form-group">
                     <label>Amount (₹)</label>
                     <input type="number" name="amount" value={formData.amount} onChange={handleChange} required placeholder="e.g., 5000" min="0" />
                   </div>
+
+                  <div className="form-group">
+                    <label>Date</label>
+                    <input type="date" name="date" value={formData.date} onChange={handleChange} required />
+                  </div>
+
                   <div className="form-group">
                     <label>Payment Mode</label>
                     <select name="paymentMode" value={formData.paymentMode} onChange={handleChange}>
@@ -228,6 +288,7 @@ const ExpensesPage = () => {
                       <option value="BANK TRANSFER">BANK TRANSFER</option>
                     </select>
                   </div>
+
                   <div className="form-group full-width">
                     <label>Notes (Optional)</label>
                     <textarea name="notes" value={formData.notes} onChange={handleChange} rows="2" placeholder="Any additional details..."></textarea>
@@ -238,6 +299,37 @@ const ExpensesPage = () => {
                     <button type="submit" className="btn-submit">Save Expense</button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Blocker Modal */}
+          {isConfirmExitOpen && (
+            <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+              <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+                <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+                <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+                <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+                  You have unsaved changes in the expense form. Are you sure you want to exit? Your changes will be lost.
+                </p>
+                <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                  <button
+                    type="button"
+                    className="btn-cancel-gray"
+                    onClick={() => setIsConfirmExitOpen(false)}
+                    style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Keep Editing
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-alert-primary error"
+                    onClick={handleProceedExit}
+                    style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Discard & Leave
+                  </button>
+                </div>
               </div>
             </div>
           )}

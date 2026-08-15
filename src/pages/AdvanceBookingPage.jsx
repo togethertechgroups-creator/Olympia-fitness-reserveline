@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   getClients,
   getSettings,
@@ -17,14 +17,55 @@ import {
 } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './AdvanceBookingPage.css';
 
 const AdvanceBookingPage = () => {
+  const navigate = useNavigate();
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
+  const [customPopup, setCustomPopup] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'alert', // 'alert' | 'confirm'
+    onConfirm: null
+  });
+
+  const showCustomAlert = (title, message, onOk = null) => {
+    setCustomPopup({
+      isOpen: true,
+      title,
+      message,
+      type: 'alert',
+      onConfirm: () => {
+        setCustomPopup(prev => ({ ...prev, isOpen: false }));
+        if (onOk) onOk();
+      }
+    });
+  };
+
+  const showCustomConfirm = (title, message, onYes) => {
+    setCustomPopup({
+      isOpen: true,
+      title,
+      message,
+      type: 'confirm',
+      onConfirm: () => {
+        setCustomPopup(prev => ({ ...prev, isOpen: false }));
+        onYes();
+      }
+    });
+  };
+
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'pt' ? 'pt' : 'general';
   const preselectedClientId = searchParams.get('clientId') || '';
 
   const [activeTab, setActiveTab] = useState(initialTab);
+  const [filterStatus, setFilterStatus] = useState('All');
   const [clients, setClients] = useState([]);
   const [settings, setSettings] = useState({});
   const [ptPackages, setPtPackages] = useState([]);
@@ -39,7 +80,6 @@ const AdvanceBookingPage = () => {
     if (tabParam === 'pt') setActiveTab('pt');
     else if (tabParam === 'general') setActiveTab('general');
   }, [searchParams]);
-
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientSearch, setClientSearch] = useState('');
@@ -59,8 +99,10 @@ const AdvanceBookingPage = () => {
     client_id: preselectedClientId,
     plan_type: '',
     price: '',
+    discount_amount: '',
     booking_start_date: new Date().toISOString().split('T')[0],
-    booking_end_date: ''
+    booking_end_date: '',
+    payment_method: 'CASH'
   });
 
   // PT Booking Form
@@ -68,7 +110,9 @@ const AdvanceBookingPage = () => {
     client_id: preselectedClientId,
     pt_package_id: '',
     trainer_id: '',
-    booking_start_date: new Date().toISOString().split('T')[0]
+    discount_amount: '',
+    booking_start_date: new Date().toISOString().split('T')[0],
+    payment_method: 'CASH'
   });
 
   const [actionError, setActionError] = useState('');
@@ -77,6 +121,42 @@ const AdvanceBookingPage = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.adv-modal-card')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      
+      if (href && !href.startsWith('#/advance-bookings') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
 
   useEffect(() => {
     const pClient = searchParams.get('clientId');
@@ -150,6 +230,7 @@ const AdvanceBookingPage = () => {
   };
 
   const handleGenClientChange = (cId) => {
+    setIsDirty(true);
     const selClient = clients.find(c => c.id === cId);
     let defaultStart = new Date().toISOString().split('T')[0];
     const todayStr = defaultStart;
@@ -175,6 +256,7 @@ const AdvanceBookingPage = () => {
   };
 
   const handlePtClientChange = (cId) => {
+    setIsDirty(true);
     const selClient = clients.find(c => c.id === cId);
     let defaultStart = new Date().toISOString().split('T')[0];
     const todayStr = defaultStart;
@@ -208,6 +290,7 @@ const AdvanceBookingPage = () => {
   ])).filter(planBase => !(settings[`${planBase}_hidden`] === 1 || settings[`${planBase}_hidden`] === '1'));
 
   const handleGenPlanChange = (plan) => {
+    setIsDirty(true);
     const price = settings[`${plan}_Strengthening`] !== undefined && settings[`${plan}_Strengthening`] !== 0
       ? settings[`${plan}_Strengthening`]
       : (settings[plan] !== undefined ? settings[plan] : 0);
@@ -229,6 +312,7 @@ const AdvanceBookingPage = () => {
   };
 
   const handleGenStartDateChange = (startDateStr) => {
+    setIsDirty(true);
     let endDateStr = genForm.booking_end_date;
     if (genForm.plan_type) {
       const durDays = settings[`${genForm.plan_type}_duration`] || (genForm.plan_type === 'Quarterly' ? 90 : (genForm.plan_type === 'Half-Yearly' ? 180 : (genForm.plan_type === 'Annual' ? 365 : 30)));
@@ -246,36 +330,40 @@ const AdvanceBookingPage = () => {
   };
 
   const handleGenerateGeneralInvoice = (booking) => {
+    const finalPrice = parseFloat(booking.price || 0) - parseFloat(booking.discount_amount || 0);
     setInvoiceClient({
       name: booking.clientName,
       phone: booking.clientPhone,
       clientId: booking.clientCode,
       plan: `Advance Booking — ${booking.plan_type}`,
-      amount: booking.price,
-      paidAmount: booking.price,
+      amount: finalPrice,
+      paidAmount: finalPrice,
       dueAmount: 0,
       paymentStatus: 'Paid (Advance Scheduled)',
       paymentMethod: 'CASH',
       fromDate: booking.booking_start_date,
       expiryDate: booking.booking_end_date,
-      billNo: `ADV-GEN-${booking.id}`
+      billNo: `ADV-GEN-${booking.id}`,
+      discount_amount: booking.discount_amount
     });
   };
 
   const handleGeneratePtInvoice = (booking) => {
+    const finalPrice = parseFloat(booking.price_snapshot || 0) - parseFloat(booking.discount_amount || 0);
     setInvoiceClient({
       name: booking.clientName,
       phone: booking.clientPhone,
       clientId: booking.clientCode,
       plan: `Advance PT Booking — ${booking.packageName} (${booking.trainerName})`,
-      amount: booking.price_snapshot,
-      paidAmount: booking.price_snapshot,
+      amount: finalPrice,
+      paidAmount: finalPrice,
       dueAmount: 0,
       paymentStatus: 'Paid (Advance Scheduled)',
       paymentMethod: 'CASH',
       fromDate: booking.booking_start_date,
       expiryDate: booking.booking_start_date,
-      billNo: `ADV-PT-${booking.id}`
+      billNo: `ADV-PT-${booking.id}`,
+      discount_amount: booking.discount_amount
     });
   };
 
@@ -292,20 +380,18 @@ const AdvanceBookingPage = () => {
       const client = clients.find(c => c.id === targetClientId);
       const today = new Date().toISOString().split('T')[0];
 
-      if (client && client.expiryDate && client.expiryDate >= today) {
-        if (genForm.booking_start_date <= client.expiryDate) {
-          setActionError(`Booking start date (${formatDateDDMMYYYY(genForm.booking_start_date)}) must be strictly after the client's current plan expiry date (${formatDateDDMMYYYY(client.expiryDate)}).`);
-          return;
-        }
-      }
+
 
       const createdBooking = await addGeneralBooking({
         client_id: targetClientId,
         plan_type: genForm.plan_type,
         price: parseFloat(genForm.price || 0),
+        discount_amount: parseFloat(genForm.discount_amount || 0),
+        payment_method: genForm.payment_method,
         booking_start_date: genForm.booking_start_date,
         booking_end_date: genForm.booking_end_date
       });
+      setIsDirty(false);
       setActionSuccess('General Package Advance Booking created successfully!');
       setTimeout(() => {
         setIsModalOpen(false);
@@ -335,8 +421,11 @@ const AdvanceBookingPage = () => {
         client_id: targetClientId,
         pt_package_id: ptForm.pt_package_id,
         trainer_id: ptForm.trainer_id,
+        discount_amount: parseFloat(ptForm.discount_amount || 0),
+        payment_method: ptForm.payment_method,
         booking_start_date: ptForm.booking_start_date
       });
+      setIsDirty(false);
       setActionSuccess('PT Package Advance Booking created successfully!');
       setTimeout(() => {
         setIsModalOpen(false);
@@ -350,38 +439,66 @@ const AdvanceBookingPage = () => {
     }
   };
 
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    const url = blockedTargetUrl.startsWith('#') ? blockedTargetUrl.substring(1) : blockedTargetUrl;
+    navigate(url);
+  };
+
   const handleCancelGenBooking = async (id) => {
-    if (window.confirm('Are you sure you want to cancel this advance booking?')) {
-      try {
-        await cancelGeneralBooking(id);
-        loadData();
-      } catch (err) {
-        alert(err.message || 'Failed to cancel booking.');
+    showCustomConfirm(
+      'Cancel Advance Booking',
+      'Are you sure you want to cancel this general membership advance booking?',
+      async () => {
+        try {
+          await cancelGeneralBooking(id);
+          showCustomAlert('Booking Cancelled', 'The general membership booking has been cancelled successfully.', () => {
+            window.location.reload();
+          });
+        } catch (err) {
+          showCustomAlert('Error', err.message || 'Failed to cancel booking.');
+        }
       }
-    }
+    );
   };
 
   const handleCancelPtBooking = async (id) => {
-    if (window.confirm('Are you sure you want to cancel this PT advance booking?')) {
-      try {
-        await cancelPtAdvanceBooking(id);
-        loadData();
-      } catch (err) {
-        alert(err.message || 'Failed to cancel booking.');
+    showCustomConfirm(
+      'Cancel PT Booking',
+      'Are you sure you want to cancel this PT package advance booking?',
+      async () => {
+        try {
+          await cancelPtAdvanceBooking(id);
+          showCustomAlert('Booking Cancelled', 'The PT advance booking has been cancelled successfully.', () => {
+            window.location.reload();
+          });
+        } catch (err) {
+          showCustomAlert('Error', err.message || 'Failed to cancel booking.');
+        }
       }
-    }
+    );
   };
 
   const handleActivatePtBooking = async (id) => {
-    if (window.confirm('Activate this PT Package Advance Booking now? This will create an active PT assignment and generate the invoice.')) {
-      try {
-        const res = await activatePtAdvanceBooking(id);
-        alert(`PT Advance Booking activated successfully!\nGenerated Invoice: ${res.billNo || 'INV'}`);
-        loadData();
-      } catch (err) {
-        alert(err.message || 'Failed to activate PT booking.');
+    showCustomConfirm(
+      'Activate PT Package',
+      'Activate this PT Package Advance Booking now? This will create an active PT assignment and generate the invoice.',
+      async () => {
+        try {
+          const res = await activatePtAdvanceBooking(id);
+          showCustomAlert(
+            'Activation Successful',
+            `PT Advance Booking activated successfully!\nGenerated Invoice: ${res.billNo || 'INV'}`,
+            () => {
+              window.location.reload();
+            }
+          );
+        } catch (err) {
+          showCustomAlert('Activation Error', err.message || 'Failed to activate PT booking.');
+        }
       }
-    }
+    );
   };
 
   const filteredClientsForSelect = clients.filter(c =>
@@ -425,13 +542,35 @@ const AdvanceBookingPage = () => {
 
       {/* Main Content Area */}
       <div className="adv-content-card">
+        {/* Status Filter Pills */}
+        <div style={{ display: 'flex', gap: '8px', padding: '1.25rem 1.5rem 0.75rem 1.5rem', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9' }}>
+          {['All', 'Scheduled', 'ReadyToActivate', 'Active', 'Cancelled'].map(st => (
+            <button
+              key={st}
+              onClick={() => setFilterStatus(st)}
+              style={{
+                padding: '0.4rem 0.9rem',
+                borderRadius: '100px',
+                border: filterStatus === st ? '2px solid #4338ca' : '1px solid #cbd5e1',
+                background: filterStatus === st ? '#e0e7ff' : '#ffffff',
+                color: filterStatus === st ? '#3730a3' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.78rem',
+                cursor: 'pointer'
+              }}
+            >
+              {st === 'All' ? 'All Statuses' : st === 'ReadyToActivate' ? '⚡ Ready To Activate' : st}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>Loading advance bookings...</div>
         ) : activeTab === 'general' ? (
           /* General Bookings Table */
-          generalBookings.length === 0 ? (
+          generalBookings.filter(b => filterStatus === 'All' ? true : b.status === filterStatus).length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-              <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>No General Package advance bookings found.</p>
+              <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>No General Package advance bookings found for status '{filterStatus}'.</p>
               <button className="btn-create-booking" style={{ margin: '1rem auto 0 auto' }} onClick={handleOpenModal}>
                 + Create First Advance Booking
               </button>
@@ -451,7 +590,7 @@ const AdvanceBookingPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {generalBookings.map(b => (
+                  {generalBookings.filter(b => filterStatus === 'All' ? true : b.status === filterStatus).map(b => (
                     <tr key={b.id}>
                       <td>
                         <div className="name-avatar-group">
@@ -460,7 +599,7 @@ const AdvanceBookingPage = () => {
                           </div>
                           <div>
                             <div className="client-name">{b.clientName}</div>
-                            <div className="client-code">{b.clientCode || 'No Code'} • {b.clientPhone}</div>
+                            <div className="client-code">{formatShortId(b.clientCode || b.client_id)} • {b.clientPhone}</div>
                           </div>
                         </div>
                       </td>
@@ -468,7 +607,7 @@ const AdvanceBookingPage = () => {
                         <span className="expiry-date-pill">{b.currentPlanExpiry ? formatDateDDMMYYYY(b.currentPlanExpiry) : 'No Active Plan'}</span>
                       </td>
                       <td><span className="plan-badge">{b.plan_type}</span></td>
-                      <td className="price-val">{formatCurrency(b.price)}</td>
+                      <td className="price-val">{formatCurrency((parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0)))}</td>
                       <td>
                         <div className="validity-dates">
                           <span>{formatDateDDMMYYYY(b.booking_start_date)}</span>
@@ -489,7 +628,7 @@ const AdvanceBookingPage = () => {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             Invoice
                           </button>
-                          {b.status === 'Scheduled' && (
+                          {isSuperAdmin && b.status === 'Scheduled' && (
                             <button className="btn-cancel-booking" onClick={() => handleCancelGenBooking(b.id)}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                               Cancel
@@ -505,9 +644,9 @@ const AdvanceBookingPage = () => {
           )
         ) : (
           /* PT Bookings Table */
-          ptBookings.length === 0 ? (
+          ptBookings.filter(b => filterStatus === 'All' ? true : b.status === filterStatus).length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-              <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>No PT Package advance bookings found.</p>
+              <p style={{ fontSize: '1.1rem', fontWeight: 600 }}>No PT Package advance bookings found for status '{filterStatus}'.</p>
               <button className="btn-create-booking" style={{ margin: '1rem auto 0 auto' }} onClick={handleOpenModal}>
                 + Create First PT Advance Booking
               </button>
@@ -527,7 +666,7 @@ const AdvanceBookingPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {ptBookings.map(b => (
+                  {ptBookings.filter(b => filterStatus === 'All' ? true : b.status === filterStatus).map(b => (
                     <tr key={b.id}>
                       <td>
                         <div className="name-avatar-group">
@@ -536,7 +675,7 @@ const AdvanceBookingPage = () => {
                           </div>
                           <div>
                             <div className="client-name">{b.clientName}</div>
-                            <div className="client-code">{b.clientCode || 'No Code'} • {b.clientPhone}</div>
+                            <div className="client-code">{formatShortId(b.clientCode || b.client_id)} • {b.clientPhone}</div>
                           </div>
                         </div>
                       </td>
@@ -548,7 +687,7 @@ const AdvanceBookingPage = () => {
                         </div>
                       </td>
                       <td>
-                        <div className="price-val">{formatCurrency(b.price_snapshot)}</div>
+                        <div className="price-val">{formatCurrency((parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0)))}</div>
                         <div className="classes-count">{b.total_classes_snapshot} Classes</div>
                       </td>
                       <td className="start-date-cell">{formatDateDDMMYYYY(b.booking_start_date)}</td>
@@ -567,12 +706,18 @@ const AdvanceBookingPage = () => {
                             Invoice
                           </button>
                           {['Scheduled', 'ReadyToActivate'].includes(b.status) && (
-                            <button className="btn-activate-now" onClick={() => handleActivatePtBooking(b.id)}>
+                            <button 
+                              className="btn-activate-now" 
+                              onClick={() => handleActivatePtBooking(b.id)}
+                              disabled={b.status === 'Scheduled'}
+                              title={b.status === 'Scheduled' ? 'Activation will be available when current PT plan ends or classes are completed.' : ''}
+                              style={b.status === 'Scheduled' ? { opacity: 0.5, cursor: 'not-allowed', filter: 'grayscale(1)' } : {}}
+                            >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
                               Activate Now
                             </button>
                           )}
-                          {['Scheduled', 'ReadyToActivate'].includes(b.status) && (
+                          {isSuperAdmin && ['Scheduled', 'ReadyToActivate'].includes(b.status) && (
                             <button className="btn-cancel-booking" onClick={() => handleCancelPtBooking(b.id)}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                               Cancel
@@ -595,7 +740,7 @@ const AdvanceBookingPage = () => {
           <div className="adv-modal-card">
             <div className="adv-modal-header">
               <h3>Create Advance Booking</h3>
-              <button className="btn-close-x" onClick={() => setIsModalOpen(false)}>✕</button>
+              <button className="btn-close-x" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>✕</button>
             </div>
 
             {actionError && <div className="modal-alert error">⚠️ {actionError}</div>}
@@ -626,7 +771,7 @@ const AdvanceBookingPage = () => {
                     type="text"
                     placeholder="🔍 Search client by name, code or phone..."
                     value={clientSearch}
-                    onChange={e => setClientSearch(e.target.value)}
+                    onChange={e => { setClientSearch(e.target.value); setIsDirty(true); }}
                     style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
                   />
                   <select
@@ -692,18 +837,51 @@ const AdvanceBookingPage = () => {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Plan Price (₹)</label>
-                  <input
-                    type="number"
-                    value={genForm.price}
-                    onChange={e => setGenForm({ ...genForm, price: e.target.value })}
-                    required
-                  />
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Plan Price (₹)</label>
+                    <input
+                      type="number"
+                      value={genForm.price}
+                      onChange={e => { setGenForm({ ...genForm, price: e.target.value }); setIsDirty(true); }}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Discount Amount (₹)</label>
+                    <input
+                      type="number"
+                      placeholder="Optional discount (₹)"
+                      value={genForm.discount_amount}
+                      onChange={e => { setGenForm({ ...genForm, discount_amount: e.target.value }); setIsDirty(true); }}
+                    />
+                  </div>
                 </div>
 
+                <div className="form-group">
+                  <label>Payment Mode</label>
+                  <select
+                    value={genForm.payment_method}
+                    onChange={e => { setGenForm({ ...genForm, payment_method: e.target.value }); setIsDirty(true); }}
+                  >
+                    <option value="CASH">CASH</option>
+                    <option value="UPI">UPI</option>
+                    <option value="BANK">BANK / CARD</option>
+                  </select>
+                </div>
+
+                {parseFloat(genForm.discount_amount || 0) > 0 && (
+                  <div style={{ background: '#f0fdf4', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '0.82rem', marginBottom: '1rem' }}>
+                    <span>Original Price: <strong>₹{(parseFloat(genForm.price) || 0).toLocaleString()}</strong></span>
+                    <span style={{ margin: '0 8px', color: '#16a34a' }}>-</span>
+                    <span>Discount: <strong>₹{(parseFloat(genForm.discount_amount) || 0).toLocaleString()}</strong></span>
+                    <span style={{ margin: '0 8px' }}>=</span>
+                    <span style={{ color: '#16a34a', fontWeight: '800' }}>Final Payable: ₹{Math.max(0, (parseFloat(genForm.price) || 0) - (parseFloat(genForm.discount_amount) || 0)).toLocaleString()}</span>
+                  </div>
+                )}
+
                 <div className="adv-modal-footer">
-                  <button type="button" className="btn-modal-cancel" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button type="button" className="btn-modal-cancel" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>Cancel</button>
                   <button type="submit" className="btn-modal-submit">Save General Booking</button>
                 </div>
               </form>
@@ -716,7 +894,7 @@ const AdvanceBookingPage = () => {
                     type="text"
                     placeholder="🔍 Search client by name, code or phone..."
                     value={clientSearch}
-                    onChange={e => setClientSearch(e.target.value)}
+                    onChange={e => { setClientSearch(e.target.value); setIsDirty(true); }}
                     style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.85rem' }}
                   />
                   <select
@@ -737,7 +915,7 @@ const AdvanceBookingPage = () => {
                   <label>Select PT Package</label>
                   <select
                     value={ptForm.pt_package_id}
-                    onChange={e => setPtForm({ ...ptForm, pt_package_id: e.target.value })}
+                    onChange={e => { setPtForm({ ...ptForm, pt_package_id: e.target.value }); setIsDirty(true); }}
                     required
                   >
                     <option value="">-- Choose Catalog PT Package --</option>
@@ -753,7 +931,7 @@ const AdvanceBookingPage = () => {
                   <label>Assign Trainer</label>
                   <select
                     value={ptForm.trainer_id}
-                    onChange={e => setPtForm({ ...ptForm, trainer_id: e.target.value })}
+                    onChange={e => { setPtForm({ ...ptForm, trainer_id: e.target.value }); setIsDirty(true); }}
                     required
                   >
                     <option value="">-- Select Trainer --</option>
@@ -766,18 +944,40 @@ const AdvanceBookingPage = () => {
                 </div>
 
                 <div className="form-group">
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    placeholder="Optional discount (₹)"
+                    value={ptForm.discount_amount}
+                    onChange={e => { setPtForm({ ...ptForm, discount_amount: e.target.value }); setIsDirty(true); }}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Payment Mode</label>
+                  <select
+                    value={ptForm.payment_method}
+                    onChange={e => { setPtForm({ ...ptForm, payment_method: e.target.value }); setIsDirty(true); }}
+                  >
+                    <option value="CASH">CASH</option>
+                    <option value="UPI">UPI</option>
+                    <option value="BANK">BANK / CARD</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
                   <label>Booking Start Date</label>
                   <input
                     type="date"
                     value={ptForm.booking_start_date}
-                    onChange={e => setPtForm({ ...ptForm, booking_start_date: e.target.value })}
+                    onChange={e => { setPtForm({ ...ptForm, booking_start_date: e.target.value }); setIsDirty(true); }}
                     required
                   />
                   <small style={{ color: '#64748b' }}>Scheduled start date for this advance PT package</small>
                 </div>
 
                 <div className="adv-modal-footer">
-                  <button type="button" className="btn-modal-cancel" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button type="button" className="btn-modal-cancel" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>Cancel</button>
                   <button type="submit" className="btn-modal-submit">Save PT Advance Booking</button>
                 </div>
               </form>
@@ -786,11 +986,92 @@ const AdvanceBookingPage = () => {
         </div>
       )}
 
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have unsaved changes in the booking form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <InvoicePreviewModal
         isOpen={!!invoiceClient}
-        onClose={() => setInvoiceClient(null)}
+        onClose={() => {
+          setInvoiceClient(null);
+          window.location.reload();
+        }}
         client={invoiceClient}
+        title="Advance Booking Logged"
       />
+
+      {/* Custom Popup Modal (Alert / Confirm) */}
+      {customPopup.isOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 12000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: customPopup.type === 'confirm' ? '#3b82f6' : '#22c55e', color: '#ffffff' }}>
+              {customPopup.type === 'confirm' ? '❓' : '✓'}
+            </div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>{customPopup.title}</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0', whiteSpace: 'pre-line' }}>
+              {customPopup.message}
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              {customPopup.type === 'confirm' ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn-cancel-gray"
+                    onClick={() => setCustomPopup(prev => ({ ...prev, isOpen: false }))}
+                    style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    No, Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-alert-primary"
+                    onClick={customPopup.onConfirm}
+                    style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                  >
+                    Yes, Proceed
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-alert-primary"
+                  onClick={customPopup.onConfirm}
+                  style={{ minWidth: '120px', padding: '0.75rem 1.5rem', backgroundColor: '#22c55e', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  OK
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

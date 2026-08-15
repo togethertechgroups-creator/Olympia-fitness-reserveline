@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
-import { getTrainerSalaryReport, closePayrollMonth, saveTrainerPayrollAdjustment, sendPayslipWhatsApp } from '../api';
+import { getTrainerSalaryReport, closePayrollMonth, unlockPayrollMonth, saveTrainerPayrollAdjustment, sendPayslipWhatsApp, getGstSettings } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import loginLogo from '../assets/olympia logo 2025 SATYA-page-1.png';
 import './TrainerSalaryReportPage.css';
 
 const TrainerSalaryReportPage = () => {
@@ -19,6 +20,7 @@ const TrainerSalaryReportPage = () => {
   const [adjForms, setAdjForms] = useState({});
   const [savingTrainerId, setSavingTrainerId] = useState(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+  const [businessGstin, setBusinessGstin] = useState('');
 
   // Low Revenue (< 3 Lakhs) Mode & Warning Dialog State
   const [ptCommissionMode, setPtCommissionMode] = useState('default25'); // 'default25' | 'actual'
@@ -44,6 +46,12 @@ const TrainerSalaryReportPage = () => {
     fetchReport();
     setRevenueWarningChoiceConfirmed(false);
   }, [selectedMonth]);
+
+  useEffect(() => {
+    getGstSettings()
+      .then(data => setBusinessGstin(data?.business_gstin || ''))
+      .catch(() => setBusinessGstin(''));
+  }, []);
 
   const fetchReport = async () => {
     setLoading(true);
@@ -90,23 +98,8 @@ const TrainerSalaryReportPage = () => {
 
   const getTrainerEffectiveComm = (tr) => {
     if (!tr) return { commPercent: 0, commSalary: 0, is25DefaultMode: false };
-    if (reportData?.isRevenueBelow3Lakhs && ptCommissionMode === 'default25') {
-      const defaultPercent = 25;
-      const commSalary = (tr.classLogs || []).reduce((sum, log) => {
-        const pkgPrice = parseFloat(log.package_price_snapshot) || 0;
-        const totalCls = parseInt(log.total_classes_snapshot, 10) || 1;
-        const perClassRate25 = (pkgPrice * 0.25) / totalCls;
-        return sum + perClassRate25;
-      }, 0);
-      return {
-        commPercent: defaultPercent,
-        commSalary: commSalary,
-        is25DefaultMode: true
-      };
-    }
-
     return {
-      commPercent: tr.commissionPercent,
+      commPercent: tr.commissionPercent || 0,
       commSalary: tr.commissionSalary || tr.totalSalary || 0,
       is25DefaultMode: false
     };
@@ -186,12 +179,26 @@ const TrainerSalaryReportPage = () => {
       try {
         await closePayrollMonth({
           month: selectedMonth,
-          locked_by: 'Superadmin'
+          locked_by: 'Superadmin',
+          total_payroll: grandTotalPayable
         });
-        alert(`Payroll for ${selectedMonth} is now locked.`);
+        alert(`Payroll for ${selectedMonth} is now locked. Total Payroll payable (₹${grandTotalPayable.toLocaleString('en-IN')}) is now subtracted from Net Profit.`);
         fetchReport();
       } catch (error) {
         alert(error.message || 'Failed to lock month');
+      }
+    }
+  };
+
+  const handleUnlockMonth = async () => {
+    if (window.confirm(`Are you sure you want to UNLOCK payroll for ${selectedMonth}?\n\nUnlocking allows editing class logs and payroll adjustments again, and removes the locked payroll deduction from Net Profit.`)) {
+      try {
+        await unlockPayrollMonth(selectedMonth);
+        setSaveSuccessMsg(`Payroll for ${selectedMonth} is now unlocked.`);
+        setTimeout(() => setSaveSuccessMsg(''), 4000);
+        fetchReport();
+      } catch (error) {
+        alert(error.message || 'Failed to unlock month.');
       }
     }
   };
@@ -271,19 +278,19 @@ const TrainerSalaryReportPage = () => {
       const eff = getTrainerEffectiveComm(tr);
       (tr.classLogs || []).forEach(log => {
         const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
-        const logPayout = eff.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
+        const logPayout = log.per_class_rate_snapshot;
 
         detailRows.push({
           'Trainer Code': tr.trainerCode,
           'Trainer Name': tr.trainerName,
-          'Class Date': log.class_date,
+          'Class Date': formatDateDDMMYYYY(log.class_date),
           'Session Slot': log.session_slot || 'Morning',
           'Client Name': log.clientName,
           'Client Code': log.clientCode,
           'Package Name': log.packageName,
           'Package Price (₹)': log.package_price_snapshot,
           'Total Package Classes': log.total_classes_snapshot,
-          'Slab Applied': eff.is25DefaultMode ? '25% Low Rev Default' : log.slab_applied,
+          'Slab Applied': log.slab_applied || 'Standard',
           'Per-Class Payout (₹)': logPayout,
           'Notes': log.notes || ''
         });
@@ -337,8 +344,8 @@ const TrainerSalaryReportPage = () => {
     const opt = {
       margin: 10,
       filename: `Payslip_${modalConfig.trainer?.trainerName.replace(/\s+/g, '_')}_${selectedMonth}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2 },
+      image: { type: 'jpeg', quality: 1 },
+      html2canvas: { scale: 4, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     const pdfWorker = html2pdf().set(opt).from(element);
@@ -354,11 +361,15 @@ const TrainerSalaryReportPage = () => {
     const opt = {
       margin: 10,
       filename: `Payslip_${tr.trainerName.replace(/\s+/g, '_')}_${selectedMonth}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: { scale: 2 },
+      image: { type: 'jpeg', quality: 1 },
+      html2canvas: { scale: 4, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     html2pdf().set(opt).from(element).save();
+    setModalConfig(prev => ({
+      ...prev,
+      waSuccess: `Payslip PDF downloaded successfully for ${tr.trainerName}!`
+    }));
   };
 
   const handleSendWhatsApp = async () => {
@@ -498,9 +509,23 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
           </button>
 
           {reportData?.isLocked ? (
-            <div className="locked-badge-card">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              Month Locked ({formatDateDDMMYYYY(reportData.lockedAt) || 'Finalized'})
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <div className="locked-badge-card">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                Month Locked ({formatDateDDMMYYYY(reportData.lockedAt) || 'Finalized'})
+              </div>
+              {userRole === 'superadmin' && (
+                <button
+                  type="button"
+                  className="btn-unlock-month"
+                  onClick={handleUnlockMonth}
+                  disabled={loading}
+                  title="Unlock month to allow editing logs & payroll adjustments"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+                  Unlock Month
+                </button>
+              )}
             </div>
           ) : (
             <button className="btn-close-month" onClick={handleCloseMonth} disabled={loading || !reportData}>
@@ -687,11 +712,11 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                                   <tbody>
                                     {tr.classLogs.map(log => {
                                       const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
-                                      const logPayout = effComm.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
+                                      const logPayout = log.per_class_rate_snapshot;
                                       const isSubstituted = log.assigned_trainer_id && String(log.trainer_id) !== String(log.assigned_trainer_id);
                                       return (
                                         <tr key={log.id}>
-                                          <td style={{ fontWeight: '700', color: '#1e293b' }}>{log.class_date}</td>
+                                          <td style={{ fontWeight: '700', color: '#1e293b' }}>{formatDateDDMMYYYY(log.class_date)}</td>
                                           <td>
                                             <span style={{ fontSize: '0.72rem', background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '3px 8px', borderRadius: '6px', fontWeight: '800' }}>
                                               {log.session_slot || 'Morning'}
@@ -712,7 +737,7 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                                           <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(log.package_price_snapshot)}</td>
                                           <td style={{ fontWeight: '700', color: '#0f172a', textAlign: 'center' }}>{log.total_classes_snapshot}</td>
                                           <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(baseRateClass)}</td>
-                                          <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{effComm.is25DefaultMode ? '25% Low Rev Default' : (hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : log.slab_applied)}</td>
+                                          <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : (log.slab_applied || 'Standard')}</td>
                                           <td style={{ fontWeight: '900', fontSize: '1rem', color: '#059669' }}>{formatCurrency(logPayout)}</td>
                                         </tr>
                                       );
@@ -806,15 +831,13 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
               </>
             ) : (
               <>
-                {modalConfig.waSuccess ? (
-                  <div style={{ background: '#d1fae5', color: '#047857', padding: '1rem', borderRadius: '10px', fontWeight: '700' }}>
-                    ✓ {modalConfig.waSuccess}
+                <div style={{ background: 'linear-gradient(135deg, #059669, #10b981)', color: '#ffffff', padding: '0.85rem 1.25rem', borderRadius: '12px', fontWeight: '800', fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)', marginBottom: '1rem' }}>
+                  <span style={{ width: '26px', height: '26px', background: 'rgba(255, 255, 255, 0.25)', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '0.9rem', flexShrink: 0 }}>✓</span>
+                  <div>
+                    <div>{modalConfig.waSuccess ? modalConfig.waSuccess : 'Payslip Generated Successfully!'}</div>
+                    <div style={{ fontSize: '0.78rem', opacity: 0.9, fontWeight: '500' }}>Trainer: {modalConfig.trainer.trainerName} ({selectedMonth})</div>
                   </div>
-                ) : (
-                  <div style={{ fontSize: '0.9rem', color: '#475569' }}>
-                    Payslip generated successfully! Choose delivery option:
-                  </div>
-                )}
+                </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.5rem' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
@@ -862,14 +885,30 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
       {modalConfig.trainer && (
         <div style={{ display: 'none' }}>
           <div ref={payslipRef} style={{ padding: '30px', fontFamily: 'Arial, sans-serif', color: '#1e293b', background: '#ffffff' }}>
+            
+            {/* PAGE 1: SALARY PAYSLIP BREAKDOWN */}
             <div style={{ borderBottom: '2px solid #ef4444', paddingBottom: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h1 style={{ margin: 0, color: '#ef4444', fontSize: '24px' }}>OLYMPIA FITNESS</h1>
-                <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#64748b' }}>Olympia Fitness Gym Management • Trainer Salary Payslip</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <img
+                  src={loginLogo}
+                  alt="Olympia Fitness Logo"
+                  style={{ height: '90px', width: 'auto', maxWidth: '300px', objectFit: 'contain' }}
+                />
+                <div>
+                  <h1 style={{ margin: 0, color: '#dc2626', fontSize: '19px', fontWeight: '900', letterSpacing: '0.5px' }}>OLYMPIA FITNESS A/C UNISEX</h1>
+                  <p style={{ margin: '3px 0 0 0', fontSize: '10.5px', color: '#475569' }}>Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014</p>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '10.5px', color: '#475569' }}><strong>Mobile:</strong> 8072032397 &nbsp;|&nbsp; <strong>Landline:</strong> 0452-3553123</p>
+                  {businessGstin && (
+                    <p style={{ margin: '2px 0 0 0', fontSize: '10.5px', color: '#1e293b', fontWeight: '700', letterSpacing: '0.04em' }}>
+                      GST: {businessGstin}
+                    </p>
+                  )}
+                </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>MONTH: {selectedMonth}</h3>
-                <p style={{ margin: '5px 0 0 0', fontSize: '11px', color: '#64748b' }}>Generated: {formatDateDDMMYYYY(new Date())}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '900', color: '#1e1b4b', letterSpacing: '0.5px' }}>STAFF PAYSLIP</h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#dc2626', fontWeight: '800' }}>MONTH: {selectedMonth}</p>
+                <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>Date: {formatDateDDMMYYYY(new Date())}</p>
               </div>
             </div>
 
@@ -885,15 +924,15 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                     <td><strong>Commission Rate:</strong> {modalConfig.trainer.customCommissionPercent !== null ? `Custom ${modalConfig.trainer.customCommissionPercent}%` : `${modalConfig.trainer.commissionPercent}% (${modalConfig.trainer.slabApplied === 'Slab1' ? 'Slab 1' : 'Slab 2'})`}</td>
                   </tr>
                   <tr>
-                    <td><strong>Monthly Base Revenue:</strong> {formatCurrency(modalConfig.trainer.monthlyPtBaseRevenue)}</td>
                     <td><strong>Classes Conducted:</strong> {modalConfig.trainer.classesConducted} Classes</td>
+                    <td></td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', textTransform: 'uppercase' }}>Payslip Itemized Breakdown</h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '25px', fontSize: '12px' }}>
+            <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', textTransform: 'uppercase', color: '#1e1b4b' }}>Payslip Itemized Breakdown</h4>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '35px', fontSize: '12px' }}>
               <thead>
                 <tr style={{ background: '#f1f5f9' }}>
                   <th style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Item / Description</th>
@@ -958,37 +997,7 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
               </tbody>
             </table>
 
-            <h4 style={{ margin: '0 0 10px 0', fontSize: '13px', textTransform: 'uppercase' }}>Class Log Detail</h4>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px' }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9' }}>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Date</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Session</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Client Name</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Package</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Validity Period</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'right' }}>Package Price</th>
-                  <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'right' }}>Payout</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(modalConfig.trainer.classLogs || []).map(log => (
-                  <tr key={log.id}>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{formatDateDDMMYYYY(log.class_date)}</td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.session_slot || 'Morning'}</td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.clientName}</td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.packageName}</td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                      {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
-                    </td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right' }}>{formatCurrency(log.package_price_snapshot)}</td>
-                    <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(log.per_class_rate_snapshot)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            <div style={{ marginTop: '50px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
+            <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
               <div>
                 <p style={{ margin: 0 }}>___________________________</p>
                 <p style={{ margin: '5px 0 0 0' }}>Trainer Signature</p>
@@ -998,6 +1007,80 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                 <p style={{ margin: '5px 0 0 0' }}>Superadmin Signature</p>
               </div>
             </div>
+
+            {/* PAGE 2: CLASS LOG DETAIL BREAKDOWN */}
+            <div style={{ pageBreakBefore: 'always', paddingTop: '20px' }}>
+              <div style={{ borderBottom: '2px solid #ef4444', paddingBottom: '12px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <img
+                    src={loginLogo}
+                    alt="Olympia Fitness Logo"
+                    style={{ height: '90px', width: 'auto', maxWidth: '300px', objectFit: 'contain' }}
+                  />
+                  <div>
+                    <h1 style={{ margin: 0, color: '#dc2626', fontSize: '17px', fontWeight: '900', letterSpacing: '0.5px' }}>OLYMPIA FITNESS A/C UNISEX</h1>
+                    <p style={{ margin: '2px 0 0 0', fontSize: '10px', color: '#475569' }}><strong>Mobile:</strong> 8072032397 &nbsp;|&nbsp; <strong>Landline:</strong> 0452-3553123</p>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  <h3 style={{ margin: 0, fontSize: '13px', fontWeight: '900', color: '#1e1b4b', letterSpacing: '0.5px' }}>PT CLASS LOG DETAILS (PAGE 2)</h3>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '11px', color: '#dc2626', fontWeight: '800' }}>{modalConfig.trainer.trainerName} ({modalConfig.trainer.trainerCode})</p>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '10px', color: '#64748b' }}>Month: {selectedMonth}</p>
+                </div>
+              </div>
+
+              <h4 style={{ margin: '0 0 12px 0', fontSize: '13px', textTransform: 'uppercase', color: '#1e1b4b' }}>
+                Classes Conducted Log — {modalConfig.trainer.trainerName} ({modalConfig.trainer.classesConducted} Total Sessions)
+              </h4>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '10px', marginBottom: '30px' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Date</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Session</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Client Name</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Package</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'left' }}>Validity Period</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'right' }}>Package Price</th>
+                    <th style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'right' }}>Payout</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(modalConfig.trainer.classLogs || []).length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ padding: '12px', border: '1px solid #e2e8f0', textAlign: 'center', color: '#64748b' }}>
+                        No individual PT class session logs recorded for this month.
+                      </td>
+                    </tr>
+                  ) : (
+                    (modalConfig.trainer.classLogs || []).map(log => (
+                      <tr key={log.id}>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{formatDateDDMMYYYY(log.class_date)}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.session_slot || 'Morning'}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.clientName}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0' }}>{log.packageName}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', color: '#64748b' }}>
+                          {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
+                        </td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right' }}>{formatCurrency(log.package_price_snapshot)}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(log.per_class_rate_snapshot)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+
+              <div style={{ marginTop: '40px', display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b' }}>
+                <div>
+                  <p style={{ margin: 0 }}>___________________________</p>
+                  <p style={{ margin: '5px 0 0 0' }}>Trainer Signature</p>
+                </div>
+                <div>
+                  <p style={{ margin: 0 }}>___________________________</p>
+                  <p style={{ margin: '5px 0 0 0' }}>Superadmin Signature</p>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

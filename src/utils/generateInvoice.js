@@ -1,20 +1,22 @@
 import qrImage from '../assets/qr.png';
+import logoImg from '../assets/olympia logo 2025 SATYA-page-1.png';
 import { formatDateDDMMYYYY } from './formatDate';
 
-export const generateInvoice = (client) => {
+export const generateInvoice = (client, businessGstin) => {
   const rawDate = client.invoiceDate ? client.invoiceDate : new Date();
   const invoiceDate = formatDateDDMMYYYY(rawDate);
 
   const isDuePayment = (client.dueNumber !== undefined && client.dueNumber !== null && client.dueNumber > 0) ||
                        (client.totalPlanAmount !== undefined && client.totalPlanAmount > 0 && client.planAmount !== undefined && Number(client.planAmount) < Number(client.totalPlanAmount));
-  const dueNumber = client.dueNumber || 0;
+  const discountAmount = parseFloat(client.discount || client.discount_amount || 0);
 
   // The actual money collected in this invoice transaction
   const invoiceAmount = isDuePayment
     ? parseFloat(client.planAmount || client.paidAmount || 0)
     : parseFloat(client.planAmount || client.amount || client.totalPlanAmount || 0);
 
-  const fullPlanTotal = parseFloat(client.totalPlanAmount || client.amount || invoiceAmount);
+  const originalPriceBeforeDiscount = discountAmount > 0 ? (invoiceAmount + discountAmount) : invoiceAmount;
+  const fullPlanTotal = parseFloat(client.totalPlanAmount || client.amount || originalPriceBeforeDiscount);
 
   let remainingBalance = 0;
   if (client.remainingBalance !== undefined && client.remainingBalance !== null) {
@@ -53,6 +55,53 @@ export const generateInvoice = (client) => {
   };
 
   const amountInWords = numberToWords(Math.round(invoiceAmount)) + ' Only';
+
+  const ptLogs = client.ptClassLogs || client.classLogs || [];
+  const isPtCategory = client.invoice_category === 'PT' || (rawPlanLabel && rawPlanLabel.toLowerCase().includes('pt'));
+
+  const page2Html = (isPtCategory && ptLogs.length > 0) ? `
+  <div style="page-break-before: always; padding: 25px; font-family: 'Roboto', Arial, sans-serif; background: #fff; border: 1.5px solid #888; margin-top: 20px; width: 794px; min-height: 1123px;">
+    <div style="border-bottom: 2px solid #dc2626; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h2 style="color: #dc2626; margin: 0; font-size: 18px; font-weight: 900;">OLYMPIA FITNESS A/C UNISEX</h2>
+        <p style="margin: 3px 0 0 0; color: #475569; font-size: 11px;">PERSONAL TRAINING SESSION ATTENDANCE LOG — Page 2 of 2</p>
+      </div>
+      <div style="text-align: right; font-size: 11px; color: #334155;">
+        <strong>Invoice No:</strong> ${billNo}<br>
+        <strong>Client:</strong> ${client.clientName || client.name || 'Client'}<br>
+        <strong>Trainer:</strong> ${client.trainerName || 'Assigned Trainer'}
+      </div>
+    </div>
+
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 15px; border-radius: 8px; margin-bottom: 20px; font-size: 11px; display: flex; justify-content: space-between; align-items: center;">
+      <span>Package: <strong>${rawPlanLabel}</strong></span>
+      <span>Completed Sessions: <strong>${ptLogs.length} Classes</strong></span>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+      <thead>
+        <tr style="background: #f1f5f9; text-align: left;">
+          <th style="border: 1px solid #cbd5e1; padding: 8px; width: 8%; text-align: center;">S.No</th>
+          <th style="border: 1px solid #cbd5e1; padding: 8px; width: 22%;">Class Date</th>
+          <th style="border: 1px solid #cbd5e1; padding: 8px; width: 20%;">Session Slot</th>
+          <th style="border: 1px solid #cbd5e1; padding: 8px; width: 30%;">Conducting Trainer</th>
+          <th style="border: 1px solid #cbd5e1; padding: 8px; width: 20%; text-align: center;">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ptLogs.map((l, idx) => `
+          <tr>
+            <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center;">${idx + 1}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px;"><strong>${formatDateDDMMYYYY(l.class_date)}</strong></td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px;">${l.session_slot || 'Morning'} Session</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px;">${l.trainerName || 'Trainer'}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 8px; text-align: center; color: #16a34a; font-weight: 800;">✓ Completed</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  </div>
+  ` : '';
 
   const htmlContent = `<!DOCTYPE html>
 <html lang="en">
@@ -110,22 +159,21 @@ export const generateInvoice = (client) => {
     }
     .logo-wrap {
       flex-shrink: 0;
-      width: 70px;
-      height: 70px;
+      width: 95px;
+      height: 95px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
     .logo-wrap img {
-      width: 70px;
-      height: 70px;
+      width: 100%;
+      height: 100%;
       object-fit: contain;
-      border-radius: 50%;
-      border: 2px solid #cc0000;
+      border: none;
     }
     .logo-placeholder {
-      width: 70px;
-      height: 70px;
+      width: 95px;
+      height: 95px;
       border-radius: 50%;
       border: 2px solid #cc0000;
       display: flex;
@@ -403,7 +451,7 @@ export const generateInvoice = (client) => {
   <!-- COMPANY HEADER -->
   <div class="company-header">
     <div class="logo-wrap">
-      <img src="./olympialogo.jpeg" alt="Olympia Logo" onerror="this.outerHTML='<div class=\\'logo-placeholder\\'>OF</div>'">
+      <img src="${logoImg}" alt="Olympia Logo" onerror="this.outerHTML='<div class=\\'logo-placeholder\\'>OF</div>'">
     </div>
     <div class="company-info">
       <div class="company-name">OLYMPIA FITNESS A/C UNISEX</div>
@@ -413,7 +461,7 @@ export const generateInvoice = (client) => {
         <span><strong>Mobile:</strong> 8072032397 &nbsp;&nbsp; <strong>Landline:</strong> 0452-3553123</span>
         <span><strong>Website:</strong> olympiafitnessmadurai.com</span>
       </div>
-      <div class="company-gst"><strong>GST:</strong> 332323402248ED</div>
+      ${businessGstin ? `<div class="company-gst"><strong>GST:</strong> ${businessGstin}</div>` : ''}
     </div>
   </div>
 
@@ -450,21 +498,21 @@ export const generateInvoice = (client) => {
     <tbody>
       <tr>
         <td><strong>${itemTitle}</strong></td>
-        <td class="right">${invoiceAmount.toFixed(2)}</td>
+        <td class="right">${originalPriceBeforeDiscount.toFixed(2)}</td>
         <td class="right">0.00</td>
-        <td class="center">0.00<br><span class="tax-small">(0%)</span></td>
+        <td class="center">${discountAmount.toFixed(2)}<br><span class="tax-small">(${discountAmount > 0 ? ((discountAmount / originalPriceBeforeDiscount) * 100).toFixed(1) : 0}%)</span></td>
         <td class="center">${taxTotal.toFixed(2)}<br><span class="tax-small">(4.8%)</span></td>
         <td class="right">${invoiceAmount.toFixed(2)}</td>
       </tr>
       <tr class="subtotal-row">
         <td colspan="3"></td>
-        <td class="right">₹ 0.00</td>
+        <td class="right">₹ ${discountAmount.toFixed(2)}</td>
         <td class="right">₹ ${taxTotal.toFixed(2)}</td>
         <td class="right">₹ ${invoiceAmount.toFixed(2)}</td>
       </tr>
       <tr class="subtotal-row">
         <td colspan="3"><strong>SUBTOTAL</strong></td>
-        <td class="right"><strong>₹ 0.00</strong></td>
+        <td class="right"><strong>₹ ${discountAmount.toFixed(2)}</strong></td>
         <td class="right"><strong>₹ ${taxTotal.toFixed(2)}</strong></td>
         <td class="right"><strong>₹ ${invoiceAmount.toFixed(2)}</strong></td>
       </tr>
@@ -502,11 +550,12 @@ export const generateInvoice = (client) => {
 
     <!-- RIGHT: Amounts Summary -->
     <div class="bottom-right">
+      <div class="summary-row"><span>Original Plan Price:</span><span>₹ ${originalPriceBeforeDiscount.toFixed(2)}</span></div>
+      ${discountAmount > 0 ? `<div class="summary-row" style="color:#059669;font-weight:700"><span>Discount Applied:</span><span>- ₹ ${discountAmount.toFixed(2)}</span></div>` : '<div class="summary-row"><span>Discount:</span><span>- ₹ 0.00</span></div>'}
       <div class="summary-row"><span>Taxable Amount:</span><span>₹ ${(invoiceAmount - taxTotal).toFixed(2)}</span></div>
       <div class="summary-row"><span>CGST (2.4%):</span><span>₹ ${cgst.toFixed(2)}</span></div>
       <div class="summary-row"><span>SGST (2.4%):</span><span>₹ ${sgst.toFixed(2)}</span></div>
-      <div class="summary-row"><span>Discount:</span><span>- ₹ 0.00</span></div>
-      <div class="summary-row total"><span>Invoice Amount ₹${invoiceAmount.toFixed(2)}</span></div>
+      <div class="summary-row total"><span>Final Invoice Amount ₹${invoiceAmount.toFixed(2)}</span></div>
       <div class="summary-row received"><span>Amount Received:</span><span>₹ ${invoiceAmount.toFixed(2)}</span></div>
       ${remainingBalance > 0
         ? `<div class="summary-row" style="color:#cc0000;font-weight:700"><span>Pending Due Balance:</span><span>₹ ${remainingBalance.toFixed(2)}</span></div>`
@@ -534,7 +583,7 @@ export const generateInvoice = (client) => {
       <div class="auth-name">OLYMPIA FITNESS A/C UNISEX</div>
     </div>
   </div>
-
+  ${page2Html}
 </div>
 </body>
 </html>`;

@@ -1,4 +1,4 @@
-import React from 'react';
+import { formatShortId } from '../utils/formatShortId';
 import './ClientTable.css';
 
 const ClientTable = ({ clients, onEdit, onDelete }) => {
@@ -23,7 +23,7 @@ const ClientTable = ({ clients, onEdit, onDelete }) => {
                 key={client.id} 
                 className={`table-row ${isExpired ? 'row-expired' : ''}`}
               >
-                <td className="table-cell cell-id">{client.id}</td>
+                <td className="table-cell cell-id">{formatShortId(client.clientId || client.id)}</td>
                 <td className="table-cell">
                   <div className="cell-name-box">
                     <span className="client-name">{client.name}</span>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getClients, getSettings, renewExpiredClient, addClient, getNextClientId } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './CreateInvoicePage.css';
 
 import { isValidGSTIN } from '../utils/gstValidator';
@@ -32,6 +33,64 @@ const CreateInvoicePage = () => {
   });
   const [addClientError, setAddClientError] = useState('');
   const [isSubmittingNewClient, setIsSubmittingNewClient] = useState(false);
+
+  // Unsaved Changes Navigation Blocker State
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
+
+  useEffect(() => {
+    const dirty = Boolean(
+      selectedClient ||
+      selectedPlan ||
+      gstin ||
+      (isAddClientOpen && (newClientForm.name || newClientForm.phone || newClientForm.selectedPlan))
+    );
+    setIsDirty(dirty);
+  }, [selectedClient, selectedPlan, gstin, isAddClientOpen, newClientForm]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.create-invoice-modal-card')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      if (href && !href.startsWith('#/create-invoice') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    if (blockedTargetUrl) {
+      window.location.hash = blockedTargetUrl;
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -256,11 +315,78 @@ const CreateInvoicePage = () => {
 
         <header className="create-invoice-header">
           <div>
-            <h1 className="create-invoice-title">Client Invoicing & Renewals</h1>
-            <p className="create-invoice-subtitle">Select an expired client to generate a renewal invoice or register a new client with an instant invoice.</p>
+            <h1 className="create-invoice-title">Client Invoicing & Billing Center</h1>
+            <p className="create-invoice-subtitle">Generate official GST-ready invoices across General Membership Plans, Personal Training (PT), and Other Gym Services.</p>
+          </div>
+        </header>
+
+        {/* 3 Selectable Invoice Category Cards (Side-by-Side Clean Grid) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.25rem', marginBottom: '2rem' }}>
+          {/* Card 1: General Plan Invoice */}
+          <div style={{ background: '#ffffff', padding: '1.5rem', borderRadius: '16px', border: '2px solid #4338ca', boxShadow: '0 8px 20px rgba(67, 56, 202, 0.08)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.75rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#e0e7ff', color: '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: '900', flexShrink: 0 }}>
+                  💳
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#1e1b4b' }}>General Plan Invoice</h3>
+                  <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: '800' }}>Active Selection Below</span>
+                </div>
+              </div>
+              <p style={{ fontSize: '0.83rem', color: '#64748b', margin: '0 0 1rem 0', lineHeight: 1.4 }}>Renew expired client memberships or create instant new client General Plan GST invoices.</p>
+            </div>
+            <div style={{ background: '#e0e7ff', color: '#3730a3', padding: '0.65rem 1rem', borderRadius: '10px', fontSize: '0.8rem', fontWeight: '800', textAlign: 'center', border: '1px solid #c7d2fe' }}>
+              ⬇️ Use Expired List Below
+            </div>
           </div>
 
-          <div className="search-filter-box">
+          {/* Card 2: PT Invoice */}
+          <div style={{ background: '#ffffff', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.75rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#dcfce7', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: '900', flexShrink: 0 }}>
+                  🏋️
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#1e1b4b' }}>PT Package Invoice</h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>Auto-Generates on Assignment</span>
+                </div>
+              </div>
+              <p style={{ fontSize: '0.83rem', color: '#64748b', margin: '0 0 1rem 0', lineHeight: 1.4 }}>Assign Personal Training packages to clients with automatic GST invoice & payslip logging.</p>
+            </div>
+            <button
+              onClick={() => navigate('/pt-assignments')}
+              style={{ background: '#16a34a', color: '#ffffff', border: 'none', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '0.82rem', width: '100%', transition: 'all 0.2s' }}
+            >
+              Go to PT Invoicing ➔
+            </button>
+          </div>
+
+          {/* Card 3: Other Service Invoice */}
+          <div style={{ background: '#ffffff', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '0.75rem' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '12px', background: '#e0e7ff', color: '#3730a3', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', fontWeight: '900', flexShrink: 0 }}>
+                  🧩
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: '900', color: '#1e1b4b' }}>Other-Service Invoice</h3>
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '700' }}>Locker / Steam / Diet Tariffs</span>
+                </div>
+              </div>
+              <p style={{ fontSize: '0.83rem', color: '#64748b', margin: '0 0 1rem 0', lineHeight: 1.4 }}>Sell individual service tariffs to clients and issue instant DD-MM-YYYY itemized invoices.</p>
+            </div>
+            <button
+              onClick={() => navigate('/other-services')}
+              style={{ background: '#4f46e5', color: '#ffffff', border: 'none', padding: '0.65rem 1rem', borderRadius: '10px', fontWeight: '800', cursor: 'pointer', fontSize: '0.82rem', width: '100%', transition: 'all 0.2s' }}
+            >
+              Sell Service & Invoice ➔
+            </button>
+          </div>
+        </div>
+
+        <div className="search-filter-box">
             <button className="btn-add-client-invoice" onClick={() => navigate('/add-client')}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
               Add New Client
@@ -273,7 +399,6 @@ const CreateInvoicePage = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-        </header>
 
         {loading ? (
           <div className="empty-expired-state">Loading expired clients...</div>
@@ -300,7 +425,7 @@ const CreateInvoicePage = () => {
                 <tbody>
                   {filteredClients.map(client => (
                     <tr key={client.id}>
-                      <td><span style={{ fontWeight: '800', color: '#4f46e5' }}>{client.clientId || 'N/A'}</span></td>
+                      <td><span style={{ fontWeight: '800', color: '#4f46e5' }}>{formatShortId(client.clientId || client.id)}</span></td>
                       <td style={{ fontWeight: '800' }}>{client.name}</td>
                       <td>{client.phone || 'N/A'}</td>
                       <td>{client.plan || 'General Plan'}</td>
@@ -605,6 +730,37 @@ const CreateInvoicePage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation Blocker Modal */}
+        {isConfirmExitOpen && (
+          <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+            <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+              <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+              <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+              <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+                You have unsaved changes in progress. Are you sure you want to leave? Your changes will be lost.
+              </p>
+              <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  className="btn-cancel-gray"
+                  onClick={() => setIsConfirmExitOpen(false)}
+                  style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Keep Editing
+                </button>
+                <button
+                  type="button"
+                  className="btn-alert-primary error"
+                  onClick={handleProceedExit}
+                  style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Discard & Leave
+                </button>
+              </div>
             </div>
           </div>
         )}

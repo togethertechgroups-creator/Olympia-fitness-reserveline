@@ -11,6 +11,7 @@ import {
   saveTrainerDailyStatus
 } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './PTClassLogPage.css';
 
 const PTClassLogPage = () => {
@@ -26,6 +27,7 @@ const PTClassLogPage = () => {
 
   // Trainer filter state for logging
   const [selectedTrainerFilter, setSelectedTrainerFilter] = useState('');
+  const [panelLogDate, setPanelLogDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -57,6 +59,63 @@ const PTClassLogPage = () => {
 
   // Modal for Day Details
   const [dayModal, setDayModal] = useState({ isOpen: false, dateStr: '', logs: [] });
+  const [successMsg, setSuccessMsg] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successPopupData, setSuccessPopupData] = useState(null);
+
+  // Unsaved Changes Navigation Blocker State
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
+
+  useEffect(() => {
+    const dirty = Boolean(formData.pt_assignment_id || formData.notes || alternateModal.isOpen);
+    setIsDirty(dirty);
+  }, [formData, alternateModal]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.pt-log-modal-content')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      if (href && !href.startsWith('#/pt-class-log') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    if (blockedTargetUrl) {
+      window.location.hash = blockedTargetUrl.startsWith('#') ? blockedTargetUrl : `#${blockedTargetUrl}`;
+    }
+  };
 
   useEffect(() => {
     loadInitialData();
@@ -88,6 +147,26 @@ const PTClassLogPage = () => {
       setClients(clientRes);
     } catch (error) {
       console.error('Failed to load PT Class Log data', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchLogsForDate = async (dateStr) => {
+    setLoading(true);
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (dateStr === todayStr) {
+        const logsRes = await getPtClassLogsToday();
+        setTodayLogs(logsRes || []);
+      } else {
+        const monthStr = dateStr.substring(0, 7);
+        const historyRes = await getPtClassHistory({ month: monthStr });
+        const filtered = (historyRes || []).filter(l => l.class_date === dateStr);
+        setTodayLogs(filtered);
+      }
+    } catch (err) {
+      console.error('Failed to fetch class logs for date:', err);
     } finally {
       setLoading(false);
     }
@@ -171,9 +250,15 @@ const PTClassLogPage = () => {
     const assignedTrainerId = selectedAssign.trainer_id;
     const isAbsent = getTrainerStatus(assignedTrainerId) === 'Absent';
 
+    let validDate = formData.class_date;
+    if (selectedAssign.assigned_date && formData.class_date < selectedAssign.assigned_date) {
+      validDate = selectedAssign.assigned_date;
+    }
+
     setFormData(prev => ({
       ...prev,
       pt_assignment_id: assignId,
+      class_date: validDate,
       trainer_id: isAbsent ? prev.trainer_id : ''
     }));
 
@@ -218,6 +303,11 @@ const PTClassLogPage = () => {
       return;
     }
 
+    if (selectedAssignment && selectedAssignment.assigned_date && formData.class_date < selectedAssignment.assigned_date) {
+      alert(`Cannot log PT attendance for dates before the package joining / start date (${formatDateDDMMYYYY(selectedAssignment.assigned_date)}).`);
+      return;
+    }
+
     if (isDefaultTrainerAbsent && (!formData.trainer_id || String(formData.trainer_id) === String(selectedAssignment.trainer_id))) {
       openAlternateModal(selectedAssignment.trainerName, selectedAssignment.trainer_id);
       return;
@@ -233,6 +323,17 @@ const PTClassLogPage = () => {
         notes: formData.notes
       });
 
+      setSuccessPopupData({
+        clientName: selectedAssignment?.clientName || 'Client',
+        packageName: selectedAssignment?.packageName || 'PT Package',
+        trainerName: selectedSubstitute?.name || selectedAssignment?.trainerName || 'Trainer',
+        classDate: formatDateDDMMYYYY(formData.class_date),
+        sessionSlot: formData.session_slot || 'Morning',
+        completedClasses: (selectedAssignment?.classes_completed || 0) + 1,
+        totalClasses: selectedAssignment?.total_classes_snapshot || 0
+      });
+      setShowSuccessModal(true);
+
       setFormData({
         pt_assignment_id: '',
         class_date: new Date().toISOString().split('T')[0],
@@ -240,10 +341,11 @@ const PTClassLogPage = () => {
         trainer_id: '',
         notes: ''
       });
+      setSuccessMsg('PT Class Session has been logged successfully!');
       loadInitialData();
       if (viewMode === 'calendar') fetchHistory();
     } catch (error) {
-      alert(error.message || 'Failed to log class.');
+      setErrorMsg(error.message || 'Failed to log class.');
     } finally {
       setSubmitting(false);
     }
@@ -335,42 +437,41 @@ const PTClassLogPage = () => {
     <div className="pt-log-container">
       <header className="pt-log-header">
         <div className="title-group">
-          <h1><span>PT CLASS LOG</span> & ATTENDANCE HISTORY</h1>
-          <p>Record daily PT sessions with trainer filtering, substitute coverage & interactive history calendars.</p>
+          <h1><span>PT CLASS LOG</span> & ATTENDANCE</h1>
+          <p>Record daily PT sessions & track completed class progress.</p>
+        </div>
+
+        {/* Mode Switch Bar */}
+        <div className="mode-toggle-bar">
+          <button
+            className={`mode-toggle-btn ${viewMode === 'entry' ? 'active' : ''}`}
+            onClick={() => setViewMode('entry')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Log Daily Class
+          </button>
+
+          <button
+            className={`mode-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
+            onClick={() => setViewMode('calendar')}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Calendar & History
+          </button>
         </div>
       </header>
-
-      {/* Mode Switch Bar */}
-      <div className="mode-toggle-bar">
-        <button
-          className={`mode-toggle-btn ${viewMode === 'entry' ? 'active' : ''}`}
-          onClick={() => setViewMode('entry')}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-          Log Daily Class
-        </button>
-
-        <button
-          className={`mode-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
-          onClick={() => setViewMode('calendar')}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          PT Attendance Calendar & History
-        </button>
-      </div>
 
       {/* Quick Trainer Availability & Status Strip */}
       <div className="availability-strip">
         <div className="availability-strip-header">
           <div className="availability-strip-title">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            Trainer Availability ({formatDateDDMMYYYY(formData.class_date)})
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            Trainer Shift Status ({formatDateDDMMYYYY(formData.class_date)}):
           </div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Mark absence to trigger alternate trainer selection prompt</span>
         </div>
         <div className="availability-pills-row">
           {trainers.length === 0 ? (
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>No active trainers found.</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>No active trainers found.</div>
           ) : (
             trainers.map(t => {
               const isAbsent = getTrainerStatus(t.id) === 'Absent';
@@ -382,7 +483,7 @@ const PTClassLogPage = () => {
                 >
                   <div className="trainer-info">
                     <span className="trainer-name">{t.name}</span>
-                    <span className="trainer-grade">Grade {t.grade || 'Unassigned'} • {isAbsent ? '🔴 ABSENT' : '🟢 Present'}</span>
+                    <span className="trainer-grade">Grade {t.grade || 'N/A'} • {isAbsent ? '🔴 ABSENT' : '🟢 Present'}</span>
                   </div>
                   <button
                     type="button"
@@ -399,192 +500,225 @@ const PTClassLogPage = () => {
       </div>
 
       {viewMode === 'entry' ? (
-        <div className="pt-log-grid">
-          {/* Left Card: Quick Entry Form with Trainer & Client Filtering */}
-          <div className="pt-log-card">
+        <div className="pt-log-stacked-container">
+          {/* TOP CARD: Quick Entry Form in Full-Width Landscape Layout */}
+          <div className="pt-log-card full-width-card">
             <div className="card-header-bar">
               <h3>Log New PT Class</h3>
-              <span className="step-badge">Step-by-Step Workflow</span>
+              <span className="step-badge">Quick Landscape Workflow</span>
             </div>
 
             <form onSubmit={handleSubmit} className="log-form">
-              {/* STEP 1: Filter by Trainer */}
-              <div className="log-form-group step-block">
-                <label className="step-label">
-                  <span className="step-num">1</span> Filter By Trainer
-                </label>
-                <div className="trainer-filter-pills">
-                  <button
-                    type="button"
-                    className={`trainer-chip ${selectedTrainerFilter === '' ? 'active' : ''}`}
-                    onClick={() => handleTrainerFilterChange('')}
-                  >
-                    👥 All Trainers ({activeAssignments.length} Clients)
-                  </button>
-                  {trainers.map(tr => {
-                    const isAbsent = getTrainerStatus(tr.id) === 'Absent';
-                    const count = activeAssignments.filter(a => String(a.trainer_id) === String(tr.id)).length;
-                    return (
+              <div className="log-landscape-cols">
+                {/* Left Sub-Column: Trainer Filter, Client Selection & Overview */}
+                <div className="log-landscape-col">
+                  {/* STEP 1: Filter by Trainer */}
+                  <div className="log-form-group step-block">
+                    <label className="step-label">
+                      <span className="step-num">1</span> Filter By Trainer
+                    </label>
+                    <div className="trainer-filter-pills">
                       <button
-                        key={tr.id}
                         type="button"
-                        className={`trainer-chip ${String(selectedTrainerFilter) === String(tr.id) ? 'active' : ''} ${isAbsent ? 'chip-absent' : ''}`}
-                        onClick={() => handleTrainerFilterChange(String(tr.id))}
+                        className={`trainer-chip ${selectedTrainerFilter === '' ? 'active' : ''}`}
+                        onClick={() => handleTrainerFilterChange('')}
                       >
-                        {isAbsent ? '🔴' : '🟢'} {tr.name} ({count})
+                        👥 All ({activeAssignments.length})
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* STEP 2: Select Assigned Client / Assignment */}
-              <div className="log-form-group step-block">
-                <label className="step-label">
-                  <span className="step-num">2</span> Select Active Client & Package *
-                </label>
-                <select
-                  value={formData.pt_assignment_id}
-                  onChange={handleAssignmentChange}
-                  required
-                >
-                  <option value="">
-                    {selectedTrainerFilter
-                      ? `-- Select Client Assigned to ${trainers.find(t => String(t.id) === String(selectedTrainerFilter))?.name || 'Trainer'} (${filteredAssignments.length} Active) --`
-                      : `-- Select Active Client Assignment (${filteredAssignments.length} Total Active) --`}
-                  </option>
-                  {filteredAssignments.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.clientName} ({a.packageName}) — Assigned: {a.trainerName} [{a.classes_completed}/{a.total_classes_snapshot} Done]
-                    </option>
-                  ))}
-                </select>
-
-                {filteredAssignments.length === 0 && selectedTrainerFilter && (
-                  <div style={{ fontSize: '0.8rem', color: '#f59e0b', marginTop: '0.4rem' }}>
-                    ℹ️ No active PT client assignments found for this trainer.
+                      {trainers.map(tr => {
+                        const isAbsent = getTrainerStatus(tr.id) === 'Absent';
+                        const count = activeAssignments.filter(a => String(a.trainer_id) === String(tr.id)).length;
+                        return (
+                          <button
+                            key={tr.id}
+                            type="button"
+                            className={`trainer-chip ${String(selectedTrainerFilter) === String(tr.id) ? 'active' : ''} ${isAbsent ? 'chip-absent' : ''}`}
+                            onClick={() => handleTrainerFilterChange(String(tr.id))}
+                          >
+                            {isAbsent ? '🔴' : '🟢'} {tr.name} ({count})
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* Assignment Overview Box */}
-              {selectedAssignment && (
-                <div className="assignment-details-box">
-                  <div className="detail-row">
-                    <span><strong>Client:</strong> {selectedAssignment.clientName} ({selectedAssignment.clientId})</span>
-                    <span><strong>Assigned Trainer:</strong> {selectedAssignment.trainerName} ({selectedAssignment.trainerGrade || 'No Grade'})</span>
+                  {/* STEP 2: Select Assigned Client / Assignment */}
+                  <div className="log-form-group step-block">
+                    <label className="step-label">
+                      <span className="step-num">2</span> Select Active Client & Package *
+                    </label>
+                    <select
+                      value={formData.pt_assignment_id}
+                      onChange={handleAssignmentChange}
+                      required
+                    >
+                      <option value="">
+                        {selectedTrainerFilter
+                          ? `-- Select Client (${filteredAssignments.length} Active) --`
+                          : `-- Select Active Client (${filteredAssignments.length} Total) --`}
+                      </option>
+                      {filteredAssignments.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.clientName} ({a.packageName}) — {a.trainerName} [{a.classes_completed}/{a.total_classes_snapshot}] ({formatDateDDMMYYYY(a.assigned_date)} to {formatDateDDMMYYYY(a.expiry_date)})
+                        </option>
+                      ))}
+                    </select>
+
+                    {filteredAssignments.length === 0 && selectedTrainerFilter && (
+                      <div style={{ fontSize: '0.78rem', color: '#f59e0b', marginTop: '0.2rem' }}>
+                        ℹ️ No active assignments for this trainer.
+                      </div>
+                    )}
                   </div>
-                  <div className="detail-row">
-                    <span><strong>Package:</strong> {selectedAssignment.packageName}</span>
-                    <span><strong>Progress:</strong> {selectedAssignment.classes_completed} / {selectedAssignment.total_classes_snapshot} Completed</span>
-                  </div>
-                  {isSuperAdmin && (
-                    <div className="detail-row" style={{ color: '#10b981', fontWeight: '700' }}>
-                      <span><strong>Package Price:</strong> {formatCurrency(selectedAssignment.package_price_snapshot)}</span>
+
+                  {/* Assignment Overview Box */}
+                  {selectedAssignment && (
+                    <div className="assignment-details-box">
+                      <div className="detail-row">
+                        <span><strong>Client:</strong> {selectedAssignment.clientName} ({selectedAssignment.clientId})</span>
+                        <span><strong>Trainer:</strong> {selectedAssignment.trainerName} ({selectedAssignment.trainerGrade || 'No Grade'})</span>
+                      </div>
+                      <div className="detail-row">
+                        <span><strong>Package:</strong> {selectedAssignment.packageName}</span>
+                        <span><strong>Progress:</strong> {selectedAssignment.classes_completed} / {selectedAssignment.total_classes_snapshot} Completed</span>
+                      </div>
+                      <div className="detail-row">
+                        <span><strong>From:</strong> {formatDateDDMMYYYY(selectedAssignment.assigned_date)}</span>
+                        <span><strong>To (Expiry):</strong> {formatDateDDMMYYYY(selectedAssignment.expiry_date)}</span>
+                      </div>
+                      {isSuperAdmin && (
+                        <div className="detail-row" style={{ color: '#10b981', fontWeight: '700' }}>
+                          <span><strong>Price:</strong> {formatCurrency(selectedAssignment.package_price_snapshot)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Absence Alert Callout */}
+                  {selectedAssignment && isDefaultTrainerAbsent && (
+                    <div className="absence-warning-banner">
+                      <div className="banner-icon">⚠️</div>
+                      <div className="banner-text">
+                        <strong>{selectedAssignment.trainerName}</strong> is <strong>ABSENT</strong> on {formatDateDDMMYYYY(formData.class_date)}.
+                        {formData.trainer_id ? (
+                          <div>Alternate: <strong>{selectedSubstitute?.name || 'Alternate Trainer'}</strong></div>
+                        ) : (
+                          <div>Alternate Trainer required.</div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-select-alternate"
+                        onClick={() => openAlternateModal(selectedAssignment.trainerName, selectedAssignment.trainer_id)}
+                      >
+                        {formData.trainer_id ? 'Change' : 'Select Alternate'}
+                      </button>
                     </div>
                   )}
                 </div>
-              )}
 
-              {/* Absence Alert Callout */}
-              {selectedAssignment && isDefaultTrainerAbsent && (
-                <div className="absence-warning-banner">
-                  <div className="banner-icon">⚠️</div>
-                  <div className="banner-text">
-                    <strong>{selectedAssignment.trainerName}</strong> is marked <strong>ABSENT</strong> on {formatDateDDMMYYYY(formData.class_date)}.
-                    {formData.trainer_id ? (
-                      <div>Selected Alternate Trainer: <strong>{selectedSubstitute?.name || 'Alternate Trainer'}</strong></div>
-                    ) : (
-                      <div>An Alternate / Substitute Trainer is required to conduct this session.</div>
+                {/* Right Sub-Column: Date, Session Slot, Conducting Trainer, Notes & Submit */}
+                <div className="log-landscape-col">
+                  {/* STEP 3: Class Date & Session Slot */}
+                  <div className="log-form-group step-block">
+                    <label className="step-label">
+                      <span className="step-num">3</span> Class Date & Session Slot *
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                      <input
+                        type="date"
+                        value={formData.class_date}
+                        onChange={e => {
+                          const d = e.target.value;
+                          if (selectedAssignment && selectedAssignment.assigned_date && d < selectedAssignment.assigned_date) {
+                            alert(`Class date cannot be before package joining date (${formatDateDDMMYYYY(selectedAssignment.assigned_date)}).`);
+                            return;
+                          }
+                          setFormData({ ...formData, class_date: d });
+                          setPanelLogDate(d);
+                          fetchLogsForDate(d);
+                        }}
+                        min={selectedAssignment?.assigned_date || undefined}
+                        max={new Date().toISOString().split('T')[0]}
+                        required
+                      />
+                      <select
+                        value={formData.session_slot}
+                        onChange={e => setFormData({ ...formData, session_slot: e.target.value })}
+                        required
+                      >
+                        <option value="Morning">🌅 Morning Session</option>
+                        <option value="Evening">🌆 Evening Session</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Conducting Trainer Override */}
+                  <div className={`log-form-group ${isDefaultTrainerAbsent ? 'substitute-highlight' : ''}`}>
+                    <label style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-dim)' }}>
+                      Conducting Trainer {isDefaultTrainerAbsent ? '(Alternate Required) *' : '(Substitute Override)'}
+                    </label>
+                    <select
+                      value={formData.trainer_id}
+                      onChange={e => setFormData({ ...formData, trainer_id: e.target.value })}
+                      required={isDefaultTrainerAbsent}
+                    >
+                      <option value="">
+                        {isDefaultTrainerAbsent
+                          ? '-- Select Alternate Trainer --'
+                          : `-- Same as Assigned (${selectedAssignment?.trainerName || 'Assigned Trainer'}) --`}
+                      </option>
+                      {trainers.map(t => {
+                        const isAbsent = getTrainerStatus(t.id) === 'Absent';
+                        return (
+                          <option key={t.id} value={t.id} disabled={isAbsent}>
+                            {t.name} (Grade {t.grade || 'Unassigned'}) {isAbsent ? '— 🔴 ABSENT' : '— 🟢 Present'}
+                          </option>
+                        );
+                      })}
+                    </select>
+
+                    {selectedSubstitute && selectedAssignment && String(selectedSubstitute.id) !== String(selectedAssignment.trainer_id) && (
+                      <div className="cross-grade-tag">
+                        <span>🔄</span>
+                        <span>Coverage: <strong>{selectedSubstitute.name}</strong> for {selectedAssignment.trainerName}.</span>
+                      </div>
                     )}
                   </div>
-                  <button
-                    type="button"
-                    className="btn-select-alternate"
-                    onClick={() => openAlternateModal(selectedAssignment.trainerName, selectedAssignment.trainer_id)}
-                  >
-                    {formData.trainer_id ? 'Change Alternate' : 'Select Alternate Trainer'}
+
+                  {/* Class Notes */}
+                  <div className="log-form-group">
+                    <label style={{ fontSize: '0.72rem', fontWeight: '700', textTransform: 'uppercase', color: 'var(--text-dim)' }}>Class Notes / Workout Focus</label>
+                    <textarea
+                      rows="2"
+                      value={formData.notes}
+                      onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                      placeholder="e.g. Legs & Core workout completed."
+                      style={{ padding: '0.55rem 0.75rem', fontSize: '0.85rem' }}
+                    ></textarea>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button type="submit" className="btn-log-submit" disabled={submitting} style={{ marginTop: 'auto' }}>
+                    {submitting ? 'Logging...' : 'LOG CONDUCTED CLASS'}
                   </button>
                 </div>
-              )}
-
-              {/* STEP 3: Class Date & Session Slot */}
-              <div className="log-form-group step-block">
-                <label className="step-label">
-                  <span className="step-num">3</span> Class Date & Session Slot *
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <input
-                    type="date"
-                    value={formData.class_date}
-                    onChange={e => setFormData({ ...formData, class_date: e.target.value })}
-                    required
-                  />
-                  <select
-                    value={formData.session_slot}
-                    onChange={e => setFormData({ ...formData, session_slot: e.target.value })}
-                    required
-                  >
-                    <option value="Morning">🌅 Morning Session</option>
-                    <option value="Evening">🌆 Evening Session</option>
-                  </select>
-                </div>
               </div>
-
-              {/* Conducting Trainer Indicator / Override */}
-              <div className={`log-form-group ${isDefaultTrainerAbsent ? 'substitute-highlight' : ''}`}>
-                <label>
-                  Conducting Trainer {isDefaultTrainerAbsent ? '(Alternate Trainer Required) *' : '(Optional Substitute Override)'}
-                </label>
-                <select
-                  value={formData.trainer_id}
-                  onChange={e => setFormData({ ...formData, trainer_id: e.target.value })}
-                  required={isDefaultTrainerAbsent}
-                >
-                  <option value="">
-                    {isDefaultTrainerAbsent
-                      ? '-- Select Alternate Trainer --'
-                      : `-- Same as Assigned (${selectedAssignment?.trainerName || 'Assigned Trainer'}) --`}
-                  </option>
-                  {trainers.map(t => {
-                    const isAbsent = getTrainerStatus(t.id) === 'Absent';
-                    return (
-                      <option key={t.id} value={t.id} disabled={isAbsent}>
-                        {t.name} (Grade {t.grade || 'Unassigned'}) {isAbsent ? '— 🔴 ABSENT' : '— 🟢 Present'}
-                      </option>
-                    );
-                  })}
-                </select>
-
-                {selectedSubstitute && selectedAssignment && String(selectedSubstitute.id) !== String(selectedAssignment.trainer_id) && (
-                  <div className="cross-grade-tag">
-                    <span>🔄</span>
-                    <span>Substitute Coverage: <strong>{selectedSubstitute.name}</strong> (Grade {selectedSubstitute.grade || 'N/A'}) conducting session for {selectedAssignment.trainerName}.</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="log-form-group">
-                <label>Class Notes / Workout Focus</label>
-                <textarea
-                  rows="2"
-                  value={formData.notes}
-                  onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                  placeholder="e.g. Legs & Core workout completed."
-                ></textarea>
-              </div>
-
-              <button type="submit" className="btn-log-submit" disabled={submitting}>
-                {submitting ? 'Logging Class...' : 'Log Conducted Class'}
-              </button>
             </form>
           </div>
 
-          {/* Right Card: Today's Logged Classes */}
-          <div className="pt-log-card">
-            <div className="card-header-bar">
-              <h3>Today's Logged Classes</h3>
-              <span className="log-count-pill">{todayLogs.length} Sessions Today</span>
+          {/* BOTTOM CARD: Logged Classes Panel (Full Width Below Form) */}
+          <div className="pt-log-card full-width-card" style={{ marginTop: '1.25rem' }}>
+            <div className="card-header-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Logged Classes</h3>
+                <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                  {panelLogDate === new Date().toISOString().split('T')[0] ? "Today's Logged Classes" : `Logs for ${formatDateDDMMYYYY(panelLogDate)}`}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="log-count-pill">{todayLogs.length} Sessions</span>
+              </div>
             </div>
 
             {loading ? (
@@ -600,7 +734,7 @@ const PTClassLogPage = () => {
                       <th style={{ width: '24%' }}>Package</th>
                       <th style={{ width: '24%' }}>Trainer</th>
                       {isSuperAdmin && <th style={{ width: '14%' }}>Rate</th>}
-                      <th style={{ width: '8%', textAlign: 'right' }}>Action</th>
+                      {isSuperAdmin && <th style={{ width: '8%', textAlign: 'right' }}>Action</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -615,7 +749,7 @@ const PTClassLogPage = () => {
                                 <span className={`session-slot-pill ${log.session_slot === 'Evening' ? 'evening' : 'morning'}`}>
                                   {log.session_slot === 'Evening' ? '🌆 Evening' : '🌅 Morning'}
                                 </span>
-                                <span className="client-code-tag">{log.clientCode}</span>
+                                <span className="client-code-tag">{formatShortId(log.clientCode || log.client_id)}</span>
                               </div>
                             </div>
                           </td>
@@ -640,12 +774,14 @@ const PTClassLogPage = () => {
                               </div>
                             </td>
                           )}
-                          <td style={{ textAlign: 'right' }}>
-                            <button className="btn-undo-log" onClick={() => handleUndo(log.id)} title="Undo / Delete log">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-                              Undo
-                            </button>
-                          </td>
+                          {isSuperAdmin && (
+                            <td style={{ textAlign: 'right' }}>
+                              <button className="btn-undo-log" onClick={() => handleUndo(log.id)} title="Undo / Delete log">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                                Undo
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -765,7 +901,7 @@ const PTClassLogPage = () => {
                           </td>
                           <td>
                             <div style={{ fontWeight: '700' }}>{log.clientName}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{log.clientCode}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>{formatShortId(log.clientCode || log.client_id)}</div>
                           </td>
                           <td>{log.packageName}</td>
                           <td>
@@ -882,7 +1018,7 @@ const PTClassLogPage = () => {
                         <span style={{ fontSize: '0.8rem', background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '2px 8px', borderRadius: '4px', marginRight: '8px', fontWeight: '700' }}>
                           {log.session_slot || 'Morning'}
                         </span>
-                        {log.clientName} ({log.clientCode})
+                        {log.clientName} ({formatShortId(log.clientCode || log.client_id)})
                       </div>
                       <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>
                         <strong>Conducting Trainer:</strong> {log.trainerName} • <strong>Package:</strong> {log.packageName}
@@ -920,6 +1056,86 @@ const PTClassLogPage = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have unsaved changes in the PT class log form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Keep Editing
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Discard & Leave
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PT Attendance Successful Modal Popup */}
+      {showSuccessModal && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '420px', textAlign: 'center', padding: '2rem 1.75rem', borderRadius: '16px', background: '#ffffff', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div className="alert-icon-circle success" style={{ backgroundColor: '#10b981', color: 'white', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem auto', fontSize: '2rem', fontWeight: 'bold', boxShadow: '0 8px 20px rgba(16, 185, 129, 0.35)' }}>
+              ✓
+            </div>
+            <h3 style={{ fontSize: '1.4rem', fontWeight: '900', color: '#0f172a', margin: '0 0 0.35rem 0' }}>
+              PT Attendance Successful!
+            </h3>
+            <p style={{ fontSize: '0.92rem', color: '#10b981', fontWeight: '700', margin: '0 0 1.25rem 0' }}>
+              PT Session Recorded & Updated Successfully
+            </p>
+            {successPopupData && (
+              <div style={{ background: '#f8fafc', padding: '1rem 1.25rem', borderRadius: '12px', border: '1px solid #e2e8f0', textAlign: 'left', margin: '0 0 1.5rem 0', fontSize: '0.88rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <div><strong>👤 Client Name:</strong> <span style={{ color: '#1e1b4b', fontWeight: '700' }}>{successPopupData.clientName}</span></div>
+                <div><strong>📦 Package:</strong> <span style={{ color: '#334155', fontWeight: '600' }}>{successPopupData.packageName}</span></div>
+                <div><strong>🏋️ Trainer:</strong> <span style={{ color: '#4f46e5', fontWeight: '700' }}>{successPopupData.trainerName}</span></div>
+                <div><strong>📅 Date & Slot:</strong> <span>{successPopupData.classDate} ({successPopupData.sessionSlot})</span></div>
+                {successPopupData.totalClasses > 0 && (
+                  <div style={{ marginTop: '0.35rem', paddingTop: '0.6rem', borderTop: '1px dashed #cbd5e1', color: '#059669', fontWeight: '800', fontSize: '0.92rem' }}>
+                    📊 Session Progress: {successPopupData.completedClasses} of {successPopupData.totalClasses} classes completed
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              className="btn-alert-primary"
+              onClick={() => setShowSuccessModal(false)}
+              style={{
+                width: '100%',
+                padding: '0.85rem 1.5rem',
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '12px',
+                fontWeight: '800',
+                fontSize: '1rem',
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
+              }}
+            >
+              Done / Continue
+            </button>
           </div>
         </div>
       )}

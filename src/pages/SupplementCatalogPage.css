@@ -197,6 +197,13 @@
   color: #64748b;
 }
 
+.catalog-actions-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
 .btn-edit-catalog {
   background: #f1f5f9;
   color: #475569;
@@ -210,8 +217,27 @@
 }
 
 .btn-edit-catalog:hover {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #93c5fd;
+}
+
+.btn-delete-catalog {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  padding: 0.4rem 0.85rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-delete-catalog:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
 }
 
 .catalog-loading, .catalog-empty {

@@ -152,6 +152,14 @@
     background: rgba(249, 115, 22, 0.1);
     color: #ea580c;
 }
+.method-pill.advance--gen- {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+}
+.method-pill.advance--pt- {
+    background: rgba(236, 72, 153, 0.1);
+    color: #db2777;
+}
 
 .status-col .captured-badge {
     display: inline-flex;
@@ -260,3 +268,22 @@
 .page-indicator strong {
     color: #0f172a;
 }
+
+.txn-payment-filter {
+    padding: 0.65rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 0.9rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
+    transition: var(--dash-transition);
+}
+
+.txn-payment-filter:focus, .txn-payment-filter:hover {
+    border-color: #ea580c;
+}
+

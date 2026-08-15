@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { planDurationDays } from '../data/mockData';
 import { getClientById, updateClient, getSettings, getTrainers } from '../api';
+import { isValidGSTIN } from '../utils/gstValidator';
 import './AddClientPage.css'; // Reuse AddClientPage styles
 
 const EditClientPage = () => {
@@ -25,7 +26,9 @@ const EditClientPage = () => {
     diet: false,
     amount: 0,
     status: 'Active',
-    admissionDate: ''
+    admissionDate: '',
+    hasGst: false,
+    gstin: ''
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,6 +40,9 @@ const EditClientPage = () => {
   const [trainers, setTrainers] = useState([]);
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'error' });
   const [profileImage, setProfileImage] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -46,7 +52,10 @@ const EditClientPage = () => {
         return;
       }
       const reader = new FileReader();
-      reader.onloadend = () => setProfileImage(reader.result);
+      reader.onloadend = () => {
+        setProfileImage(reader.result);
+        setIsDirty(true);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -71,6 +80,42 @@ const EditClientPage = () => {
       document.body.style.overflow = 'auto';
     };
   }, [id]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card')) {
+        return;
+      }
+
+      const href = target.getAttribute('href');
+      
+      if (href && !href.startsWith(`#/edit-client/${id}`) && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty, id]);
 
   const fetchTrainers = async () => {
     try {
@@ -115,7 +160,9 @@ const EditClientPage = () => {
         amount: data.amount || 0,
         status: data.status || 'Active',
         trainerId: data.trainerId || '',
-        admissionDate: data.admissionDate || ''
+        admissionDate: data.admissionDate || '',
+        hasGst: !!data.gstin,
+        gstin: data.gstin || ''
       });
       // Store initial amount and expiry date natively
       setSummary({ toDate: data.expiryDate || '', totalAmount: data.amount || 0 });
@@ -151,24 +198,18 @@ const EditClientPage = () => {
 
     const start = new Date(formData.fromDate);
     if (!isNaN(start.getTime())) {
-      let durationMonths = 1;
-      if (formData.plan === 'Quarterly') durationMonths = 3;
-      else if (formData.plan === 'Half-Yearly' || formData.plan === 'Semi-Annual') durationMonths = 6;
-      else if (formData.plan === 'Annual') durationMonths = 12;
-
-      let duration = 0;
-      let tempDate = new Date(start);
-      for (let i = 0; i < durationMonths; i++) {
-        if (tempDate.getMonth() === 1) { // February
-          duration += 28;
-        } else {
-          duration += 30;
-        }
-        tempDate = new Date(tempDate.getFullYear(), tempDate.getMonth() + 1, 1);
+      let durationDays = settings[`${formData.plan}_duration`];
+      if (!durationDays) {
+        if (formData.plan === 'Annual') durationDays = 365;
+        else if (formData.plan === 'Half-Yearly' || formData.plan === 'Semi-Annual') durationDays = 180;
+        else if (formData.plan === 'Quarterly') durationDays = 90;
+        else if (formData.plan === 'Monthly') durationDays = 30;
+        else durationDays = 30;
       }
+      durationDays = parseInt(durationDays, 10) || 30;
 
       const end = new Date(start);
-      end.setDate(start.getDate() + duration);
+      end.setDate(start.getDate() + durationDays);
       
       setSummary(prev => ({ 
         toDate: hasPlanChanged ? end.toISOString().split('T')[0] : (prev.toDate || end.toISOString().split('T')[0]), 
@@ -187,14 +228,23 @@ const EditClientPage = () => {
       return;
     }
     
+    if (formData.hasGst) {
+      if (!formData.gstin || !isValidGSTIN(formData.gstin)) {
+        setErrors({ gstin: 'Please enter a valid 15-character GSTIN (e.g. 33ABCDE1234F1Z5)' });
+        return;
+      }
+    }
+    
     setIsSubmitting(true);
     try {
+      setIsDirty(false);
       await updateClient(id, {
         ...formData,
         profileImage: profileImage,
         personalTraining: formData.ptCategory !== 'None',
         expiryDate: summary.toDate,
-        amount: summary.totalAmount
+        amount: summary.totalAmount,
+        gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null
       });
       setShowSuccess(true);
       setTimeout(() => navigate('/manage-clients'), 1500);
@@ -218,15 +268,27 @@ const EditClientPage = () => {
   };
 
   const handleInputChange = (e) => {
+    setIsDirty(true);
     const { name, value, type, checked } = e.target;
     setFormData(prev => {
-      const nextState = { ...prev, [name]: type === 'checkbox' ? checked : value };
+      let val = type === 'checkbox' ? checked : value;
+      if (name === 'phone') {
+        val = val.replace(/\D/g, '').slice(0, 10);
+      }
+      const nextState = { ...prev, [name]: val };
       if (name === 'fromDate') {
         nextState.ptFromDate = value;
       }
       return nextState;
     });
     if (name === 'name' && value.length >= 3) setErrors({});
+  };
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    const url = blockedTargetUrl.startsWith('#') ? blockedTargetUrl.substring(1) : blockedTargetUrl;
+    navigate(url);
   };
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading client details...</div>;
@@ -298,7 +360,52 @@ const EditClientPage = () => {
                           <input 
                               type="date" name="admissionDate" className="input-field" 
                               value={formData.admissionDate} onChange={handleInputChange} 
-                          />
+                              />
+                      </div>
+                      
+                      {/* GST Number Capture */}
+                      <div className="input-group" style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '0.5rem' }}>
+                        <label className="input-label" style={{ marginBottom: '0.35rem' }}>Does this client have a GST number?</label>
+                        <div style={{ display: 'flex', gap: '1.25rem', marginBottom: formData.hasGst ? '0.5rem' : '0' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}>
+                            <input
+                              type="radio"
+                              name="hasGst"
+                              checked={formData.hasGst}
+                              onChange={() => { setFormData(prev => ({ ...prev, hasGst: true })); setIsDirty(true); }}
+                            />
+                            Yes (B2B)
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '700', cursor: 'pointer', fontSize: '0.85rem' }}>
+                            <input
+                              type="radio"
+                              name="hasGst"
+                              checked={!formData.hasGst}
+                              onChange={() => { setFormData(prev => ({ ...prev, hasGst: false })); setIsDirty(true); }}
+                            />
+                            No (B2C)
+                          </label>
+                        </div>
+
+                        {formData.hasGst && (
+                          <div>
+                            <input
+                              type="text"
+                              name="gstin"
+                              className={`input-field ${errors.gstin ? 'error-border' : ''}`}
+                              placeholder="Enter 15-Digit GSTIN"
+                              maxLength={15}
+                              value={formData.gstin}
+                              onChange={(e) => { setFormData(prev => ({ ...prev, gstin: e.target.value.toUpperCase() })); setIsDirty(true); setErrors({}); }}
+                              style={{ background: '#ffffff', fontWeight: '700' }}
+                            />
+                            {errors.gstin && (
+                              <div style={{ color: '#dc2626', fontSize: '0.78rem', fontWeight: '700', marginTop: '4px' }}>
+                                ?? {errors.gstin}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                   </div>
 
@@ -312,6 +419,7 @@ const EditClientPage = () => {
                                   type="tel" name="phone" className="mobile-input input-field"
                                   value={formData.phone} onChange={handleInputChange}
                                   placeholder="Enter mobile number"
+                                  maxLength={10}
                               />
                           </div>
                       </div>
@@ -428,6 +536,36 @@ const EditClientPage = () => {
                 onClick={() => setAlertConfig({ ...alertConfig, isOpen: false })}
               >
                 Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have started editing the client form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
               </button>
             </div>
           </div>

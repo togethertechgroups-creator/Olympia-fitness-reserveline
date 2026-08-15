@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: './', // CRITICAL: Use relative paths for Electron
+  base: '/', // Cloudflare Pages uses absolute paths
   logLevel: 'info',
   server: {
     host: true, // Listen on 0.0.0.0 to support LAN and tunnels like ngrok
@@ -14,7 +14,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        secure: false
+        secure: false,
+        ws: true
       }
     }
   },

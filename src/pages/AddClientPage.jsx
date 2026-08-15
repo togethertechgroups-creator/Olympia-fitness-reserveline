@@ -33,7 +33,8 @@ const AddClientPage = () => {
     admissionDate: getTodayDate(),
     paidAmount: '',
     hasGst: false,
-    gstin: ''
+    gstin: '',
+    discount: ''
   });
 
   const [trainers, setTrainers] = useState([]);
@@ -46,6 +47,9 @@ const AddClientPage = () => {
   const [summary, setSummary] = useState({ toDate: '', totalAmount: 0 });
   const [alertConfig, setAlertConfig] = useState({ isOpen: false, title: '', message: '', type: 'error' });
   const [profileImage, setProfileImage] = useState(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -55,7 +59,10 @@ const AddClientPage = () => {
         return;
       }
       const reader = new FileReader();
-      reader.onloadend = () => setProfileImage(reader.result);
+      reader.onloadend = () => {
+        setProfileImage(reader.result);
+        setIsDirty(true);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -69,6 +76,42 @@ const AddClientPage = () => {
       console.error('Failed to play sound:', e);
     }
   };
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card')) {
+        return;
+      }
+
+      const href = target.getAttribute('href');
+      
+      if (href && !href.startsWith('#/add-client') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
 
   useEffect(() => {
     fetchSettings();
@@ -124,30 +167,27 @@ const AddClientPage = () => {
 
     const start = new Date(formData.fromDate);
     if (!isNaN(start.getTime())) {
-      let durationMonths = 1;
-      if (formData.plan === 'Quarterly') durationMonths = 3;
-      else if (formData.plan === 'Half-Yearly') durationMonths = 6;
-      else if (formData.plan === 'Annual') durationMonths = 12;
-
-      let duration = 0;
-      let tempDate = new Date(start);
-      for (let i = 0; i < durationMonths; i++) {
-        if (tempDate.getMonth() === 1) { // February
-          duration += 28;
-        } else {
-          duration += 30;
-        }
-        tempDate = new Date(tempDate.getFullYear(), tempDate.getMonth() + 1, 1);
+      let durationDays = settings[`${formData.plan}_duration`];
+      if (!durationDays) {
+        if (formData.plan === 'Annual') durationDays = 365;
+        else if (formData.plan === 'Half-Yearly' || formData.plan === 'Semi-Annual') durationDays = 180;
+        else if (formData.plan === 'Quarterly') durationDays = 90;
+        else if (formData.plan === 'Monthly') durationDays = 30;
+        else durationDays = 30;
       }
+      durationDays = parseInt(durationDays, 10) || 30;
 
       const end = new Date(start);
-      end.setDate(start.getDate() + duration);
+      end.setDate(start.getDate() + durationDays);
+      
+      const subtotal = basePrice + ptPrice + dietPrice;
+      const discountVal = parseFloat(formData.discount || 0);
       setSummary({
         toDate: end.toISOString().split('T')[0],
-        totalAmount: basePrice + ptPrice + dietPrice
+        totalAmount: Math.max(0, subtotal - discountVal)
       });
     }
-  }, [formData.plan, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, settings]);
+  }, [formData.plan, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, formData.discount, settings]);
 
   const handleNextStep = (e) => {
     e.preventDefault();
@@ -209,9 +249,12 @@ const AddClientPage = () => {
         expiryDate: summary.toDate,
         amount: summary.totalAmount,
         paidAmount: formData.paidAmount !== '' ? parseFloat(formData.paidAmount) : summary.totalAmount,
-        status: 'Active'
+        status: 'Active',
+        discount_amount: formData.discount ? parseFloat(formData.discount) : 0
       };
+      setIsDirty(false);
       const newClient = await addClient(finalData);
+      newClient.discount_amount = finalData.discount_amount;
       setShowSuccess(true);
       setPreviewClient(newClient);
     } catch (error) {
@@ -223,13 +266,25 @@ const AddClientPage = () => {
   };
 
   const handleInputChange = (e) => {
+    setIsDirty(true);
     const { name, value, type, checked } = e.target;
     setFormData(prev => {
-      const nextState = { ...prev, [name]: type === 'checkbox' ? checked : value };
+      let val = type === 'checkbox' ? checked : value;
+      if (name === 'phone') {
+        val = val.replace(/\D/g, '').slice(0, 10);
+      }
+      const nextState = { ...prev, [name]: val };
       if (name === 'fromDate') nextState.ptFromDate = value;
       return nextState;
     });
     if (errors[name]) setErrors(prev => ({ ...prev, [name]: null }));
+  };
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    const url = blockedTargetUrl.startsWith('#') ? blockedTargetUrl.substring(1) : blockedTargetUrl;
+    navigate(url);
   };
 
   const handleKeyDown = (e) => {
@@ -344,6 +399,7 @@ const AddClientPage = () => {
                           type="tel" name="phone" className="mobile-input input-field"
                           value={formData.phone} onChange={handleInputChange}
                           placeholder="Enter 10-digit mobile number"
+                          maxLength={10}
                         />
                       </div>
                     </div>
@@ -479,6 +535,18 @@ const AddClientPage = () => {
                           <label className="input-label">Expires On</label>
                           <input type="date" className="input-field readonly" value={summary.toDate} readOnly />
                         </div>
+                        <div className="input-group">
+                          <label className="input-label">Discount Amount (₹)</label>
+                          <input
+                            type="number"
+                            name="discount"
+                            className="input-field"
+                            placeholder="Optional Discount (₹)"
+                            value={formData.discount}
+                            onChange={handleInputChange}
+                            min="0"
+                          />
+                        </div>
                       </div>
 
                       <div className="summary-box">
@@ -584,7 +652,39 @@ const AddClientPage = () => {
           navigate('/manage-clients');
         }}
         client={previewClient}
+        title="Client Registration Completed"
       />
+
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have started filling out the registration form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

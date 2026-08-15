@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { addStaff, getStaffById, updateStaff } from '../api';
 import logo from '../assets/kh3-logo.png';
 import './StaffEnrollmentPage.css';
@@ -35,6 +35,47 @@ const StaffEnrollmentPage = () => {
     date: '',
     place: '',
   });
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card')) {
+        return;
+      }
+
+      const href = target.getAttribute('href');
+      const targetSearch = editId ? `?id=${editId}` : '';
+      
+      if (href && !href.startsWith(`#/staff-enrollment${targetSearch}`) && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty, editId]);
 
   useEffect(() => {
     if (editId) {
@@ -86,11 +127,13 @@ const StaffEnrollmentPage = () => {
   }, [editId]);
 
   const handleChange = (e) => {
+    setIsDirty(true);
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleEducationChange = (level, field, value) => {
+    setIsDirty(true);
     setFormData((prev) => ({
       ...prev,
       education: {
@@ -107,10 +150,12 @@ const StaffEnrollmentPage = () => {
     e.preventDefault();
     try {
       if (editId) {
+        setIsDirty(false);
         await updateStaff(editId, formData);
         alert('Staff Profile Updated Successfully!');
         navigate('/staff-directory');
       } else {
+        setIsDirty(false);
         await addStaff(formData);
         alert('Staff Enrollment Form Submitted Successfully!');
         setFormData({
@@ -130,6 +175,13 @@ const StaffEnrollmentPage = () => {
       console.error(err);
       alert(editId ? 'Failed to update staff profile' : 'Failed to submit enrollment form');
     }
+  };
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    const url = blockedTargetUrl.startsWith('#') ? blockedTargetUrl.substring(1) : blockedTargetUrl;
+    navigate(url);
   };
 
   return (
@@ -352,6 +404,37 @@ const StaffEnrollmentPage = () => {
           </div>
         </form>
       </div>
+
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have started entering staff details. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

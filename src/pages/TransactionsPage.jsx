@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTransactions, getClients, restoreData } from '../api';
+import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './TransactionsPage.css';
 
 const TransactionsPage = () => {
@@ -10,6 +11,8 @@ const TransactionsPage = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
+  const [selectedDate, setSelectedDate] = useState('');
 
   const [clientsMap, setClientsMap] = useState({});
 
@@ -24,17 +27,95 @@ const TransactionsPage = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [txnData, clientsData] = await Promise.all([
+      const [txnData, clientsData, genBookings, ptBookings] = await Promise.all([
         fetchTransactions(),
-        getClients()
+        getClients(),
+        getGeneralBookings(),
+        getPtAdvanceBookings()
       ]);
       
       const map = {};
+      const clientsMapById = {};
       clientsData.forEach(c => {
         map[c.name] = c.clientId;
+        clientsMapById[c.id] = c;
       });
+
+      const mappedGenBookings = (genBookings || []).map(b => ({
+        id: `gen-adv-${b.id}`,
+        clientId: b.client_id,
+        name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+        method: b.payment_method ? `${b.payment_method} (Adv-Gen)` : 'ADVANCE (Gen)',
+        amount: b.price || 0,
+        date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
+        status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+        timestamp: b.created_at || b.booking_start_date || ''
+      }));
+
+      const mappedPtBookings = (ptBookings || []).map(b => ({
+        id: `pt-adv-${b.id}`,
+        clientId: b.client_id,
+        name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+        method: b.payment_method ? `${b.payment_method} (Adv-PT)` : 'ADVANCE (PT)',
+        amount: b.price_snapshot || 0,
+        date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
+        status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+        timestamp: b.created_at || b.booking_start_date || ''
+      }));
+
+      const normalizeDateStr = (dStr) => {
+          if (!dStr) return '';
+          if (dStr.includes('/')) {
+              const parts = dStr.split('/');
+              if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+          }
+          if (dStr.includes('-') && dStr.split('-')[0].length === 2) {
+              const parts = dStr.split('-');
+              if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+          }
+          return dStr.split(' ')[0]; 
+      };
+
+      const parseTimeToMs = (item) => {
+        const raw = item.created_at || item.timestamp || item.date || '';
+        if (!raw) return 0;
+        let str = String(raw).trim();
+        const match = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:\s+(.*))?$/);
+        if (match) {
+          const day = match[1].padStart(2, '0');
+          const month = match[2].padStart(2, '0');
+          const year = match[3];
+          const timePart = match[4] ? match[4].trim() : '00:00:00';
+          str = `${year}-${month}-${day}T${timePart}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(str)) {
+          str = str.replace(' ', 'T');
+        }
+        const parsedDate = new Date(str);
+        if (!isNaN(parsedDate.getTime())) {
+          return parsedDate.getTime();
+        }
+        const numId = parseInt(String(item.id || '').replace(/\D/g, ''), 10);
+        return isNaN(numId) ? 0 : numId;
+      };
+
+      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings];
+      combinedTxns.sort((a, b) => {
+        const timeA = parseTimeToMs(a);
+        const timeB = parseTimeToMs(b);
+        if (timeA !== timeB) {
+          return timeB - timeA; // Most recent timestamp first
+        }
+        const numIdA = parseInt(String(a.id || '').replace(/\D/g, ''), 10) || 0;
+        const numIdB = parseInt(String(b.id || '').replace(/\D/g, ''), 10) || 0;
+        if (numIdA !== numIdB) {
+          return numIdB - numIdA;
+        }
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+
       setClientsMap(map);
-      setTransactions(txnData);
+      setTransactions(combinedTxns);
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -106,13 +187,64 @@ const TransactionsPage = () => {
     }
   };
 
-  const filteredTxns = transactions.filter(txn => 
-    txn.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (txn.clientId && txn.clientId.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (clientsMap[txn.name] && clientsMap[txn.name].toLowerCase().includes(searchTerm.toLowerCase())) ||
-    txn.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    txn.method.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTxns = transactions.filter(txn => {
+    const matchesSearch = 
+      txn.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (txn.clientId && txn.clientId.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (clientsMap[txn.name] && clientsMap[txn.name].toLowerCase().includes(searchTerm.toLowerCase())) ||
+      txn.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      txn.method.toLowerCase().includes(searchTerm.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    // Date filtering
+    if (selectedDate) {
+      let dStr = txn.date;
+      if (dStr) {
+        // Handle DD/MM/YYYY
+        if (dStr.includes('/')) {
+          const parts = dStr.split('/');
+          if (parts.length === 3) dStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+        // Assuming selectedDate is YYYY-MM-DD and dStr is now YYYY-MM-DD or YYYY-MM-DDTHH:MM
+        if (!dStr.startsWith(selectedDate)) return false;
+      } else {
+        return false;
+      }
+    }
+
+    if (paymentMethodFilter === 'ALL') return true;
+
+    const methodLower = (txn.method || '').toLowerCase();
+    if (paymentMethodFilter === 'UPI') return methodLower.includes('upi');
+    if (paymentMethodFilter === 'CASH') return methodLower.includes('cash');
+    if (paymentMethodFilter === 'BANK') {
+      return methodLower.includes('bank') || methodLower.includes('net banking') || methodLower.includes('card') || methodLower.includes('transfer');
+    }
+    return true;
+  });
+
+  const isCancelledStatus = (status) => {
+    if (!status) return false;
+    const s = String(status).toUpperCase();
+    return s === 'CANCELLED' || s === 'REFUNDED' || s === 'FAILED';
+  };
+
+  const totalFilteredCount = filteredTxns.length;
+  
+  const totalCancelledAmount = filteredTxns.reduce((sum, txn) => {
+    if (isCancelledStatus(txn.status)) {
+      return sum + Number(txn.amount || 0);
+    }
+    return sum;
+  }, 0);
+
+  const totalFilteredAmount = filteredTxns.reduce((sum, txn) => {
+    if (isCancelledStatus(txn.status)) {
+      return sum;
+    }
+    return sum + Number(txn.amount || 0);
+  }, 0);
 
   // Pagination Math
   const totalPages = Math.ceil(filteredTxns.length / itemsPerPage) || 1;
@@ -125,13 +257,17 @@ const TransactionsPage = () => {
     setCurrentPage(1);
   };
 
+  const handlePaymentFilterChange = (e) => {
+    setPaymentMethodFilter(e.target.value);
+    setCurrentPage(1);
+  };
+
   const getDisplayClientId = (txn) => {
-    if (clientsMap[txn.name]) return clientsMap[txn.name];
+    if (clientsMap[txn.name]) return formatShortId(clientsMap[txn.name]);
     const baseName = txn.name ? txn.name.split(' - ')[0].trim() : '';
-    if (clientsMap[baseName]) return clientsMap[baseName];
-    if (txn.clientId && !txn.clientId.includes('-') && txn.clientId.length < 15) return txn.clientId;
-    if (txn.clientId && (txn.clientId.length >= 15 || txn.clientId.includes('-'))) return 'SERVICE';
-    return txn.clientId || 'N/A';
+    if (clientsMap[baseName]) return formatShortId(clientsMap[baseName]);
+    if (txn.clientId) return formatShortId(txn.clientId);
+    return 'N/A';
   };
 
   return (
@@ -184,7 +320,28 @@ const TransactionsPage = () => {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             {isImporting ? 'IMPORTING...' : 'IMPORT DATA'}
           </button>
+
+          <select
+            className="txn-payment-filter"
+            value={paymentMethodFilter}
+            onChange={handlePaymentFilterChange}
+          >
+            <option value="ALL">All Payment Modes</option>
+            <option value="UPI">UPI</option>
+            <option value="CASH">Cash</option>
+            <option value="BANK">Bank / Net Banking / Card</option>
+          </select>
           
+          <div className="txn-date-filters" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input 
+              type="date" 
+              value={selectedDate}
+              onChange={(e) => { setSelectedDate(e.target.value); setCurrentPage(1); }}
+              style={{ padding: '0.6rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', color: '#334155', outline: 'none' }}
+              title="Filter by Date"
+            />
+          </div>
+
           <div className="txn-search-bar">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
             <input 
@@ -195,6 +352,23 @@ const TransactionsPage = () => {
             />
           </div>
         </div>
+
+      <div className="txn-summary-cards" style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: 'white', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Transactions</span>
+          <span style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a' }}>{totalFilteredCount}</span>
+        </div>
+        <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: 'white', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net Received Amount</span>
+          <span style={{ fontSize: '2rem', fontWeight: 900, color: '#16a34a' }}>₹{totalFilteredAmount.toLocaleString()}</span>
+        </div>
+        {totalCancelledAmount > 0 && (
+          <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: '#fef2f2', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #fecaca', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cancelled Amount</span>
+            <span style={{ fontSize: '2rem', fontWeight: 900, color: '#dc2626' }}>₹{totalCancelledAmount.toLocaleString()}</span>
+          </div>
+        )}
+      </div>
 
       <div className="transactions-table-card">
         <div className="table-responsive">
@@ -219,15 +393,17 @@ const TransactionsPage = () => {
                   <td className="id-col">{getDisplayClientId(txn)}</td>
                   <td className="name-col">{txn.name}</td>
                   <td className="method-col">
-                    <span className={`method-pill ${txn.method.toLowerCase()}`}>
+                    <span className={`method-pill ${txn.method.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}>
                       {txn.method}
                     </span>
                   </td>
                   <td className="date-col">{formatDateDDMMYYYY(txn.date)}</td>
-                  <td className="amount-col">₹{txn.amount.toLocaleString()}</td>
+                  <td className="amount-col" style={isCancelledStatus(txn.status) ? { color: '#dc2626', fontWeight: 700 } : {}}>
+                    ₹{Number(txn.amount || 0).toLocaleString()}
+                  </td>
                   <td className="status-col">
-                    <span className="captured-badge">
-                      <div className="dot"></div>
+                    <span className="captured-badge" style={isCancelledStatus(txn.status) ? { color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca' } : {}}>
+                      <div className="dot" style={isCancelledStatus(txn.status) ? { background: '#dc2626' } : {}}></div>
                       {txn.status}
                     </span>
                   </td>

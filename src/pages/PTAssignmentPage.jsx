@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { getPtAssignments, getClients, getTrainers, getPtPackages, addPtAssignment, getPtClassHistory } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './PTAssignmentPage.css';
 
 const PTAssignmentPage = () => {
@@ -11,6 +12,9 @@ const PTAssignmentPage = () => {
   const [searchParams] = useSearchParams();
   const preselectedClientId = searchParams.get('clientId');
 
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
   const [assignments, setAssignments] = useState([]);
   const [clients, setClients] = useState([]);
   const [trainers, setTrainers] = useState([]);
@@ -18,6 +22,7 @@ const PTAssignmentPage = () => {
   const [loading, setLoading] = useState(true);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [clientModalSearch, setClientModalSearch] = useState('');
   const [filterTrainer, setFilterTrainer] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [invoiceClient, setInvoiceClient] = useState(null);
@@ -76,6 +81,42 @@ const PTAssignmentPage = () => {
   useEffect(() => {
     loadAllData();
   }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.trainer-modal-content')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      
+      if (href && !href.startsWith('#/pt-assignment') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
 
   useEffect(() => {
     const statusParam = searchParams.get('status');
@@ -146,6 +187,7 @@ const PTAssignmentPage = () => {
   });
 
   const handleTrainerChange = (e) => {
+    setIsDirty(true);
     const tId = e.target.value;
     setFormData(prev => ({
       ...prev,
@@ -156,6 +198,7 @@ const PTAssignmentPage = () => {
   };
 
   const handlePackageChange = (e) => {
+    setIsDirty(true);
     const val = e.target.value;
     if (val === 'CUSTOM') {
       setFormData(prev => ({
@@ -170,6 +213,13 @@ const PTAssignmentPage = () => {
         is_custom: false
       }));
     }
+  };
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    const url = blockedTargetUrl.startsWith('#') ? blockedTargetUrl.substring(1) : blockedTargetUrl;
+    navigate(url);
   };
 
   const handleSubmit = async (e) => {
@@ -247,6 +297,7 @@ const PTAssignmentPage = () => {
       };
 
       const result = await addPtAssignment(payload);
+      setIsDirty(false);
       setIsModalOpen(false);
       loadAllData();
       
@@ -415,7 +466,7 @@ const PTAssignmentPage = () => {
                     <th>Assigned Date</th>
                     <th>Expiry Date</th>
                     <th>Status</th>
-                    <th>Action</th>
+                    <th style={{ textAlign: 'right' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -432,7 +483,7 @@ const PTAssignmentPage = () => {
                       <tr key={item.id}>
                         <td>
                           <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '0.95rem' }}>{item.clientName}</div>
-                          <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '500' }}>{item.clientCode}</div>
+                          <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '500' }}>{formatShortId(item.clientCode || item.client_id)}</div>
                         </td>
                         <td>
                           <div style={{ fontWeight: '600', color: '#0f172a' }}>{item.trainerName}</div>
@@ -466,8 +517,8 @@ const PTAssignmentPage = () => {
                         <td>
                           <span className={`status-pill ${statusClass}`}>{item.status}</span>
                         </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', justifyContent: 'flex-end' }}>
                             <button
                               className="btn-invoice-pt"
                               onClick={() => handleGeneratePtInvoice(item)}
@@ -543,13 +594,20 @@ const PTAssignmentPage = () => {
           <div className="trainer-modal-content animated-scale-in">
             <div className="trainer-modal-header">
               <h2>Assign PT Package</h2>
-              <button className="btn-close" onClick={() => setIsModalOpen(false)}>&times;</button>
+              <button className="btn-close" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>&times;</button>
             </div>
             <form onSubmit={handleSubmit} className="trainer-form">
 
               {/* Select Client */}
               <div className="trainer-form-group">
                 <label>Select Client *</label>
+                <input
+                  type="text"
+                  placeholder="🔍 Search client by name, ID, phone..."
+                  value={clientModalSearch}
+                  onChange={(e) => { setClientModalSearch(e.target.value); setIsDirty(true); }}
+                  style={{ marginBottom: '0.5rem', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', width: '100%', fontWeight: '700', fontSize: '0.85rem' }}
+                />
                 <select
                   value={formData.client_id}
                   onChange={e => {
@@ -562,11 +620,12 @@ const PTAssignmentPage = () => {
                       gstin: selClient?.gstin || ''
                     }));
                     setGstError('');
+                    setIsDirty(true);
                   }}
                   required
                 >
-                  <option value="">-- Choose Client --</option>
-                  {clients.map(c => (
+                  <option value="">-- Choose Client ({clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).length} found) --</option>
+                  {clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).map(c => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.clientId || 'No ID'}) - {c.phone}
                     </option>
@@ -585,7 +644,7 @@ const PTAssignmentPage = () => {
                       type="radio"
                       name="ptHasGst"
                       checked={formData.hasGst}
-                      onChange={() => setFormData(prev => ({ ...prev, hasGst: true }))}
+                      onChange={() => { setFormData(prev => ({ ...prev, hasGst: true })); setIsDirty(true); }}
                     />
                     Yes (B2B)
                   </label>
@@ -594,7 +653,7 @@ const PTAssignmentPage = () => {
                       type="radio"
                       name="ptHasGst"
                       checked={!formData.hasGst}
-                      onChange={() => setFormData(prev => ({ ...prev, hasGst: false }))}
+                      onChange={() => { setFormData(prev => ({ ...prev, hasGst: false })); setIsDirty(true); }}
                     />
                     No (B2C)
                   </label>
@@ -607,7 +666,7 @@ const PTAssignmentPage = () => {
                       placeholder="Enter 15-Digit GSTIN (e.g. 33ABCDE1234F1Z5)"
                       value={formData.gstin}
                       maxLength={15}
-                      onChange={(e) => { setFormData(prev => ({ ...prev, gstin: e.target.value.toUpperCase() })); setGstError(''); }}
+                      onChange={(e) => { setFormData(prev => ({ ...prev, gstin: e.target.value.toUpperCase() })); setGstError(''); setIsDirty(true); }}
                       style={{
                         width: '100%', padding: '0.55rem 0.85rem', borderRadius: '8px', border: gstError ? '2px solid #ef4444' : '1px solid #cbd5e1',
                         fontWeight: '700', fontSize: '0.85rem', outline: 'none', background: '#ffffff'
@@ -673,7 +732,7 @@ const PTAssignmentPage = () => {
                       <input
                         type="text"
                         value={formData.custom_name}
-                        onChange={e => setFormData({ ...formData, custom_name: e.target.value })}
+                        onChange={e => { setFormData({ ...formData, custom_name: e.target.value }); setIsDirty(true); }}
                         placeholder="e.g. Special 20-Session PT"
                       />
                     </div>
@@ -684,7 +743,7 @@ const PTAssignmentPage = () => {
                           type="number"
                           min="1"
                           value={formData.custom_price}
-                          onChange={e => setFormData({ ...formData, custom_price: e.target.value })}
+                          onChange={e => { setFormData({ ...formData, custom_price: e.target.value }); setIsDirty(true); }}
                           required
                           placeholder="e.g. 12000"
                         />
@@ -698,7 +757,7 @@ const PTAssignmentPage = () => {
                         type="number"
                         min="1"
                         value={formData.custom_total_classes}
-                        onChange={e => setFormData({ ...formData, custom_total_classes: e.target.value })}
+                        onChange={e => { setFormData({ ...formData, custom_total_classes: e.target.value }); setIsDirty(true); }}
                         required
                         placeholder="e.g. 24"
                       />
@@ -709,7 +768,7 @@ const PTAssignmentPage = () => {
                         type="number"
                         min="1"
                         value={formData.custom_duration_days}
-                        onChange={e => setFormData({ ...formData, custom_duration_days: e.target.value })}
+                        onChange={e => { setFormData({ ...formData, custom_duration_days: e.target.value }); setIsDirty(true); }}
                         required
                         placeholder="Default 30 days"
                       />
@@ -724,13 +783,13 @@ const PTAssignmentPage = () => {
                 <input
                   type="date"
                   value={formData.assigned_date}
-                  onChange={e => setFormData({ ...formData, assigned_date: e.target.value })}
+                  onChange={e => { setFormData({ ...formData, assigned_date: e.target.value }); setIsDirty(true); }}
                   required
                 />
               </div>
 
               <div className="trainer-modal-footer">
-                <button type="button" className="trainer-btn-cancel" onClick={() => setIsModalOpen(false)}>Cancel</button>
+                <button type="button" className="trainer-btn-cancel" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>Cancel</button>
                 <button type="submit" className="trainer-btn-save">Confirm Assignment</button>
               </div>
             </form>
@@ -747,10 +806,13 @@ const PTAssignmentPage = () => {
               <button className="btn-close" onClick={() => setHistoryModal({ ...historyModal, isOpen: false })}>&times;</button>
             </div>
 
-            <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem', color: '#334155' }}>
+            <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <div><strong>Package:</strong> {historyModal.assignment.packageName} ({historyModal.assignment.classes_completed} / {historyModal.assignment.total_classes_snapshot} Classes Conducted)</div>
               <div><strong>Trainer:</strong> {historyModal.assignment.trainerName} ({historyModal.assignment.trainerGrade || 'No Grade'})</div>
-              <div><strong>Expiry Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.expiry_date)}</div>
+              <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.2rem' }}>
+                <span><strong>Start Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.assigned_date)}</span>
+                <span><strong>Expiry Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.expiry_date)}</span>
+              </div>
             </div>
 
             {historyModal.loading ? (
@@ -863,7 +925,39 @@ const PTAssignmentPage = () => {
         isOpen={!!invoiceClient}
         onClose={() => setInvoiceClient(null)}
         client={invoiceClient}
+        title="PT Assignment Completed"
       />
+
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have unsaved changes in the PT assignment form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings } from '../api';
+import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import ExpiredPlansModal from '../components/ExpiredPlansModal';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
@@ -8,6 +8,7 @@ import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import './ManageClientsPage.css';
 
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 
 const getDurationDays = (planName) => {
   if (planName === 'Quarterly') return 90;
@@ -21,6 +22,24 @@ const calcExpiryDateStr = (startDate, durationDays) => {
   const d = new Date(startDate);
   d.setDate(d.getDate() + parseInt(durationDays, 10));
   return d.toISOString().split('T')[0];
+};
+
+const calcClientDueDetails = (client) => {
+  const actualTotal = Number(client.amount || 0);
+  const isPaidStatus = (client.paymentStatus || '').toLowerCase() === 'paid' || client.dueAmount === 0 || client.dueAmount === '0';
+  
+  let effectiveDue = 0;
+  if (!isPaidStatus) {
+    if (client.dueAmount !== undefined && client.dueAmount !== null) {
+      effectiveDue = Math.max(0, Number(client.dueAmount));
+    } else {
+      const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
+      effectiveDue = Math.max(0, actualTotal - pd);
+    }
+  }
+
+  const actualPaid = Math.max(0, actualTotal - effectiveDue);
+  return { actualTotal, actualPaid, effectiveDue };
 };
 
 const ManageClientsPage = () => {
@@ -39,10 +58,47 @@ const ManageClientsPage = () => {
   const [trainers, setTrainers] = useState([]);
   const [trainerFilter, setTrainerFilter] = useState('All');
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, name: '', clientId: '' });
-  const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null });
+  const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null, ptAssignments: [], otherServices: [], loadingDetails: false });
   const [invoicePreviewClient, setInvoicePreviewClient] = useState(null);
   const [paymentModal, setPaymentModal] = useState({ isOpen: false, client: null, amount: '', method: 'CASH', date: new Date().toISOString().split('T')[0] });
   const fileInputRef = useRef(null);
+
+  const handleViewClient = async (client) => {
+    setViewClientModal({ isOpen: true, client, ptAssignments: [], otherServices: [], loadingDetails: true });
+    try {
+      const [ptRes, svcRes] = await Promise.all([
+        getPtAssignmentsByClient(client.id),
+        getOtherServiceSalesByClient(client.id)
+      ]);
+      let ptData = Array.isArray(ptRes) ? ptRes : [];
+      let svcData = Array.isArray(svcRes) ? svcRes : [];
+
+      if (ptData.length === 0 && client.clientId) {
+        try {
+          const altPt = await getPtAssignmentsByClient(client.clientId);
+          if (Array.isArray(altPt) && altPt.length > 0) ptData = altPt;
+        } catch (e) {}
+      }
+
+      if (svcData.length === 0 && client.clientId) {
+        try {
+          const altSvc = await getOtherServiceSalesByClient(client.clientId);
+          if (Array.isArray(altSvc) && altSvc.length > 0) svcData = altSvc;
+        } catch (e) {}
+      }
+
+      setViewClientModal({
+        isOpen: true,
+        client,
+        ptAssignments: ptData,
+        otherServices: svcData,
+        loadingDetails: false
+      });
+    } catch (err) {
+      console.error('Failed to load client details:', err);
+      setViewClientModal(prev => ({ ...prev, loadingDetails: false }));
+    }
+  };
 
   const [settings, setSettings] = useState({});
   const [renewModal, setRenewModal] = useState({
@@ -69,7 +125,7 @@ const ManageClientsPage = () => {
     if (statusParam === 'Active') {
       setActiveFilter('Active');
     } else if (statusParam === 'Inactive' || statusParam === 'Expired') {
-      setActiveFilter('Expired');
+      setActiveFilter('Inactive');
     } else if (statusParam === 'Reminder') {
       setActiveFilter('Reminder');
     }
@@ -329,6 +385,7 @@ const ManageClientsPage = () => {
 
 
   const getValidityDisplay = (expiryDate) => {
+    if (!expiryDate) return { text: 'N/A', subtext: '', isExpired: false, isWarning: false, days: 0 };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const expiry = new Date(expiryDate);
@@ -338,18 +395,36 @@ const ManageClientsPage = () => {
 
     if (diffDays < 0) {
       return {
-        text: `Expired`,
-        subtext: `Expired ${Math.abs(diffDays)} days ago`,
+        text: `Inactive`,
+        subtext: `Inactive ${Math.abs(diffDays)} days ago`,
         isExpired: true,
-        isWarning: false
+        isWarning: false,
+        days: diffDays
       };
     }
     return {
       text: `${diffDays} days left`,
       subtext: `Expires ${formatDateDDMMYYYY(expiryDate)}`,
       isExpired: false,
-      isWarning: diffDays <= 5
+      isWarning: diffDays <= 5,
+      days: diffDays
     };
+  };
+
+  const getAdvanceBookingDaysDisplay = (startDate, endDate) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = startDate ? new Date(startDate) : null;
+    if (start) start.setHours(0, 0, 0, 0);
+
+    if (start && start > today) {
+      const diffDays = Math.round((start - today) / (1000 * 60 * 60 * 24));
+      return { text: `Starts in ${diffDays} day${diffDays > 1 ? 's' : ''}`, isFuture: true, isExpired: false };
+    }
+    if (endDate) {
+      return getValidityDisplay(endDate);
+    }
+    return null;
   };
 
   const filteredClients = clients.filter(client => {
@@ -376,12 +451,10 @@ const ManageClientsPage = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
     const isExpiringSoon = diffDays >= 0 && diffDays <= 5;
 
-    const actualTotal = Number(client.amount || 0);
-    const actualPaid = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
-    const effectiveDue = Math.max(0, actualTotal - actualPaid);
+    const { actualTotal, actualPaid, effectiveDue } = calcClientDueDetails(client);
 
     if (activeFilter === 'Active') return !isExpired;
-    if (activeFilter === 'Expired') return isExpired;
+    if (activeFilter === 'Inactive') return isExpired;
     if (activeFilter === 'Reminder') return isExpiringSoon;
     if (activeFilter === 'Due Payment') return effectiveDue > 0;
 
@@ -472,15 +545,11 @@ const ManageClientsPage = () => {
           <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Due Payment')}>
             <span className="stat-label">Clients With Due</span>
             <span className="stat-value" style={{ color: '#ea580c' }}>
-              {clients.filter(c => {
-                const tot = Number(c.amount || 0);
-                const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
-                return Math.max(0, tot - pd) > 0;
-              }).length}
+              {clients.filter(c => calcClientDueDetails(c).effectiveDue > 0).length}
             </span>
           </div>
-          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Expired')}>
-            <span className="stat-label">Expired Plans</span>
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Inactive')}>
+            <span className="stat-label">Inactive Plans</span>
             <span className="stat-value red">{stats.expired}</span>
           </div>
         </div>
@@ -529,12 +598,8 @@ const ManageClientsPage = () => {
 
         <div className="filter-group">
           <div className="filter-pills">
-            {['All', 'Active', 'Due Payment', 'Expired', 'Reminder'].map(filter => {
-              const dueCount = clients.filter(c => {
-                const tot = Number(c.amount || 0);
-                const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
-                return Math.max(0, tot - pd) > 0;
-              }).length;
+            {['All', 'Active', 'Due Payment', 'Inactive', 'Reminder'].map(filter => {
+              const dueCount = clients.filter(c => calcClientDueDetails(c).effectiveDue > 0).length;
               const label = filter === 'Due Payment' ? `Due Payment (${dueCount})` : filter;
               return (
                 <button
@@ -557,13 +622,13 @@ const ManageClientsPage = () => {
           <table className="clients-table">
             <thead>
               <tr>
-                <th style={{ width: '7%' }}>ID ↑↓</th>
-                <th style={{ width: '18%' }}>Client Name</th>
+                <th style={{ width: '6%' }}>ID ↑↓</th>
+                <th style={{ width: '20%' }}>Client Name</th>
                 <th style={{ width: '12%' }}>Phone Number</th>
-                <th style={{ width: '11%' }}>Program</th>
-                <th style={{ width: '22%' }}>Payment / Due Status</th>
-                <th style={{ width: '13%' }}>Validity</th>
-                <th style={{ textAlign: 'right', width: '17%' }}>Actions</th>
+                <th style={{ width: '10%' }}>Program</th>
+                <th style={{ width: '18%' }}>Payment / Due Status</th>
+                <th style={{ width: '14%' }}>Validity</th>
+                <th style={{ textAlign: 'right', width: '20%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -575,7 +640,7 @@ const ManageClientsPage = () => {
                 const validity = getValidityDisplay(client.expiryDate);
                 return (
                   <tr key={client.id}>
-                    <td className="id-cell">{client.clientId}</td>
+                    <td className="id-cell">{formatShortId(client.clientId || client.id)}</td>
                     <td className="name-cell">
                       <div className="name-avatar-group">
                         <div className="client-avatar-mini">
@@ -585,20 +650,22 @@ const ManageClientsPage = () => {
                             <span className="avatar-fallback">{client.name.charAt(0).toUpperCase()}</span>
                           )}
                         </div>
-                        <span className="client-name">{client.name}</span>
-                        {validity.isExpired && (
-                          <button
-                            type="button"
-                            className="btn-renew-badge"
-                            onClick={() => handleOpenRenewModal(client)}
-                            title="Renew Membership Plan"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '3px' }}>
-                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                            </svg>
-                            Renew
-                          </button>
-                        )}
+                        <div className="name-renew-stack">
+                          <span className="client-name">{client.name}</span>
+                          {validity.isExpired && (
+                            <button
+                              type="button"
+                              className="btn-renew-badge"
+                              onClick={() => handleOpenRenewModal(client)}
+                              title="Renew Membership Plan"
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '3px' }}>
+                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                              </svg>
+                              Renew
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="phone-cell">{client.phone}</td>
@@ -609,9 +676,7 @@ const ManageClientsPage = () => {
                     </td>
                     <td>
                       {(() => {
-                        const actualTotal = Number(client.amount || 0);
-                        const actualPaid = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
-                        const effectiveDue = Math.max(0, actualTotal - actualPaid);
+                        const { actualTotal, actualPaid, effectiveDue } = calcClientDueDetails(client);
 
                         if (effectiveDue > 0) {
                           return (
@@ -668,76 +733,80 @@ const ManageClientsPage = () => {
                         <span className={`days-left ${validity.isExpired ? 'expired' : ''} ${validity.isWarning ? 'warning' : ''}`}>
                           {validity.text}
                         </span>
-                        <span className="expiry-date">{validity.subtext}</span>
+                        <span className="expiry-date" style={{ fontSize: '0.75rem' }}>
+                          Start: <strong>{formatDateDDMMYYYY(client.fromDate)}</strong> • Exp: <strong>{formatDateDDMMYYYY(client.expiryDate)}</strong>
+                        </span>
                       </div>
                     </td>
                     <td className="actions-cell">
-                      <button
-                        className="btn-action-view"
-                        onClick={() => setViewClientModal({ isOpen: true, client })}
-                        title="View Details"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      </button>
+                      <div className="actions-cell-wrapper">
+                        <button
+                          className="btn-action-view"
+                          onClick={() => handleViewClient(client)}
+                          title="View Full Client Details"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </button>
 
-                      {localStorage.getItem('userRole') === 'superadmin' && (
+                        {localStorage.getItem('userRole') === 'superadmin' && (
+                          <button
+                            className="btn-action-edit"
+                            onClick={() => navigate(`/edit-client/${client.id}`)}
+                            title="Edit Profile"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                              <path d="m15 5 4 4" />
+                            </svg>
+                          </button>
+                        )}
+
                         <button
                           className="btn-action-edit"
-                          onClick={() => navigate(`/edit-client/${client.id}`)}
-                          title="Edit Profile"
+                          style={{ background: 'rgba(234, 88, 12, 0.1)', color: '#f97316', borderColor: 'rgba(234, 88, 12, 0.3)' }}
+                          onClick={() => navigate(`/pt-assignments?clientId=${client.id}`)}
+                          title="Assign PT Package"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                            <path d="m15 5 4 4" />
+                            <path d="M6 18h12M6 6h12M9 12h6" />
                           </svg>
                         </button>
-                      )}
 
-                      <button
-                        className="btn-action-edit"
-                        style={{ background: 'rgba(234, 88, 12, 0.1)', color: '#f97316', borderColor: 'rgba(234, 88, 12, 0.3)' }}
-                        onClick={() => navigate(`/pt-assignments?clientId=${client.id}`)}
-                        title="Assign PT Package"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M6 18h12M6 6h12M9 12h6" />
-                        </svg>
-                      </button>
-
-                      <button
-                        className="btn-action-edit"
-                        style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.3)' }}
-                        onClick={() => navigate(`/advance-bookings?clientId=${client.id}`)}
-                        title="Create Advance Booking"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                          <line x1="16" y1="2" x2="16" y2="6" />
-                          <line x1="8" y1="2" x2="8" y2="6" />
-                          <line x1="3" y1="10" x2="21" y2="10" />
-                          <line x1="12" y1="14" x2="12" y2="18" />
-                          <line x1="10" y1="16" x2="14" y2="16" />
-                        </svg>
-                      </button>
-
-                      {localStorage.getItem('userRole') === 'superadmin' && (
                         <button
-                          className="btn-action-delete"
-                          onClick={() => handleDelete(client)}
-                          title="Delete Client"
+                          className="btn-action-edit"
+                          style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.3)' }}
+                          onClick={() => navigate(`/advance-bookings?clientId=${client.id}`)}
+                          title="Create Advance Booking"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 6h18" />
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                            <line x1="10" y1="11" x2="10" y2="17" />
-                            <line x1="14" y1="11" x2="14" y2="17" />
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                            <line x1="16" y1="2" x2="16" y2="6" />
+                            <line x1="8" y1="2" x2="8" y2="6" />
+                            <line x1="3" y1="10" x2="21" y2="10" />
+                            <line x1="12" y1="14" x2="12" y2="18" />
+                            <line x1="10" y1="16" x2="14" y2="16" />
                           </svg>
                         </button>
-                      )}
+
+                        {localStorage.getItem('userRole') === 'superadmin' && (
+                          <button
+                            className="btn-action-delete"
+                            onClick={() => handleDelete(client)}
+                            title="Delete Client"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M3 6h18" />
+                              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -778,200 +847,278 @@ const ManageClientsPage = () => {
       )}
 
       {/* View Client Modal */}
-      {viewClientModal.isOpen && viewClientModal.client && (
-        <div className="alert-modal-overlay">
-          <div className="alert-modal-card view-modal-card reveal">
-            <button className="btn-close-modal" onClick={() => setViewClientModal({ isOpen: false, client: null })} title="Close / Exit">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
+      {viewClientModal.isOpen && viewClientModal.client && (() => {
+        const c = viewClientModal.client;
+        const validity = getValidityDisplay(c.expiryDate);
+        const vmTotal = Number(c.amount || 0);
+        const vmPaid = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : vmTotal;
+        const vmDue = Math.max(0, vmTotal - vmPaid);
+        const vmStatus = vmDue <= 0 ? 'Paid' : (vmPaid > 0 ? 'Partial' : 'Due');
+        
+        // Find active PT package
+        const ptAssignments = viewClientModal.ptAssignments || [];
+        const activePt = ptAssignments.find(pt => pt.status === 'Active') || ptAssignments[0];
 
-            <div className="view-modal-header">
-              <div className="view-modal-avatar-lg">
-                {viewClientModal.client.profileImage ? (
-                  <img src={viewClientModal.client.profileImage} alt={viewClientModal.client.name} />
-                ) : (
-                  <span>{viewClientModal.client.name.charAt(0)}</span>
-                )}
-              </div>
-              <div className="view-modal-title">
-                <h2>{viewClientModal.client.name}</h2>
-                <div className="view-modal-badges">
-                  <span className="badge-id">ID: {viewClientModal.client.clientId}</span>
-                  <span className={`badge-status ${viewClientModal.client.status === 'Active' ? 'active' : 'inactive'}`}>
-                    {viewClientModal.client.status}
-                  </span>
-                </div>
-              </div>
-            </div>
+        // Bookings and Services
+        const clientGenBookings = (advanceBookings.general || []).filter(b => 
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+        );
+        const clientPtBookings = (advanceBookings.pt || []).filter(b => 
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+        );
+        const otherServices = viewClientModal.otherServices || [];
 
-            <div className="view-modal-body">
-              <div className="detail-group">
-                <span className="detail-label">Mobile Number</span>
-                <span className="detail-value">{viewClientModal.client.phone}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Gender</span>
-                <span className="detail-value">{viewClientModal.client.gender || 'N/A'}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Membership Plan</span>
-                <span className="detail-value"><span className="plan-pill">{viewClientModal.client.plan}</span></span>
-              </div>
-              {(() => {
-                const vmTotal = Number(viewClientModal.client.amount || 0);
-                const vmPaid = viewClientModal.client.paidAmount !== undefined && viewClientModal.client.paidAmount !== null ? Number(viewClientModal.client.paidAmount) : vmTotal;
-                const vmDue = Math.max(0, vmTotal - vmPaid);
-                const vmStatus = vmDue <= 0 ? 'Paid' : (vmPaid > 0 ? 'Partial' : 'Due');
+        return (
+          <div className="alert-modal-overlay">
+            <div className="alert-modal-card view-modal-card-landscape reveal">
+              <button className="btn-close-modal" onClick={() => setViewClientModal({ isOpen: false, client: null })} title="Close / Exit">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
 
-                return (
-                  <>
-                    <div className="detail-group">
-                      <span className="detail-label">Total Amount</span>
-                      <span className="detail-value">₹ {vmTotal.toLocaleString()}</span>
-                    </div>
-                    <div className="detail-group">
-                      <span className="detail-label">Amount Paid</span>
-                      <span className="detail-value text-green">₹ {vmPaid.toLocaleString()}</span>
-                    </div>
-                    <div className="detail-group">
-                      <span className="detail-label">Due Amount</span>
-                      <span className="detail-value" style={{ color: vmDue > 0 ? '#ea580c' : '#16a34a', fontWeight: '800' }}>
-                        ₹ {vmDue.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="detail-group">
-                      <span className="detail-label">Payment Status</span>
-                      <span className={`badge-status ${getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'inactive' : (vmStatus === 'Paid' ? 'active' : 'warning')}`}>
-                        {getValidityDisplay(viewClientModal.client.expiryDate).isExpired ? 'Expired' : vmStatus}
-                      </span>
-                    </div>
-                  </>
-                );
-              })()}
-              <div className="detail-group">
-                <span className="detail-label">Join Date</span>
-                <span className="detail-value">{formatDateDDMMYYYY(viewClientModal.client.fromDate)}</span>
-              </div>
-              <div className="detail-group">
-                <span className="detail-label">Expiry Date</span>
-                <span className="detail-value">{formatDateDDMMYYYY(viewClientModal.client.expiryDate)}</span>
-              </div>
-
-              {/* Advance Booking Details Section */}
-              {(() => {
-                const clientGenBookings = (advanceBookings.general || []).filter(b => 
-                  (b.client_id === viewClientModal.client.id || b.clientId === viewClientModal.client.id || b.clientCode === viewClientModal.client.clientId) &&
-                  b.status !== 'Cancelled'
-                );
-
-                const clientPtBookings = (advanceBookings.pt || []).filter(b => 
-                  (b.client_id === viewClientModal.client.id || b.clientId === viewClientModal.client.id || b.clientCode === viewClientModal.client.clientId) &&
-                  b.status !== 'Cancelled'
-                );
-
-                const totalAdvCount = clientGenBookings.length + clientPtBookings.length;
-
-                return (
-                  <div className="detail-group" style={{ gridColumn: '1 / -1', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px dashed #cbd5e1' }}>
-                    <span className="detail-label" style={{ color: '#ea580c', fontWeight: '800', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', fontSize: '0.78rem' }}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                      ADVANCE BOOKING DETAILS {totalAdvCount > 0 ? `(${totalAdvCount})` : ''}
-                    </span>
-
-                    {totalAdvCount > 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', width: '100%' }}>
-                        {clientGenBookings.map(b => (
-                          <div key={`gen-${b.id}`} style={{ background: '#fff7ed', border: '1px solid #ffedd5', borderRadius: '12px', padding: '0.75rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#9a3412', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <span>🏷 General: {b.plan_type}</span>
-                                <span style={{ background: '#ea580c', color: '#ffffff', fontSize: '0.68rem', padding: '2px 7px', borderRadius: '100px', fontWeight: '700' }}>
-                                  {b.status}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '0.2rem' }}>
-                                Booked Period: <strong>{formatDateDDMMYYYY(b.booking_start_date)}</strong> ➔ <strong>{formatDateDDMMYYYY(b.booking_end_date)}</strong>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: '0.92rem', fontWeight: '900', color: '#16a34a' }}>₹ {(b.price || 0).toLocaleString()}</div>
-                              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Paid</div>
-                            </div>
-                          </div>
-                        ))}
-
-                        {clientPtBookings.map(b => (
-                          <div key={`pt-${b.id}`} style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '12px', padding: '0.75rem 0.9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#166534', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                                <span>🏋️ PT: {b.packageName}</span>
-                                <span style={{ background: '#16a34a', color: '#ffffff', fontSize: '0.68rem', padding: '2px 7px', borderRadius: '100px', fontWeight: '700' }}>
-                                  {b.status}
-                                </span>
-                              </div>
-                              <div style={{ fontSize: '0.78rem', color: '#475569', marginTop: '0.2rem' }}>
-                                Trainer: <strong>{b.trainerName || 'Assigned Trainer'}</strong> ({b.total_classes_snapshot || 0} Classes)
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.1rem' }}>
-                                Starts: <strong>{formatDateDDMMYYYY(b.booking_start_date)}</strong>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: '0.92rem', fontWeight: '900', color: '#16a34a' }}>₹ {(b.price_snapshot || 0).toLocaleString()}</div>
-                              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Paid</div>
-                            </div>
-                          </div>
-                        ))}
+              <div className="landscape-modal-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '75vh', overflow: 'hidden' }}>
+                <div className="landscape-modal-content">
+                  {/* Column 1: Profile Info */}
+                  <div className="landscape-col profile-col">
+                    <div className="landscape-avatar-container">
+                      <div className="view-modal-avatar-lg">
+                        {c.profileImage ? (
+                          <img src={c.profileImage} alt={c.name} />
+                        ) : (
+                          <span>{c.name.charAt(0)}</span>
+                        )}
                       </div>
-                    ) : (
-                      <span className="detail-value" style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>No active advance bookings</span>
+                    </div>
+                    <div className="profile-main-info">
+                      <h2>{c.name}</h2>
+                      <div className="view-modal-badges" style={{ justifyContent: 'center' }}>
+                        <span className="badge-id">ID: {c.clientId}</span>
+                        <span className={`badge-status ${c.status === 'Active' ? 'active' : 'inactive'}`}>
+                          {c.status}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="profile-details">
+                      <div className="detail-row"><span>Mobile:</span> <strong>{c.phone}</strong></div>
+                      <div className="detail-row"><span>Gender:</span> <strong>{c.gender || 'N/A'}</strong></div>
+                      <div className="detail-row"><span>Join Date:</span> <strong>{formatDateDDMMYYYY(c.fromDate)}</strong></div>
+                    </div>
+                  </div>
+
+                  {/* Column 2: General Membership */}
+                  <div className="landscape-col general-col">
+                    <div className="col-header">
+                      <span className="col-icon">📋</span>
+                      <h3>General Membership</h3>
+                    </div>
+                    <div className="plan-highlight">
+                      <span className="plan-pill">{c.plan}</span>
+                      <span className={`badge-status ${validity.isExpired ? 'inactive' : (vmStatus === 'Paid' ? 'active' : 'warning')}`}>
+                        {validity.isExpired ? 'Inactive' : vmStatus}
+                      </span>
+                    </div>
+                    <div className="landscape-date-box">
+                      <div className="date-item">
+                        <span className="date-label">From Date</span>
+                        <strong className="date-value">{formatDateDDMMYYYY(c.fromDate)}</strong>
+                      </div>
+                      <div className="date-divider">→</div>
+                      <div className="date-item">
+                        <span className="date-label">To Date</span>
+                        <strong className="date-value">{formatDateDDMMYYYY(c.expiryDate)}</strong>
+                      </div>
+                    </div>
+                    <div className="landscape-validity-status" style={{
+                      background: validity.isExpired ? '#fef2f2' : (validity.isWarning ? '#fff7ed' : '#f0fdf4'),
+                      color: validity.isExpired ? '#dc2626' : (validity.isWarning ? '#ea580c' : '#16a34a'),
+                      border: `1px solid ${validity.isExpired ? '#fecaca' : (validity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
+                      padding: '0.45rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.82rem',
+                      fontWeight: '800',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      margin: '0.6rem 0'
+                    }}>
+                      <span>⏳ Remaining Days:</span>
+                      <strong>{validity.text}</strong>
+                    </div>
+                    <div className="landscape-payment-summary">
+                      <div className="pay-row"><span>Total:</span> <strong>₹{vmTotal.toLocaleString()}</strong></div>
+                      <div className="pay-row"><span>Paid:</span> <strong className="text-green">₹{vmPaid.toLocaleString()}</strong></div>
+                      {vmDue > 0 && <div className="pay-row"><span>Due:</span> <strong style={{color:'#ea580c'}}>₹{vmDue.toLocaleString()}</strong></div>}
+                    </div>
+                  </div>
+
+                  {/* Column 3: PT Package Info */}
+                  <div className="landscape-col pt-col">
+                    <div className="col-header">
+                      <span className="col-icon">🏋️</span>
+                      <h3>Personal Training</h3>
+                    </div>
+                    {activePt ? (() => {
+                      const ptValidity = (activePt.expiry_date || activePt.expiryDate) ? getValidityDisplay(activePt.expiry_date || activePt.expiryDate) : null;
+                      return (
+                        <>
+                          <div className="plan-highlight pt-highlight">
+                            <strong className="pt-plan-name">{activePt.packageName}</strong>
+                            <span className={`badge-status ${activePt.status === 'Active' ? 'active' : 'inactive'}`}>
+                              {activePt.status}
+                            </span>
+                          </div>
+                          <div className="landscape-date-box pt-dates">
+                            <div className="date-item">
+                              <span className="date-label">From Date</span>
+                              <strong className="date-value">{formatDateDDMMYYYY(activePt.assigned_date)}</strong>
+                            </div>
+                            <div className="date-divider">→</div>
+                            <div className="date-item">
+                              <span className="date-label">To Date</span>
+                              <strong className="date-value">{formatDateDDMMYYYY(activePt.expiry_date || activePt.expiryDate)}</strong>
+                            </div>
+                          </div>
+                          {ptValidity && (
+                            <div className="landscape-validity-status" style={{
+                              background: ptValidity.isExpired ? '#fef2f2' : (ptValidity.isWarning ? '#fff7ed' : '#f0fdf4'),
+                              color: ptValidity.isExpired ? '#dc2626' : (ptValidity.isWarning ? '#ea580c' : '#16a34a'),
+                              border: `1px solid ${ptValidity.isExpired ? '#fecaca' : (ptValidity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
+                              padding: '0.45rem 0.75rem',
+                              borderRadius: '8px',
+                              fontSize: '0.82rem',
+                              fontWeight: '800',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              margin: '0.6rem 0'
+                            }}>
+                              <span>⏳ Remaining Days:</span>
+                              <strong>{ptValidity.text}</strong>
+                            </div>
+                          )}
+                          <div className="landscape-pt-details">
+                            <div className="detail-row"><span>Trainer:</span> <strong>{activePt.trainerName || 'Assigned'}</strong></div>
+                            <div className="detail-row"><span>Classes:</span> <strong>{activePt.classes_completed} / {activePt.total_classes_snapshot}</strong></div>
+                          </div>
+                        </>
+                      );
+                    })() : (
+                      <div className="empty-pt-state">
+                        <span className="empty-icon">🏃</span>
+                        <p>No Active PT Package</p>
+                      </div>
                     )}
                   </div>
-                );
-              })()}
-            </div>
+                </div>
 
-            <div className="view-modal-footer" style={{ padding: '1rem', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button
-                className="btn-modal-close-footer"
-                style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', border: '1px solid #cbd5e1', background: '#f1f5f9', color: '#334155', fontWeight: 700 }}
-                onClick={() => setViewClientModal({ isOpen: false, client: null })}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                Close
-              </button>
+                {/* Bottom Row: Additional Data */}
+                <div className="landscape-bottom-row">
+                  {/* Adv General */}
+                  <div className="landscape-bottom-col">
+                    <div className="col-header-small">
+                      <span>🏷️ Adv General ({clientGenBookings.length})</span>
+                    </div>
+                    <div className="scrollable-list">
+                      {clientGenBookings.length > 0 ? clientGenBookings.map(b => {
+                        const genBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.booking_end_date);
+                        return (
+                          <div key={`gen-${b.id}`} className="mini-card adv-gen-card">
+                            <div className="mc-head">
+                              <strong>{b.plan_type}</strong>
+                              <span className="mc-status">{b.status}</span>
+                            </div>
+                            <div className="mc-dates">{formatDateDDMMYYYY(b.booking_start_date)} → {formatDateDDMMYYYY(b.booking_end_date)}</div>
+                            {genBVal && (
+                              <div style={{
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                marginTop: '4px',
+                                color: genBVal.isExpired ? '#dc2626' : (genBVal.isFuture ? '#6366f1' : '#16a34a')
+                              }}>
+                                ⏳ {genBVal.isFuture ? genBVal.text : `Remaining: ${genBVal.text}`}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }) : <div className="mini-empty">No Adv General</div>}
+                    </div>
+                  </div>
 
-              <button
-                className="btn-cancel-gray"
-                style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', border: '1px solid var(--border-color)' }}
-                onClick={() => {
-                  setInvoicePreviewClient(viewClientModal.client);
-                  setViewClientModal({ isOpen: false, client: null });
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                View Bill PDF
-              </button>
+                  {/* Adv PT */}
+                  <div className="landscape-bottom-col">
+                    <div className="col-header-small" style={{ color: '#0d9488' }}>
+                      <span>🏋️ Adv PT ({clientPtBookings.length})</span>
+                    </div>
+                    <div className="scrollable-list">
+                      {clientPtBookings.length > 0 ? clientPtBookings.map(b => {
+                        const ptBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.expiry_date || b.booking_end_date);
+                        return (
+                          <div key={`pt-${b.id}`} className="mini-card adv-pt-card">
+                            <div className="mc-head">
+                              <strong style={{color:'#0f766e'}}>{b.packageName}</strong>
+                              <span className="mc-status" style={{background:'#0d9488'}}>{b.status}</span>
+                            </div>
+                            <div className="mc-dates">{b.trainerName || 'Assigned'} • {formatDateDDMMYYYY(b.booking_start_date)}</div>
+                            {ptBVal && (
+                              <div style={{
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                marginTop: '4px',
+                                color: ptBVal.isExpired ? '#dc2626' : (ptBVal.isFuture ? '#0d9488' : '#16a34a')
+                              }}>
+                                ⏳ {ptBVal.isFuture ? ptBVal.text : `Remaining: ${ptBVal.text}`}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }) : <div className="mini-empty">No Adv PT</div>}
+                    </div>
+                  </div>
 
-              {(() => {
-                const vmTotal = Number(viewClientModal.client.amount || 0);
-                const vmPaid = viewClientModal.client.paidAmount !== undefined && viewClientModal.client.paidAmount !== null ? Number(viewClientModal.client.paidAmount) : vmTotal;
-                const vmDue = Math.max(0, vmTotal - vmPaid);
+                  {/* Other Services */}
+                  <div className="landscape-bottom-col">
+                    <div className="col-header-small" style={{ color: '#4f46e5' }}>
+                      <span>🧩 Other Services ({otherServices.length})</span>
+                    </div>
+                    <div className="scrollable-list">
+                      {otherServices.length > 0 ? otherServices.map(svc => (
+                        <div key={svc.id} className="mini-card os-card">
+                          <div className="mc-head">
+                            <strong style={{color:'#3730a3'}}>{svc.serviceName}</strong>
+                            <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
+                          </div>
+                          <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
+                        </div>
+                      )) : <div className="mini-empty">No Other Services</div>}
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                return vmDue > 0 ? (
+              <div className="view-modal-footer">
+                <button
+                  className="btn-cancel-gray"
+                  onClick={() => {
+                    setInvoicePreviewClient(c);
+                    setViewClientModal({ isOpen: false, client: null });
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  View Bill PDF
+                </button>
+                {vmDue > 0 && (
                   <button
                     className="btn-save-green"
-                    style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', fontSize: '0.9rem', background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}
-                    onClick={() => setPaymentModal({ isOpen: true, client: viewClientModal.client, amount: vmDue, method: 'CASH', date: new Date().toISOString().split('T')[0] })}
+                    style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}
+                    onClick={() => setPaymentModal({ isOpen: true, client: c, amount: vmDue, method: 'CASH', date: new Date().toISOString().split('T')[0] })}
                   >
                     Add Payment (₹{vmDue.toLocaleString()})
                   </button>
-                ) : null;
-              })()}
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Payment Modal */}
       {paymentModal.isOpen && paymentModal.client && (() => {
@@ -1065,7 +1212,7 @@ const ManageClientsPage = () => {
         }}
         onGoToManage={() => {
           setIsAlertOpen(false);
-          setActiveFilter('Expired');
+          setActiveFilter('Inactive');
         }}
         expiredClients={combinedExpiredList.map(c => {
           const v = getValidityDisplay(c.expiryDate);
@@ -1080,6 +1227,7 @@ const ManageClientsPage = () => {
         isOpen={!!invoicePreviewClient}
         onClose={() => setInvoicePreviewClient(null)}
         client={invoicePreviewClient}
+        title="Membership Renewal Completed"
       />
 
       {/* Renew Plan Modal */}

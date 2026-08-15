@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getGstReport, runGstBackfill, getGstSettings } from '../api';
-import XLSX from 'xlsx-js-style';
+import * as XLSX from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './GSTReportPage.css';
 

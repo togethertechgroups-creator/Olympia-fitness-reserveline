@@ -149,7 +149,8 @@ export const addExpense = async (expenseData) => {
 
 export const deleteExpense = async (id) => {
   const response = await fetch(`${BASE_URL}/expenses/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
   });
   return handleResponse(response);
 };
@@ -211,7 +212,8 @@ export const updateTrainer = async (id, trainerData) => {
 
 export const deleteTrainer = async (id) => {
   const response = await fetch(`${BASE_URL}/trainers/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
   });
   return handleResponse(response);
 };
@@ -457,7 +459,8 @@ export const logPtClass = async (logData) => {
 
 export const deletePtClassLog = async (id) => {
   const response = await fetch(`${BASE_URL}/pt-class-log/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
   });
   return handleResponse(response);
 };
@@ -493,6 +496,14 @@ export const closePayrollMonth = async (monthData) => {
 
 export const getPayrollLocks = async () => {
   const response = await fetch(`${BASE_URL}/payroll-locks`);
+  return handleResponse(response);
+};
+
+export const unlockPayrollMonth = async (month) => {
+  const response = await fetch(`${BASE_URL}/payroll-locks/${month}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders()
+  });
   return handleResponse(response);
 };
 
@@ -575,6 +586,14 @@ export const toggleSupplementActive = async (id) => {
   return handleResponse(response);
 };
 
+export const deleteSupplement = async (id) => {
+  const response = await fetch(`${BASE_URL}/supplements/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
 export const getSupplementPurchases = async (params = {}) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/supplements/purchases?${query}` : `${BASE_URL}/supplements/purchases`;
@@ -593,6 +612,23 @@ export const addSupplementPurchase = async (data) => {
   return handleResponse(response);
 };
 
+export const updateSupplementPurchase = async (id, data) => {
+  const response = await fetch(`${BASE_URL}/supplements/purchases/${id}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const deleteSupplementPurchase = async (id) => {
+  const response = await fetch(`${BASE_URL}/supplements/purchases/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
+  });
+  return handleResponse(response);
+};
+
 export const getSupplementSales = async (params = {}) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/supplements/sales?${query}` : `${BASE_URL}/supplements/sales`;
@@ -607,6 +643,14 @@ export const addSupplementSale = async (data) => {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const deleteSupplementSale = async (id) => {
+  const response = await fetch(`${BASE_URL}/supplements/sales/${id}`, {
+    method: 'DELETE',
+    headers: getAuthHeaders(),
   });
   return handleResponse(response);
 };
@@ -656,7 +700,7 @@ export const addGeneralBooking = async (bookingData) => {
 export const cancelGeneralBooking = async (id) => {
   const response = await fetch(`${BASE_URL}/general-bookings/${id}/cancel`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-user-role': localStorage.getItem('userRole') || '' },
   });
   return handleResponse(response);
 };
@@ -678,7 +722,7 @@ export const addPtAdvanceBooking = async (bookingData) => {
 export const cancelPtAdvanceBooking = async (id) => {
   const response = await fetch(`${BASE_URL}/pt-advance-bookings/${id}/cancel`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-user-role': localStorage.getItem('userRole') || '' },
   });
   return handleResponse(response);
 };
@@ -727,6 +771,13 @@ export const updateOtherService = async (id, serviceData) => {
   return handleResponse(response);
 };
 
+export const deleteOtherService = async (id) => {
+  const response = await fetch(`${BASE_URL}/other-services/${id}`, {
+    method: 'DELETE'
+  });
+  return handleResponse(response);
+};
+
 export const toggleOtherServiceHide = async (id, is_hidden) => {
   const response = await fetch(`${BASE_URL}/other-services/${id}/hide`, {
     method: 'PATCH',
@@ -763,7 +814,8 @@ export const getOtherServiceSales = getOtherServicesSales;
 
 export const deleteOtherServiceSale = async (id) => {
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
   });
   return handleResponse(response);
 };
@@ -796,6 +848,29 @@ export const runGstBackfill = async () => {
   });
   return handleResponse(response);
 };
+
+// ─── ADMIN PANEL 17-ITEM ENHANCEMENT API HELPERS ────────────────────────────────
+export const getPtAssignmentsByClient = async (clientId) => {
+  const response = await fetch(`${BASE_URL}/pt-assignments/client/${encodeURIComponent(clientId)}`);
+  return handleResponse(response);
+};
+
+export const getOtherServiceSalesByClient = async (clientId) => {
+  const response = await fetch(`${BASE_URL}/other-services/sales/client/${encodeURIComponent(clientId)}`);
+  return handleResponse(response);
+};
+
+export const getPtClassLogsByAssignment = async (assignmentId) => {
+  const response = await fetch(`${BASE_URL}/pt-class-logs/assignment/${encodeURIComponent(assignmentId)}`);
+  return handleResponse(response);
+};
+
+export const getDashboardStats = async (startDate, endDate) => {
+  const query = (startDate && endDate) ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : '';
+  const response = await fetch(`${BASE_URL}/dashboard/stats${query}`);
+  return handleResponse(response);
+};
+
 
 
 

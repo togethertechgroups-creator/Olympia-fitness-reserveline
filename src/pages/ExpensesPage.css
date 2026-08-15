@@ -263,89 +263,114 @@
   padding: 30px;
   border-radius: 16px;
   width: 90%;
-  max-width: 500px;
+  max-width: 520px; /* Slightly wider for clean two-column styling */
   box-shadow: 0 20px 40px rgba(0,0,0,0.2);
 }
 
 .expenses-page .modal-content h2 {
   margin: 0 0 20px;
   color: #1e293b;
+  font-weight: 800;
+  font-size: 1.5rem;
 }
 
-.expense-form {
+.expenses-page .expense-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  width: 100%;
 }
 
-.expense-form .form-group {
+.expenses-page .expense-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-bottom: 0;
+  width: 100%;
 }
 
-.expense-form .full-width {
-  grid-column: 1 / -1;
+.expenses-page .expense-form .full-width {
+  grid-column: span 2;
 }
 
-.expense-form label {
+.expenses-page .expense-form label {
   display: block;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: #475569;
-  margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.expense-form input,
-.expense-form select,
-.expense-form textarea {
-  width: 100%;
-  padding: 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 14px;
-  background-color: #ffffff;
-  color: #1e293b;
+.expenses-page .expense-form input,
+.expenses-page .expense-form select,
+.expenses-page .expense-form textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  height: 44px !important; /* Uniform height for inputs and dropdowns */
+  padding: 10px 14px !important;
+  border: 1.5px solid #cbd5e1 !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
+  background-color: #ffffff !important;
+  color: #1e293b !important;
   transition: all 0.2s ease;
+  font-family: inherit !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02) !important;
+  display: block !important;
 }
 
-.expense-form input::placeholder,
-.expense-form textarea::placeholder {
+.expenses-page .expense-form textarea {
+  height: 80px !important; /* Textareas have unique height */
+  resize: vertical;
+}
+
+.expenses-page .expense-form input::placeholder,
+.expenses-page .expense-form textarea::placeholder {
   color: #94a3b8;
 }
 
-.expense-form input:focus,
-.expense-form select:focus,
-.expense-form textarea:focus {
-  outline: none;
-  border-color: #ea580c;
-  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1);
-  background-color: #fff;
+.expenses-page .expense-form input:focus,
+.expenses-page .expense-form select:focus,
+.expenses-page .expense-form textarea:focus {
+  outline: none !important;
+  border-color: #ea580c !important;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.15) !important;
 }
 
 .expenses-page .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .btn-cancel {
-  background: transparent;
+  background: #f1f5f9;
   border: 1px solid #cbd5e1;
-  padding: 10px 20px;
+  padding: 10px 24px;
   border-radius: 8px;
   color: #475569;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+
+.btn-cancel:hover {
+  background: #e2e8f0;
 }
 
 .btn-submit {
   background: #ea580c;
   color: white;
   border: none;
-  padding: 10px 20px;
+  padding: 10px 24px;
   border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+
+.btn-submit:hover {
+  background: #c2410c;
 }

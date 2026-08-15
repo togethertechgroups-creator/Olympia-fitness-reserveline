@@ -1,16 +1,30 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { generateInvoice } from '../utils/generateInvoice';
+import { getGstSettings } from '../api';
 import './InvoicePreviewModal.css';
 
-const InvoicePreviewModal = ({ isOpen, onClose, client }) => {
+const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
   const iframeRef = useRef(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [businessGstin, setBusinessGstin] = useState('');
+  const defaultTitle = title ? `${title} & Bill Generated Successfully!` : 'Process Completed & Bill Generated Successfully!';
+  const [toastMsg, setToastMsg] = useState(defaultTitle);
+
+  useEffect(() => {
+    if (isOpen) {
+      setToastMsg(title ? `🎉 ${title} & Bill Generated Successfully!` : '🎉 Process Completed & Bill Generated Successfully!');
+      getGstSettings()
+        .then(data => setBusinessGstin(data?.business_gstin || ''))
+        .catch(() => setBusinessGstin(''));
+    }
+  }, [isOpen, title]);
 
   if (!isOpen || !client) return null;
 
-  const htmlContent = generateInvoice(client);
+  const htmlContent = generateInvoice(client, businessGstin);
 
   const handlePrint = () => {
+    setToastMsg('🖨️ Bill / Invoice Sent to Printer Successfully!');
     if (iframeRef.current) {
       iframeRef.current.contentWindow.print();
     }
@@ -18,6 +32,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client }) => {
 
   const handleDownloadPDF = async () => {
     setIsDownloading(true);
+    setToastMsg('Generating PDF Invoice...');
     try {
       const iframeDoc = iframeRef.current?.contentDocument;
       if (!iframeDoc) {
@@ -52,8 +67,10 @@ const InvoicePreviewModal = ({ isOpen, onClose, client }) => {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(url), 1500);
+        setToastMsg('📥 Invoice PDF Downloaded Successfully!');
       } else {
         iframeRef.current.contentWindow.print();
+        setToastMsg('🖨️ Bill / Invoice Sent to Printer Successfully!');
       }
     } catch (err) {
       console.error('Failed to download PDF:', err);
@@ -66,6 +83,21 @@ const InvoicePreviewModal = ({ isOpen, onClose, client }) => {
   return (
     <div className="invoice-modal-overlay">
       <div className="invoice-modal-content">
+
+        {/* Bill Generated Success Popup Banner */}
+        <div className="invoice-success-banner">
+          <div className="success-banner-left">
+            <span className="success-check-badge">✓</span>
+            <div>
+              <strong className="success-title">{toastMsg}</strong>
+              <span className="success-sub">
+                {client.billNo ? `Bill No: ${client.billNo}` : `Client: ${client.name || client.clientId || 'Member'}`}
+              </span>
+            </div>
+          </div>
+          <span className="ready-badge">READY TO PRINT / DOWNLOAD</span>
+        </div>
+
         <div className="invoice-modal-header">
           <h2>Invoice — {client.billNo || client.clientId || ''}</h2>
           <button className="btn-close-modal" onClick={onClose} title="Close">

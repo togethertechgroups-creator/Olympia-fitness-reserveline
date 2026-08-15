@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSupplements, addSupplement, updateSupplement, toggleSupplementActive } from '../api';
+import { getSupplements, addSupplement, updateSupplement, toggleSupplementActive, deleteSupplement } from '../api';
 import './SupplementCatalogPage.css';
 
 const CATEGORIES = ['Protein', 'Creatine', 'Vitamins', 'Pre-Workout', 'Mass Gainer', 'Other'];
@@ -10,7 +10,7 @@ const SupplementCatalogPage = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
-  
+
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
@@ -25,6 +25,13 @@ const SupplementCatalogPage = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Delete Confirm State
+  const [deleteConfirm, setDeleteConfirm] = useState({
+    isOpen: false,
+    item: null
+  });
+  const [deleting, setDeleting] = useState(false);
 
   const fetchCatalog = async () => {
     try {
@@ -109,6 +116,24 @@ const SupplementCatalogPage = () => {
     }
   };
 
+  const handleOpenDelete = (item) => {
+    setDeleteConfirm({ isOpen: true, item });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm.item) return;
+    try {
+      setDeleting(true);
+      await deleteSupplement(deleteConfirm.item.id);
+      setDeleteConfirm({ isOpen: false, item: null });
+      await fetchCatalog();
+    } catch (err) {
+      alert(err.message || 'Failed to delete supplement');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const filteredSupplements = supplements.filter(item => {
     const matchesSearch = (item.name || '').toLowerCase().includes(search.toLowerCase()) ||
                           (item.brand || '').toLowerCase().includes(search.toLowerCase());
@@ -125,7 +150,7 @@ const SupplementCatalogPage = () => {
     <div className="premium-dashboard">
       <main className="dashboard-main">
         <div className="supplements-catalog-page">
-          
+
           {/* Page Header */}
           <div className="catalog-header">
             <div>
@@ -149,7 +174,7 @@ const SupplementCatalogPage = () => {
                 className="catalog-search-input"
               />
             </div>
-            
+
             <div className="filter-select-wrapper">
               <label>Category:</label>
               <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="catalog-select">
@@ -179,7 +204,7 @@ const SupplementCatalogPage = () => {
                     <th>Ref. Cost Price</th>
                     <th>Default Sale Price</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -216,13 +241,23 @@ const SupplementCatalogPage = () => {
                             {item.active ? 'Active' : 'Inactive'}
                           </button>
                         </td>
-                        <td>
-                          <button
-                            className="btn-edit-catalog"
-                            onClick={() => handleOpenModal(item)}
-                          >
-                            Edit
-                          </button>
+                        <td style={{ textAlign: 'right' }}>
+                          <div className="catalog-actions-group">
+                            <button
+                              className="btn-edit-catalog"
+                              onClick={() => handleOpenModal(item)}
+                              title="Edit Supplement"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn-delete-catalog"
+                              onClick={() => handleOpenDelete(item)}
+                              title="Delete Supplement"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -243,7 +278,7 @@ const SupplementCatalogPage = () => {
               <h2>{editingItem ? 'Edit Supplement' : 'Add New Supplement'}</h2>
               <button className="close-btn" onClick={handleCloseModal}>&times;</button>
             </div>
-            
+
             {error && <div className="modal-error-alert">{error}</div>}
 
             <form onSubmit={handleSubmit} className="catalog-form">
@@ -328,6 +363,40 @@ const SupplementCatalogPage = () => {
           </div>
         </div>
       )}
+
+      {/* Delete Supplement Confirm Modal */}
+      {deleteConfirm.isOpen && deleteConfirm.item && (
+        <div className="modal-overlay">
+          <div className="modal-content catalog-modal" style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🗑️</div>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>
+              Delete Supplement?
+            </h2>
+            <p style={{ color: '#64748b', fontSize: '0.9rem', lineHeight: '1.5', marginBottom: '1.5rem' }}>
+              Are you sure you want to delete <strong>{deleteConfirm.item.name}</strong> from the catalog?<br />
+              This action cannot be undone.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+              <button
+                className="btn-cancel"
+                onClick={() => setDeleteConfirm({ isOpen: false, item: null })}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-save"
+                style={{ background: '#dc2626', boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)' }}
+                onClick={handleConfirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Yes, Delete Item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

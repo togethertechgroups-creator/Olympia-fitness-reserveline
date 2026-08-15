@@ -11,7 +11,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "npx concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "vite build && electron-builder",
+    "deploy:worker": "wrangler deploy",
+    "deploy:pages": "vite build && wrangler pages deploy dist --project-name=olympia-reserveline",
+    "deploy": "npm run deploy:worker && npm run deploy:pages",
+    "worker:dev": "wrangler dev"
   },
   "build": {
     "appId": "com.beast.fitness",
@@ -49,6 +53,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
+    "@whatwg-node/server": "^0.9.71",
     "animejs": "^4.3.6",
     "better-sqlite3": "^11.10.0",
     "cors": "^2.8.6",

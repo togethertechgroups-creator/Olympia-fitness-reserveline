@@ -371,7 +371,7 @@ const InquiryManagementPage = () => {
                   </div>
                   <div className="form-group">
                     <label>Phone No</label>
-                    <input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} required />
+                    <input type="tel" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} maxLength={10} required />
                   </div>
                   <div className="form-group">
                     <label>E-Mail ID</label>

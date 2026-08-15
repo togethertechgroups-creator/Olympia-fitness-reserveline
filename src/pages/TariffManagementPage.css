@@ -280,3 +280,37 @@
   font-size: 0.95rem;
   cursor: pointer;
 }
+
+/* Standalone Service Sales History Table Styles */
+.other-services-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-family: inherit;
+}
+
+.other-services-table th {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 800;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1rem 1.25rem;
+  border-bottom: 1.5px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.other-services-table td {
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+  color: #1e293b;
+  vertical-align: middle;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.other-services-table tbody tr:hover td {
+  background: #f8fafc;
+}

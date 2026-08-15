@@ -273,6 +273,7 @@
   font-weight: 800;
   color: #475569;
   font-size: 0.88rem;
+  white-space: nowrap;
 }
 
 .client-cell-box {
@@ -309,6 +310,7 @@
 }
 
 .service-name-badge {
+  display: inline-block;
   background: #eff6ff;
   color: #1d4ed8;
   border: 1px solid #bfdbfe;
@@ -316,6 +318,7 @@
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 800;
+  line-height: 1.3;
 }
 
 .col-date {

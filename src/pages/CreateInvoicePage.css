@@ -30,6 +30,7 @@
   display: flex;
   gap: 1rem;
   align-items: center;
+  margin-bottom: 1.5rem;
 }
 
 .btn-add-client-invoice {
@@ -47,6 +48,8 @@
   box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
   transition: all 0.2s ease;
   white-space: nowrap;
+  height: 48px;
+  box-sizing: border-box;
 }
 
 .btn-add-client-invoice:hover {
@@ -64,6 +67,8 @@
   outline: none;
   font-size: 0.95rem;
   transition: all 0.2s ease;
+  height: 48px;
+  box-sizing: border-box;
 }
 
 .invoice-search-input:focus {

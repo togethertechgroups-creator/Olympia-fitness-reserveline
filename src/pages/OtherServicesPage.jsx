@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './OtherServicesPage.css';
 
 const OtherServicesPage = () => {
@@ -21,6 +22,7 @@ const OtherServicesPage = () => {
 
   // Sell / Renew Modal State
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [clientSearchText, setClientSearchText] = useState('');
   const [sellFormData, setSellFormData] = useState({
     client_id: '',
     service_id: '',
@@ -59,6 +61,7 @@ const OtherServicesPage = () => {
   };
 
   const handleOpenSellModal = async (svc = null) => {
+    setClientSearchText('');
     try {
       const [freshServices, freshClients] = await Promise.all([
         getOtherServices(),
@@ -75,6 +78,7 @@ const OtherServicesPage = () => {
         service_id: selectedSvc ? selectedSvc.id : '',
         sale_date: new Date().toISOString().split('T')[0],
         paid_amount: selectedSvc ? selectedSvc.price : 0,
+        discount_amount: 0,
         payment_method: 'UPI'
       });
       setIsSellModalOpen(true);
@@ -85,6 +89,7 @@ const OtherServicesPage = () => {
   };
 
   const handleOpenRenewModal = async (item) => {
+    setClientSearchText('');
     try {
       const [freshServices, freshClients] = await Promise.all([
         getOtherServices(),
@@ -103,6 +108,7 @@ const OtherServicesPage = () => {
         service_id: matchedService ? matchedService.id : '',
         sale_date: new Date().toISOString().split('T')[0],
         paid_amount: matchedService ? matchedService.price : (item.price_snapshot || 0),
+        discount_amount: 0,
         payment_method: 'UPI'
       });
       setIsSellModalOpen(true);
@@ -342,12 +348,13 @@ const OtherServicesPage = () => {
                   paidAmount: item.paidAmount !== undefined ? item.paidAmount : item.price_snapshot,
                   dueAmount: item.dueAmount || 0,
                   remainingBalance: item.dueAmount || 0,
-                  paymentStatus: item.paymentStatus || 'Paid'
+                  paymentStatus: item.paymentStatus || 'Paid',
+                  discount_amount: item.discount_amount || 0
                 };
 
                 return (
                   <tr key={item.id}>
-                    <td className="col-id">{item.clientCode || `ID_${item.client_id}`}</td>
+                    <td className="col-id">{formatShortId(item.clientCode || item.client_id)}</td>
                     <td className="col-client">
                       <div className="client-cell-box">
                         <div className="client-avatar-circle">{clientInitial}</div>
@@ -411,16 +418,18 @@ const OtherServicesPage = () => {
                           Invoice
                         </button>
 
-                        <button
-                          className="btn-action-delete-service"
-                          onClick={() => handleDeleteSale(item)}
-                          title="Delete Subscription Record"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                          </svg>
-                        </button>
+                        {isSuperAdmin && (
+                          <button
+                            className="btn-action-delete-service"
+                            onClick={() => handleDeleteSale(item)}
+                            title="Delete Subscription Record"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -443,15 +452,44 @@ const OtherServicesPage = () => {
             <form onSubmit={handleConfirmSell} className="os-modal-body">
               <div className="form-group">
                 <label>Select Client *</label>
+                <input
+                  type="text"
+                  placeholder="Type client name, ID, or phone to search..."
+                  value={clientSearchText}
+                  onChange={(e) => setClientSearchText(e.target.value)}
+                  style={{
+                    marginBottom: '0.5rem',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    width: '100%'
+                  }}
+                />
                 <select
                   value={sellFormData.client_id}
                   onChange={(e) => setSellFormData({ ...sellFormData, client_id: e.target.value })}
                   required
                 >
-                  <option value="">-- Choose Client --</option>
-                  {clients.map(c => (
+                  <option value="">
+                    -- Choose Client ({clients.filter(c => {
+                      if (!clientSearchText.trim()) return true;
+                      const q = clientSearchText.toLowerCase().trim();
+                      return (c.name || '').toLowerCase().includes(q) ||
+                             (c.clientId || c.id || '').toLowerCase().includes(q) ||
+                             (c.phone || '').includes(q);
+                    }).length} found) --
+                  </option>
+                  {clients.filter(c => {
+                    if (!clientSearchText.trim()) return true;
+                    const q = clientSearchText.toLowerCase().trim();
+                    return (c.name || '').toLowerCase().includes(q) ||
+                           (c.clientId || c.id || '').toLowerCase().includes(q) ||
+                           (c.phone || '').includes(q);
+                  }).map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.clientId || c.id || 'ID N/A'})
+                      {c.name} {c.phone ? `(${c.phone})` : ''} [{formatShortId(c.clientId || c.id)}]
                     </option>
                   ))}
                 </select>
@@ -485,18 +523,29 @@ const OtherServicesPage = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Payment Method *</label>
-                  <select
-                    value={sellFormData.payment_method}
-                    onChange={(e) => setSellFormData({ ...sellFormData, payment_method: e.target.value })}
-                    required
-                  >
-                    <option value="UPI">UPI</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Card">Card</option>
-                    <option value="Net Banking">Net Banking</option>
-                  </select>
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={sellFormData.discount_amount}
+                    onChange={(e) => setSellFormData({ ...sellFormData, discount_amount: e.target.value })}
+                    placeholder="0"
+                  />
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method *</label>
+                <select
+                  value={sellFormData.payment_method}
+                  onChange={(e) => setSellFormData({ ...sellFormData, payment_method: e.target.value })}
+                  required
+                >
+                  <option value="UPI">UPI</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                  <option value="Net Banking">Net Banking</option>
+                </select>
               </div>
 
               <div className="form-group">
@@ -527,6 +576,7 @@ const OtherServicesPage = () => {
         isOpen={invoiceModal.isOpen}
         onClose={() => setInvoiceModal({ isOpen: false, data: null })}
         client={invoiceModal.data}
+        title="Other Service Sale Completed"
       />
     </div>
   );

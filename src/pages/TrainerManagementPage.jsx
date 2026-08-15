@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getTrainers, getNextTrainerId, addTrainer, updateTrainer, deleteTrainer, getTrainerDailyStatus, saveTrainerDailyStatus } from '../api';
 import './TrainerManagementPage.css';
 
 const TrainerManagementPage = () => {
+  const navigate = useNavigate();
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
+  const [isDirty, setIsDirty] = useState(false);
+  const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
+  const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
   const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -18,13 +24,65 @@ const TrainerManagementPage = () => {
     experience: '',
     status: 'Active',
     grade: '',
-    custom_commission_percent: ''
+    custom_commission_percent: '',
+    profileImage: ''
   });
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Photo file size should be less than 2MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setFormData(prev => ({ ...prev, profileImage: reader.result }));
+      setIsDirty(true);
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     fetchTrainers();
     fetchDailyStatuses();
   }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  useEffect(() => {
+    const handleLinkClick = (e) => {
+      if (!isDirty) return;
+
+      const target = e.target.closest('a, button, [role="button"]');
+      if (!target) return;
+
+      if (target.closest('.alert-modal-card') || target.closest('.trainer-modal-content')) {
+        return; // Ignore inside modals
+      }
+
+      const href = target.getAttribute('href');
+      
+      if (href && !href.startsWith('#/trainer-management') && href !== '#') {
+        e.preventDefault();
+        e.stopPropagation();
+        setBlockedTargetUrl(href);
+        setIsConfirmExitOpen(true);
+      }
+    };
+
+    document.addEventListener('click', handleLinkClick, true);
+    return () => document.removeEventListener('click', handleLinkClick, true);
+  }, [isDirty]);
 
   const fetchTrainers = async () => {
     try {
@@ -67,7 +125,8 @@ const TrainerManagementPage = () => {
       setFormData({
         ...trainer,
         grade: trainer.grade || '',
-        custom_commission_percent: trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined ? trainer.custom_commission_percent : ''
+        custom_commission_percent: trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined ? trainer.custom_commission_percent : '',
+        profileImage: trainer.profileImage || ''
       });
     } else {
       setCurrentTrainer(null);
@@ -81,7 +140,8 @@ const TrainerManagementPage = () => {
           experience: '',
           status: 'Active',
           grade: '',
-          custom_commission_percent: ''
+          custom_commission_percent: '',
+          profileImage: ''
         });
       } catch (error) {
         setFormData({
@@ -91,7 +151,8 @@ const TrainerManagementPage = () => {
           experience: '',
           status: 'Active',
           grade: '',
-          custom_commission_percent: ''
+          custom_commission_percent: '',
+          profileImage: ''
         });
       }
     }
@@ -101,9 +162,11 @@ const TrainerManagementPage = () => {
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setCurrentTrainer(null);
+    setIsDirty(false);
   };
 
   const handleInputChange = (e) => {
+    setIsDirty(true);
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -115,6 +178,7 @@ const TrainerManagementPage = () => {
       return;
     }
     try {
+      setIsDirty(false);
       if (currentTrainer) {
         await updateTrainer(currentTrainer.id, formData);
       } else {
@@ -124,6 +188,14 @@ const TrainerManagementPage = () => {
       handleCloseModal();
     } catch (error) {
       alert(error.message || 'Failed to save trainer');
+    }
+  };
+
+  const handleProceedExit = () => {
+    setIsDirty(false);
+    setIsConfirmExitOpen(false);
+    if (blockedTargetUrl) {
+      window.location.hash = blockedTargetUrl.startsWith('#') ? blockedTargetUrl : `#${blockedTargetUrl}`;
     }
   };
 
@@ -205,11 +277,23 @@ const TrainerManagementPage = () => {
                   </div>
                 </div>
 
-                <div className="trainer-info">
-                  <h3>{trainer.name}</h3>
-                  <p className="specialization">{trainer.specialization || 'General Trainer'}</p>
-                  
-                  <div className="trainer-stats-row">
+                <div className="trainer-info" style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', margin: '0.75rem 0' }}>
+                  <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, #f1f5f9, #cbd5e1)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    {trainer.profileImage ? (
+                      <img src={trainer.profileImage} alt={trainer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontWeight: '900', fontSize: '1.2rem', color: '#475569' }}>
+                        {trainer.name ? trainer.name.charAt(0).toUpperCase() : 'T'}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800' }}>{trainer.name}</h3>
+                    <p className="specialization" style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>{trainer.specialization || 'General Trainer'}</p>
+                  </div>
+                </div>
+
+                <div className="trainer-stats-row">
                     <div className="experience-badge">
                       <span>{trainer.experience || '0'} Yrs Exp</span>
                     </div>
@@ -240,7 +324,6 @@ const TrainerManagementPage = () => {
                       </div>
                     )}
                   </div>
-                </div>
 
                 <div className="trainer-card-actions">
                   <button
@@ -253,9 +336,11 @@ const TrainerManagementPage = () => {
                     <button className="btn-edit" onClick={() => handleOpenModal(trainer)}>
                       EDIT
                     </button>
-                    <button className="btn-delete" onClick={() => handleDelete(trainer.id)}>
-                      DELETE
-                    </button>
+                    {isSuperAdmin && (
+                      <button className="btn-delete" onClick={() => handleDelete(trainer.id)}>
+                        DELETE
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -272,6 +357,23 @@ const TrainerManagementPage = () => {
               <button className="btn-close" onClick={handleCloseModal}>&times;</button>
             </div>
             <form onSubmit={handleSubmit} className="trainer-form">
+              <div className="trainer-form-group" style={{ marginBottom: '1.25rem' }}>
+                <label>Profile Photo</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.25rem' }}>
+                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', overflow: 'hidden', background: '#f1f5f9', border: '2px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {formData.profileImage ? (
+                      <img src={formData.profileImage} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <span style={{ fontSize: '1.4rem', color: '#94a3b8' }}>📷</span>
+                    )}
+                  </div>
+                  <div>
+                    <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '0.82rem' }} />
+                    <small style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', marginTop: '4px' }}>PNG, JPG or WEBP under 2MB</small>
+                  </div>
+                </div>
+              </div>
+
               <div className="form-row">
                 <div className="trainer-form-group">
                   <label>Trainer ID</label>
@@ -338,6 +440,36 @@ const TrainerManagementPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Navigation Blocker Modal */}
+      {isConfirmExitOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 11000 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="alert-icon-circle warning" style={{ backgroundColor: '#eab308' }}>⚠</div>
+            <h3 style={{ margin: '1rem 0 0.5rem 0', fontSize: '1.25rem', fontWeight: '800' }}>Unsaved Changes</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              You have unsaved changes in the trainer form. Are you sure you want to exit? Your changes will be lost.
+            </p>
+            <div className="alert-modal-actions" style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-cancel-gray"
+                onClick={() => setIsConfirmExitOpen(false)}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Stay Here
+              </button>
+              <button
+                type="button"
+                className="btn-alert-primary error"
+                onClick={handleProceedExit}
+                style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Yes, Exit
+              </button>
+            </div>
           </div>
         </div>
       )}

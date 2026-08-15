@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getSupplements, getClients, getSupplementSales, addSupplementSale } from '../api';
+import { getSupplements, getClients, getSupplementSales, addSupplementSale, deleteSupplementSale } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './SupplementSalePage.css';
 
@@ -26,6 +26,7 @@ const SupplementSalePage = () => {
   const [formError, setFormError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [clientSearchText, setClientSearchText] = useState('');
+  const [suppSearchText, setSuppSearchText] = useState('');
 
   // Filters State
   const [startDate, setStartDate] = useState('');
@@ -57,6 +58,12 @@ const SupplementSalePage = () => {
 
   const selectedSupplement = activeSupplements.find(s => String(s.id) === String(formData.supplement_id));
   
+  const filteredSupplements = activeSupplements.filter(s =>
+    (s.name || '').toLowerCase().includes(suppSearchText.toLowerCase()) ||
+    (s.brand || '').toLowerCase().includes(suppSearchText.toLowerCase()) ||
+    (s.category || '').toLowerCase().includes(suppSearchText.toLowerCase())
+  );
+
   const qty = parseInt(formData.quantity, 10) || 0;
   const salePrice = parseFloat(formData.sale_price_per_unit) || 0;
   const totalAmount = (qty * salePrice).toFixed(2);
@@ -69,6 +76,12 @@ const SupplementSalePage = () => {
     (c.phone || '').includes(clientSearchText) ||
     (c.clientId || '').toLowerCase().includes(clientSearchText.toLowerCase())
   );
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormError('');
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -143,6 +156,20 @@ const SupplementSalePage = () => {
     }
   };
 
+  const handleDeleteSale = async (sale) => {
+    if (!window.confirm(`Are you sure you want to delete this sale entry for ${sale.quantity} x '${sale.supplement_name}' (₹${sale.total_amount})?\n\nThis will also restore ${sale.quantity} ${sale.supplement_unit || 'unit'}(s) back to inventory stock.`)) {
+      return;
+    }
+    try {
+      await deleteSupplementSale(sale.id);
+      setSuccessMsg(`Sale deleted and ${sale.quantity} ${sale.supplement_unit || 'unit'}(s) restored to stock.`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await loadData();
+    } catch (err) {
+      alert('Failed to delete sale: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
   const formatCurrency = (val) => {
     if (val === null || val === undefined) return '₹0';
     return `₹${Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -175,7 +202,15 @@ const SupplementSalePage = () => {
                 {/* Supplement Select */}
                 <div className="form-group">
                   <label>Select Supplement <span className="req">*</span></label>
+                  <input
+                    type="text"
+                    placeholder="🔍 Type to filter supplement name/brand..."
+                    value={suppSearchText}
+                    onChange={(e) => setSuppSearchText(e.target.value)}
+                    style={{ marginBottom: '0.35rem', padding: '0.5rem 0.8rem', fontSize: '0.88rem' }}
+                  />
                   <select
+                    name="supplement_id"
                     value={formData.supplement_id}
                     onChange={(e) => {
                       const suppId = e.target.value;
@@ -188,8 +223,8 @@ const SupplementSalePage = () => {
                     }}
                     required
                   >
-                    <option value="">-- Choose Supplement Item --</option>
-                    {activeSupplements.map(s => (
+                    <option value="">-- Choose Supplement Item ({filteredSupplements.length} found) --</option>
+                    {filteredSupplements.map(s => (
                       <option key={s.id} value={s.id} disabled={s.current_stock <= 0}>
                         {s.name} ({s.brand || 'No brand'}) — Stock: {s.current_stock} {s.unit}s {s.current_stock === 0 ? '[OUT OF STOCK]' : ''}
                       </option>
@@ -238,8 +273,9 @@ const SupplementSalePage = () => {
                       className="client-search-field"
                     />
                     <select
+                      name="client_id"
                       value={formData.client_id}
-                      onChange={(e) => setFormData({ ...formData, client_id: e.target.value })}
+                      onChange={handleInputChange}
                       required
                     >
                       <option value="">-- Select Client ({filteredClients.length} found) --</option>
@@ -256,10 +292,11 @@ const SupplementSalePage = () => {
                       <label>Walk-in Buyer Name <span className="req">*</span></label>
                       <input
                         type="text"
+                        name="walkin_name"
                         required
                         placeholder="e.g. Rahul Sharma"
                         value={formData.walkin_name}
-                        onChange={(e) => setFormData({ ...formData, walkin_name: e.target.value })}
+                        onChange={handleInputChange}
                       />
                     </div>
                   </>
@@ -270,9 +307,10 @@ const SupplementSalePage = () => {
                     <label>Walk-in Phone Number (Optional)</label>
                     <input
                       type="text"
+                      name="walkin_phone"
                       placeholder="e.g. 9876543210"
                       value={formData.walkin_phone}
-                      onChange={(e) => setFormData({ ...formData, walkin_phone: e.target.value })}
+                      onChange={handleInputChange}
                     />
                   </div>
                 )}
@@ -282,10 +320,11 @@ const SupplementSalePage = () => {
                   <label>Quantity Sold <span className="req">*</span></label>
                   <input
                     type="number"
+                    name="quantity"
                     min="1"
                     required
                     value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+                    onChange={handleInputChange}
                   />
                   {isStockInsufficient && (
                     <span className="stock-warning">⚠️ Stock Insufficient! Max available is {selectedSupplement.current_stock}.</span>
@@ -297,12 +336,13 @@ const SupplementSalePage = () => {
                   <label>Selling Price / Unit (₹) <span className="req">*</span></label>
                   <input
                     type="number"
+                    name="sale_price_per_unit"
                     step="0.01"
                     min="0.01"
                     required
                     placeholder="e.g. 3500"
                     value={formData.sale_price_per_unit}
-                    onChange={(e) => setFormData({ ...formData, sale_price_per_unit: e.target.value })}
+                    onChange={handleInputChange}
                   />
                 </div>
 
@@ -321,8 +361,9 @@ const SupplementSalePage = () => {
                 <div className="form-group">
                   <label>Payment Mode <span className="req">*</span></label>
                   <select
+                    name="payment_mode"
                     value={formData.payment_mode}
-                    onChange={(e) => setFormData({ ...formData, payment_mode: e.target.value })}
+                    onChange={handleInputChange}
                   >
                     <option value="UPI">UPI / GPay / PhonePe</option>
                     <option value="Cash">Cash</option>
@@ -336,9 +377,10 @@ const SupplementSalePage = () => {
                   <label>Sale Date <span className="req">*</span></label>
                   <input
                     type="date"
+                    name="sale_date"
                     required
                     value={formData.sale_date}
-                    onChange={(e) => setFormData({ ...formData, sale_date: e.target.value })}
+                    onChange={handleInputChange}
                   />
                 </div>
 
@@ -417,6 +459,7 @@ const SupplementSalePage = () => {
                       <th>Cost Snapshot</th>
                       <th>Profit Margin</th>
                       <th>Mode</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -448,6 +491,15 @@ const SupplementSalePage = () => {
                           </td>
                           <td>
                             <span className="mode-badge">{s.payment_mode}</span>
+                          </td>
+                          <td>
+                            <button
+                              className="btn-delete-sale"
+                              onClick={() => handleDeleteSale(s)}
+                              title="Delete sale & restore inventory stock"
+                            >
+                              🗑️
+                            </button>
                           </td>
                         </tr>
                       );

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import PricingSettingsPage from './PricingSettingsPage';
 import PTPackageManagementPage from './PTPackageManagementPage';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
-import { getOtherServices, addOtherService, updateOtherService, toggleOtherServiceHide, toggleOtherServiceActive, sellOtherService, getOtherServiceSales, getClients } from '../api';
+import { getOtherServices, addOtherService, updateOtherService, deleteOtherService, toggleOtherServiceHide, toggleOtherServiceActive, sellOtherService, getOtherServiceSales, getClients } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { isValidGSTIN } from '../utils/gstValidator';
 import './PricingSettingsPage.css';
@@ -39,6 +39,7 @@ const TariffManagementPage = ({ defaultTab }) => {
   const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
 
   const [toastMessage, setToastMessage] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, name: '' });
 
   useEffect(() => {
     if (activeTab === 'other') {
@@ -122,6 +123,25 @@ const TariffManagementPage = ({ defaultTab }) => {
       fetchOtherServices();
     } catch (err) {
       alert("Failed to toggle active status");
+    }
+  };
+
+  const handleDeleteService = (id, name) => {
+    setDeleteConfirm({ isOpen: true, id, name });
+  };
+
+  const handleConfirmDelete = async () => {
+    const { id, name } = deleteConfirm;
+    if (!id) return;
+    try {
+      await deleteOtherService(id);
+      setToastMessage(`Service tariff "${name}" deleted successfully.`);
+      setOtherServices(prev => prev.filter(s => String(s.id) !== String(id)));
+      setDeleteConfirm({ isOpen: false, id: null, name: '' });
+      fetchOtherServices();
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      alert(err.message || "Failed to delete service tariff");
     }
   };
 
@@ -378,7 +398,7 @@ const TariffManagementPage = ({ defaultTab }) => {
                       </div>
 
                       {/* Action Buttons */}
-                      <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.4rem' }}>
+                      <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
                         <button
                           type="button"
                           className="pricing-action-btn"
@@ -395,104 +415,26 @@ const TariffManagementPage = ({ defaultTab }) => {
                         >
                           EDIT
                         </button>
+                        <button
+                          type="button"
+                          className="pricing-card-delete-btn"
+                          title={`Delete ${svc.name}`}
+                          onClick={() => handleDeleteService(svc.id, svc.name)}
+                        >
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18"></path>
+                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                          </svg>
+                        </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-
-            {/* Service Sales History Section */}
-            <div style={{ marginTop: '3rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-                <div>
-                  <h2 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#1e1b4b', margin: 0 }}>Client Service Sales History</h2>
-                  <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.2rem' }}>All recorded client service tariff purchases, invoices, and payment statuses.</p>
-                </div>
-                <button
-                  type="button"
-                  className="btn-sell-service-action"
-                  onClick={() => handleOpenSellModal()}
-                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-                >
-                  + Sell Service to Client
-                </button>
-              </div>
-
-              {loadingSales ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading service sales history...</div>
-              ) : serviceSales.length === 0 ? (
-                <div style={{ padding: '3rem 2rem', textAlign: 'center', background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                  <h3 style={{ margin: '0 0 0.5rem 0', color: '#1e293b' }}>No Service Sales Found</h3>
-                  <p style={{ margin: 0 }}>Click "Sell Service to Client" above to record a new client service.</p>
-                </div>
-              ) : (
-                <div className="table-responsive" style={{ background: '#fff', borderRadius: '16px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
-                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569', fontSize: '0.8rem', fontWeight: '800', textTransform: 'uppercase' }}>
-                        <th style={{ padding: '1rem 1.25rem' }}>Sale Date</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Client Details</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Service Sold</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Price</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Paid Amount</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Status</th>
-                        <th style={{ padding: '1rem 1.25rem' }}>Invoice No</th>
-                        <th style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {serviceSales.map(sale => {
-                        const isPaid = sale.paymentStatus === 'Paid';
-                        const isDue = sale.paymentStatus === 'Due';
-                        return (
-                          <tr key={sale.id} style={{ borderBottom: '1px solid #f1f5f9', fontSize: '0.9rem' }}>
-                            <td style={{ padding: '1rem 1.25rem', fontWeight: '600', color: '#334155' }}>{formatDateDDMMYYYY(sale.sale_date)}</td>
-                            <td style={{ padding: '1rem 1.25rem' }}>
-                              <div style={{ fontWeight: '800', color: '#1e1b4b' }}>{sale.clientName || 'N/A'}</div>
-                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                ID: {sale.clientCode || 'N/A'} {sale.clientPhone ? `• ${sale.clientPhone}` : ''}
-                              </div>
-                            </td>
-                            <td style={{ padding: '1rem 1.25rem' }}>
-                              <span style={{ fontWeight: '700', color: '#047857', background: '#ecfdf5', padding: '4px 10px', borderRadius: '8px' }}>
-                                {sale.serviceName || 'Other Service'}
-                              </span>
-                              <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '3px' }}>{sale.duration_days || 30} Days Validity</div>
-                            </td>
-                            <td style={{ padding: '1rem 1.25rem', fontWeight: '700' }}>₹{sale.price_snapshot || 0}</td>
-                            <td style={{ padding: '1rem 1.25rem', fontWeight: '700', color: '#10b981' }}>₹{sale.paidAmount !== undefined ? sale.paidAmount : sale.price_snapshot}</td>
-                            <td style={{ padding: '1rem 1.25rem' }}>
-                              <span style={{
-                                padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', textTransform: 'uppercase',
-                                background: isPaid ? '#dcfce7' : (isDue ? '#fee2e2' : '#fef3c7'),
-                                color: isPaid ? '#15803d' : (isDue ? '#b91c1c' : '#b45309')
-                              }}>
-                                {sale.paymentStatus || 'Paid'}
-                              </span>
-                            </td>
-                            <td style={{ padding: '1rem 1.25rem', fontWeight: '800', color: '#4338ca' }}>{sale.billNo || `INV-SVC-${sale.id}`}</td>
-                            <td style={{ padding: '1rem 1.25rem', textAlign: 'right' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleViewInvoice(sale)}
-                                style={{
-                                  background: '#4f46e5', color: '#fff', border: 'none', padding: '0.5rem 1rem',
-                                  borderRadius: '8px', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer',
-                                  boxShadow: '0 2px 6px rgba(79, 70, 229, 0.3)'
-                                }}
-                              >
-                                📄 View Invoice
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
 
             {/* Add / Edit Service Modal */}
             {isServiceModalOpen && (
@@ -700,7 +642,45 @@ const TariffManagementPage = ({ defaultTab }) => {
         isOpen={invoiceModal.isOpen}
         onClose={() => setInvoiceModal({ isOpen: false, data: null })}
         client={invoiceModal.data}
+        title="Other Service Sale Completed"
       />
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm.isOpen && (
+        <div className="renew-modal-overlay">
+          <div className="renew-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
+            <div className="renew-modal-header" style={{ backgroundColor: '#ef4444', justifyContent: 'center' }}>
+              <h3 className="renew-modal-title" style={{ margin: 0 }}>⚠️ Confirm Deletion</h3>
+            </div>
+            <div className="renew-modal-body" style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <p style={{ fontSize: '1.05rem', fontWeight: '800', color: '#1e293b', margin: 0, lineHeight: '1.4' }}>
+                Are you sure you want to permanently delete the service tariff <span style={{ color: '#ef4444' }}>"{deleteConfirm.name}"</span>?
+              </p>
+              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, fontWeight: '600' }}>
+                This action cannot be undone.
+              </p>
+              <div className="renew-actions-row" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '0.5rem' }}>
+                <button 
+                  type="button" 
+                  className="btn-cancel-renew" 
+                  onClick={() => setDeleteConfirm({ isOpen: false, id: null, name: '' })}
+                  style={{ flex: 1, padding: '0.75rem 1.25rem', fontWeight: '700' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  className="btn-confirm-renew" 
+                  onClick={handleConfirmDelete}
+                  style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#ef4444', color: '#ffffff', fontWeight: '700' }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -23,6 +23,7 @@ import PTClassLogPage from './pages/PTClassLogPage';
 import TrainerSalaryReportPage from './pages/TrainerSalaryReportPage';
 import AdvanceBookingPage from './pages/AdvanceBookingPage';
 import GSTReportPage from './pages/GSTReportPage';
+import ClientServiceSalesHistoryPage from './pages/ClientServiceSalesHistoryPage';
 import SupplementManagementPage from './pages/SupplementManagementPage';
 import SupplementCatalogPage from './pages/SupplementCatalogPage';
 import SupplementPurchasePage from './pages/SupplementPurchasePage';
@@ -81,12 +82,10 @@ function App() {
 
   return (
     <Router>
-      <div className={`app-root ${auth.isLoggedIn ? 'logged-in' : 'logged-out'} ${isSuperAdmin ? 'superadmin-layout' : 'admin-layout'} ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}>
+      <div className={`app-root ${auth.isLoggedIn ? 'logged-in superadmin-layout' : 'logged-out'} ${sidebarCollapsed ? 'sidebar-collapsed' : 'sidebar-expanded'}`}>
 
         {auth.isLoggedIn && (
-          isSuperAdmin
-            ? <Sidebar onLogout={handleLogout} isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
-            : <Navbar onLogout={handleLogout} userRole={auth.userRole} />
+          <Sidebar userRole={auth.userRole} onLogout={handleLogout} isCollapsed={sidebarCollapsed} onToggle={toggleSidebar} />
         )}
 
         <div className="app-main-content">
@@ -188,6 +187,15 @@ function App() {
             />
 
             <Route
+              path="/service-sales-history"
+              element={
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
+                  <ClientServiceSalesHistoryPage />
+                </RoleProtectedRoute>
+              }
+            />
+
+            <Route
               path="/other-services"
               element={
                 <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
@@ -199,7 +207,7 @@ function App() {
             <Route
               path="/trainers"
               element={
-                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['superadmin']}>
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
                   <TrainerManagementPage />
                 </RoleProtectedRoute>
               }
@@ -306,7 +314,7 @@ function App() {
             <Route
               path="/supplements"
               element={
-                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['superadmin']}>
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
                   <SupplementManagementPage />
                 </RoleProtectedRoute>
               }
