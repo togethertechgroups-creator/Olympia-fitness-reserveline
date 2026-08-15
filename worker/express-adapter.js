@@ -1,8 +1,8 @@
 /**
  * Native Express → Cloudflare Worker Fetch API Bridge
  *
- * Strategy: pre-parse the body safely via arrayBuffer, set req.body directly,
- * and push buffer to req stream (req.push(null)) so readable stream is complete.
+ * Strategy: pre-parse the body safely via arrayBuffer ONLY for methods with bodies (POST, PUT, PATCH),
+ * set req.body directly, and push null to req stream (req.push(null)) so readable stream is complete.
  * This bypasses all stream/readable issues in the Workers runtime.
  */
 
@@ -13,10 +13,12 @@ export function expressToFetch(expressApp) {
   return async function fetchHandler(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ── 1. Read request body safely ─────────────────────────────────────────
+    // ── 1. Read request body safely (ONLY for POST, PUT, PATCH) ──────────────
     let rawBody = '';
     let parsedBody = undefined;
-    if (request.body && !request.bodyUsed && request.method !== 'GET' && request.method !== 'HEAD') {
+    const hasBodyMethod = ['POST', 'PUT', 'PATCH'].includes(request.method.toUpperCase());
+
+    if (hasBodyMethod && request.body && !request.bodyUsed) {
       try {
         const buffer = await request.arrayBuffer();
         rawBody = new TextDecoder().decode(buffer);

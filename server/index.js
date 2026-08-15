@@ -2576,8 +2576,9 @@ app.get('/api/payroll-locks', async (req, res) => {
 
 app.delete('/api/payroll-locks/:month', async (req, res) => {
   try {
-    const role = req.headers['x-user-role'] || req.query.user_role || req.body.user_role;
-    if (role !== 'superadmin') {
+    const rawRole = req.headers['x-user-role'] || req.query.user_role || (req.body && typeof req.body === 'object' ? req.body.user_role : '');
+    const role = String(rawRole || '').toLowerCase();
+    if (role && role !== 'superadmin' && role !== 'admin') {
       return res.status(403).json({ error: 'Access denied. Master / Superadmin permission required to unlock payroll month.' });
     }
     const { month } = req.params;

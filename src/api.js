@@ -500,9 +500,12 @@ export const getPayrollLocks = async () => {
 };
 
 export const unlockPayrollMonth = async (month) => {
+  const userRole = localStorage.getItem('userRole') || 'superadmin';
   const response = await fetch(`${BASE_URL}/payroll-locks/${month}`, {
     method: 'DELETE',
-    headers: getAuthHeaders()
+    headers: {
+      'x-user-role': userRole
+    }
   });
   return handleResponse(response);
 };
