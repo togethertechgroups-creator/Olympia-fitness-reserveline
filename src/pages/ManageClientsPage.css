@@ -1197,6 +1197,7 @@ select.payment-form-input {
 .view-modal-card-landscape {
   max-width: 900px !important;
   width: 95% !important;
+  max-height: 88vh !important;
   padding: 0 !important;
   background: white;
   border-radius: 20px;
@@ -1211,11 +1212,11 @@ select.payment-form-input {
   grid-template-columns: 1fr 1.2fr 1.2fr;
   gap: 0;
   background: white;
-  min-height: 380px;
+  min-height: auto;
 }
 
 .landscape-col {
-  padding: 2rem;
+  padding: 1.1rem 1.25rem;
   display: flex;
   flex-direction: column;
 }
@@ -1228,32 +1229,32 @@ select.payment-form-input {
 }
 
 .landscape-avatar-container {
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .profile-main-info h2 {
   font-family: var(--font-display, 'Inter', sans-serif);
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 800;
   color: #0f172a;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
   margin-top: 0;
 }
 
 .profile-details {
   width: 100%;
-  margin-top: 1.5rem;
+  margin-top: 0.85rem;
   background: white;
   border-radius: 12px;
-  padding: 1rem;
+  padding: 0.75rem 0.85rem;
   border: 1px solid #e2e8f0;
 }
 
 .detail-row {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
 }
 .detail-row:last-child { margin-bottom: 0; }
 .detail-row span { color: #64748b; }
@@ -1267,13 +1268,13 @@ select.payment-form-input {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.85rem;
 }
 
-.col-icon { font-size: 1.2rem; }
+.col-icon { font-size: 1.1rem; }
 .col-header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 800;
   color: #0f172a;
   text-transform: uppercase;
@@ -1285,10 +1286,10 @@ select.payment-form-input {
   justify-content: space-between;
   align-items: center;
   background: #f8fafc;
-  padding: 0.75rem 1rem;
-  border-radius: 12px;
+  padding: 0.55rem 0.85rem;
+  border-radius: 10px;
   border: 1px solid #e2e8f0;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .pt-highlight {
@@ -1298,7 +1299,7 @@ select.payment-form-input {
 
 .pt-plan-name {
   color: #166534;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 800;
 }
 
@@ -1307,9 +1308,9 @@ select.payment-form-input {
   align-items: center;
   justify-content: space-between;
   background: #f1f5f9;
-  border-radius: 12px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.75rem;
 }
 .pt-dates { background: #f0fdf4; border: 1px solid #bbf7d0; }
 
@@ -1318,25 +1319,25 @@ select.payment-form-input {
   flex-direction: column;
   align-items: center;
 }
-.date-label { font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 0.2rem; }
-.date-value { font-size: 1rem; color: #0f172a; }
+.date-label { font-size: 0.7rem; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 0.15rem; }
+.date-value { font-size: 0.9rem; color: #0f172a; }
 
 .date-divider { color: #cbd5e1; font-weight: 800; }
 
 .landscape-payment-summary, .landscape-pt-details {
   background: white;
   border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  padding: 1rem;
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
 }
 
 .landscape-payment-summary .pay-row {
   display: flex;
   justify-content: space-between;
-  padding-bottom: 0.5rem;
-  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.4rem;
   border-bottom: 1px dashed #e2e8f0;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 .landscape-payment-summary .pay-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .landscape-payment-summary .pay-row span { color: #64748b; }
@@ -1349,10 +1350,10 @@ select.payment-form-input {
   flex: 1;
   color: #94a3b8;
   font-weight: 600;
-  font-size: 0.95rem;
-  margin-top: 2rem;
+  font-size: 0.9rem;
+  margin-top: 1rem;
 }
-.empty-icon { font-size: 2.5rem; opacity: 0.3; margin-bottom: 0.5rem; }
+.empty-icon { font-size: 2rem; opacity: 0.3; margin-bottom: 0.35rem; }
 
 @media (max-width: 900px) {
   .landscape-modal-content {
@@ -1360,18 +1361,17 @@ select.payment-form-input {
     max-height: 80vh;
     overflow-y: auto;
   }
-  .landscape-col { border-right: none; border-bottom: 1px solid #e2e8f0; padding: 1.5rem; }
+  .landscape-col { border-right: none; border-bottom: 1px solid #e2e8f0; padding: 1.25rem; }
   .landscape-col:last-child { border-bottom: none; }
 }
 .landscape-bottom-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 1.5rem;
-  padding: 1.5rem 2rem;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem 1.25rem 1.25rem;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
-  flex: 1;
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 .landscape-bottom-col {

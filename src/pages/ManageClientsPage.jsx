@@ -1356,7 +1356,7 @@ const ManageClientsPage = () => {
 
         return (
           <div className="alert-modal-overlay">
-            <div className="alert-modal-card view-modal-card-landscape reveal" style={{ maxWidth: activeTab === 'history' ? '1000px' : '920px', position: 'relative' }}>
+            <div className="alert-modal-card view-modal-card-landscape reveal" style={{ maxWidth: activeTab === 'history' ? '1000px' : '920px', maxHeight: '88vh', display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
               <button
                 className="btn-close-modal"
                 onClick={() => setViewClientModal({ isOpen: false, client: null })}
@@ -1382,7 +1382,7 @@ const ManageClientsPage = () => {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
 
-              <div className="landscape-modal-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '78vh', overflow: 'hidden' }}>
+              <div className="landscape-modal-content-wrapper" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
                 
                 {/* Header Segmented Tab Bar */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', paddingRight: '3.5rem', flexShrink: 0 }}>
@@ -1574,7 +1574,8 @@ const ManageClientsPage = () => {
                   </div>
                 ) : (
                   /* Standard Landscape Overview View */
-                  <div className="landscape-modal-content" style={{ padding: '1.25rem' }}>
+                  <div className="landscape-modal-scroll-body" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div className="landscape-modal-content" style={{ padding: '0.85rem 1rem' }}>
                     {/* Column 1: Profile Info */}
                     <div className="landscape-col profile-col">
                       <div className="landscape-avatar-container">
@@ -1707,10 +1708,8 @@ const ManageClientsPage = () => {
                       )}
                     </div>
                   </div>
-                )}
 
-                {/* Bottom Row: Additional Data Cards (Overview mode) */}
-                {activeTab === 'overview' && (
+                  {/* Bottom Row: Additional Data Cards (Overview mode) */}
                   <div className="landscape-bottom-row" style={{ flexShrink: 0, padding: '0 1.25rem 1.25rem 1.25rem' }}>
                     {/* Adv General */}
                     <div className="landscape-bottom-col">
@@ -1861,8 +1860,9 @@ const ManageClientsPage = () => {
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+            </div>
 
               <div className="view-modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
                 <button
