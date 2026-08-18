@@ -3,16 +3,7 @@ import { getSettings, updateSettings } from '../api';
 import './PricingSettingsPage.css';
 
 const PricingSettingsPage = () => {
-    const [settings, setSettings] = useState({
-        Monthly_Strengthening: 0,
-        Monthly_Cardio: 0,
-        Quarterly_Strengthening: 0,
-        Quarterly_Cardio: 0,
-        'Half-Yearly_Strengthening': 0,
-        'Half-Yearly_Cardio': 0,
-        Annual_Strengthening: 0,
-        Annual_Cardio: 0
-    });
+    const [settings, setSettings] = useState({});
 
     const [isSaving, setIsSaving] = useState(false);
     const [editingPlanKey, setEditingPlanKey] = useState(null);

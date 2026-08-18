@@ -416,20 +416,7 @@ async function initDb() {
       db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
     } catch (e) { }
 
-    // ─── Initialize Settings if empty ───────────────────────────────────────────
-    const initialSettings = [
-      { key: 'Monthly', value: 1000 },
-      { key: 'Quarterly', value: 2500 },
-      { key: 'Half-Yearly', value: 4500 },
-      { key: 'Annual', value: 8000 },
-      { key: 'PT_Certified', value: 1000 },
-      { key: 'PT_Pro', value: 1500 },
-      { key: 'Diet', value: 500 }
-    ];
-
-    initialSettings.forEach(setting => {
-      db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)').run(setting.key, setting.value);
-    });
+    // ─── Settings Initialization (Empty by default for custom tariffs) ───
 
     // ─── Initialize Users if empty ──────────────────────────────────────────────
     const initialUsers = [
@@ -831,36 +818,7 @@ async function initDb() {
         try { await db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
       }
 
-      // Seed catalog pt_packages if empty
-      const existingPkgCount = db.prepare('SELECT COUNT(*) as cnt FROM pt_packages WHERE is_custom = 0').get().cnt;
-      if (existingPkgCount === 0) {
-        const seedPackages = [
-          { name: 'A Pro PT — Standard', price: 9000, total_classes: 16, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT']) },
-          { name: 'A Pro PT — Premium', price: 25000, total_classes: 48, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT']) },
-          { name: 'Standard PT — S1', price: 6000, total_classes: 16, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A', 'B']) },
-          { name: 'Standard PT — S2', price: 7000, total_classes: 16, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A', 'B']) },
-          { name: 'Standard PT — S3 (Extended)', price: 19000, total_classes: 48, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A', 'B']) },
-          { name: 'Standard PT — S4 (Extended)', price: 20000, total_classes: 50, category: 'Adult', duration_days: 30, eligible_grades: JSON.stringify(['A', 'B']) },
-          { name: 'Kid PT (Age 5–10)', price: 2000, total_classes: 16, category: 'Kid', duration_days: 30, eligible_grades: JSON.stringify(['A_PRO_PT', 'A', 'B']) }
-        ];
-
-        const stmt = db.prepare(`
-        INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 1)
-      `);
-        seedPackages.forEach(pkg => stmt.run(pkg.name, pkg.price, pkg.total_classes, pkg.category, pkg.duration_days, pkg.eligible_grades));
-        console.log('✅ Seeded catalog PT packages');
-      }
-
-      // Ensure "100 Days Challenge" package exists in catalog
-      const challengePkg = db.prepare("SELECT * FROM pt_packages WHERE name = '100 Days Challenge' AND is_custom = 0").get();
-      if (!challengePkg) {
-        db.prepare(`
-        INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
-        VALUES ('100 Days Challenge', 15000, 30, 'Challenge', 100, ?, 0, 1)
-      `).run(JSON.stringify(['A_PRO_PT', 'A', 'B']));
-        console.log('✅ Seeded 100 Days Challenge PT package');
-      }
+      // No auto-seeding of default PT packages
     } catch (err) { console.error('PT Migration error:', err); }
 
   } catch (err) {

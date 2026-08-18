@@ -890,13 +890,13 @@ const ManageClientsPage = () => {
           <table className="clients-table">
             <thead>
               <tr>
-                <th style={{ width: '6%' }}>ID ↑↓</th>
+                <th style={{ width: '5%' }}>ID ↑↓</th>
                 <th style={{ width: '20%' }}>Client Name</th>
                 <th style={{ width: '14%' }}>Phone Number</th>
-                <th style={{ width: '10%' }}>Program</th>
-                <th style={{ width: '18%' }}>Payment / Due Status</th>
-                <th style={{ width: '14%' }}>Validity</th>
-                <th style={{ textAlign: 'right', width: '18%' }}>Actions</th>
+                <th style={{ width: '9%' }}>Program</th>
+                <th style={{ width: '16%' }}>Payment / Due Status</th>
+                <th style={{ width: '16%' }}>Validity</th>
+                <th style={{ textAlign: 'right', width: '20%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
