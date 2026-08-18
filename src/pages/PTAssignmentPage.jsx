@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { getPtAssignments, getClients, getTrainers, getPtPackages, addPtAssignment, getPtClassHistory } from '../api';
+import { getPtAssignments, getClients, getTrainers, getPtPackages, addPtAssignment, updatePtAssignment, deletePtAssignment, getPtClassHistory } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -28,11 +28,65 @@ const PTAssignmentPage = () => {
   const [invoiceClient, setInvoiceClient] = useState(null);
   const [gstError, setGstError] = useState('');
 
+  const [customPopup, setCustomPopup] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'alert', // 'alert' | 'confirm'
+    onConfirm: null
+  });
+
+  const showCustomAlert = (title, message, onOk = null) => {
+    setCustomPopup({
+      isOpen: true,
+      title,
+      message,
+      type: 'alert',
+      onConfirm: () => {
+        setCustomPopup(prev => ({ ...prev, isOpen: false }));
+        if (onOk) onOk();
+      }
+    });
+  };
+
+  const showCustomConfirm = (title, message, onYes) => {
+    setCustomPopup({
+      isOpen: true,
+      title,
+      message,
+      type: 'confirm',
+      onConfirm: () => {
+        setCustomPopup(prev => ({ ...prev, isOpen: false }));
+        onYes();
+      }
+    });
+  };
+
   const isValidGSTIN = (gstin) => {
     if (!gstin) return false;
     const regex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
     return regex.test(gstin.trim().toUpperCase());
   };
+
+  const isClientActive = (c) => {
+    if (!c) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (c.status === 'inactive' || c.status === 'Inactive' || c.status === 'Expired') {
+      return false;
+    }
+    if (c.expiryDate) {
+      const exp = new Date(c.expiryDate);
+      exp.setHours(0, 0, 0, 0);
+      if (exp < today) return false;
+    }
+    return true;
+  };
+
+  const [inactiveWarningModal, setInactiveWarningModal] = useState({
+    isOpen: false,
+    client: null
+  });
 
   const calculateNextDayDate = (dateStr) => {
     if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -75,8 +129,73 @@ const PTAssignmentPage = () => {
     custom_price: '',
     custom_total_classes: '',
     custom_duration_days: 30,
+    discount_amount: '',
     assigned_date: new Date().toISOString().split('T')[0]
   });
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [editFormData, setEditFormData] = useState({
+    trainer_id: '',
+    pt_package_id: '',
+    assigned_date: '',
+    discount_amount: ''
+  });
+
+  const handleOpenEditModal = (item) => {
+    if (parseInt(item.classes_completed || 0, 10) > 0) {
+      showCustomAlert(
+        'Cannot Edit Assignment',
+        `PT classes for ${item.clientName} have already started (${item.classes_completed} classes conducted).\n\nEditing is only allowed before any classes have been conducted.`
+      );
+      return;
+    }
+    setEditingAssignment(item);
+    setEditFormData({
+      trainer_id: item.trainer_id || '',
+      pt_package_id: item.pt_package_id || '',
+      assigned_date: item.assigned_date || new Date().toISOString().split('T')[0],
+      discount_amount: item.discount_amount || ''
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingAssignment) return;
+    try {
+      await updatePtAssignment(editingAssignment.id, editFormData);
+      setIsEditModalOpen(false);
+      setEditingAssignment(null);
+      showCustomAlert('Assignment Updated', 'The PT assignment details have been updated successfully.');
+      loadAllData();
+    } catch (err) {
+      showCustomAlert('Update Error', err.message || 'Failed to update PT assignment.');
+    }
+  };
+
+  const handleDeleteAssignment = (item) => {
+    if (parseInt(item.classes_completed || 0, 10) > 0) {
+      showCustomAlert(
+        'Cannot Delete Assignment',
+        `PT classes for ${item.clientName} have already started (${item.classes_completed} classes conducted).\n\nDeletion is only allowed before any classes have been conducted.`
+      );
+      return;
+    }
+    showCustomConfirm(
+      'Delete PT Assignment',
+      `Are you sure you want to delete the PT assignment for client ${item.clientName}? This action cannot be undone.`,
+      async () => {
+        try {
+          await deletePtAssignment(item.id);
+          showCustomAlert('Assignment Deleted', 'The PT assignment has been deleted successfully.');
+          loadAllData();
+        } catch (err) {
+          showCustomAlert('Delete Error', err.message || 'Failed to delete PT assignment.');
+        }
+      }
+    );
+  };
 
   useEffect(() => {
     loadAllData();
@@ -127,14 +246,29 @@ const PTAssignmentPage = () => {
 
   useEffect(() => {
     if (preselectedClientId && clients.length > 0) {
-      const selClient = clients.find(c => c.id === preselectedClientId);
-      setFormData(prev => ({ 
-        ...prev, 
-        client_id: preselectedClientId,
-        hasGst: !!selClient?.gstin,
-        gstin: selClient?.gstin || '' 
-      }));
-      setIsModalOpen(true);
+      const selClient = clients.find(c => String(c.id) === String(preselectedClientId));
+      if (selClient) {
+        if (!isClientActive(selClient)) {
+          setInactiveWarningModal({
+            isOpen: true,
+            client: selClient
+          });
+          setFormData(prev => ({
+            ...prev,
+            client_id: '',
+            hasGst: false,
+            gstin: ''
+          }));
+        } else {
+          setFormData(prev => ({ 
+            ...prev, 
+            client_id: preselectedClientId,
+            hasGst: !!selClient?.gstin,
+            gstin: selClient?.gstin || '' 
+          }));
+        }
+        setIsModalOpen(true);
+      }
     }
   }, [preselectedClientId, clients]);
 
@@ -159,8 +293,9 @@ const PTAssignmentPage = () => {
 
   const handleOpenModal = () => {
     const selClient = clients.find(c => c.id === (preselectedClientId || ''));
+    const isAct = isClientActive(selClient);
     setFormData({
-      client_id: preselectedClientId || '',
+      client_id: isAct ? (preselectedClientId || '') : '',
       trainer_id: '',
       pt_package_id: '',
       is_custom: false,
@@ -169,8 +304,8 @@ const PTAssignmentPage = () => {
       custom_total_classes: '',
       custom_duration_days: 30,
       assigned_date: new Date().toISOString().split('T')[0],
-      hasGst: !!selClient?.gstin,
-      gstin: selClient?.gstin || ''
+      hasGst: isAct ? !!selClient?.gstin : false,
+      gstin: isAct ? (selClient?.gstin || '') : ''
     });
     setGstError('');
     setIsModalOpen(true);
@@ -229,6 +364,15 @@ const PTAssignmentPage = () => {
       return;
     }
 
+    const selClient = clients.find(c => String(c.id) === String(formData.client_id));
+    if (selClient && !isClientActive(selClient)) {
+      setInactiveWarningModal({
+        isOpen: true,
+        client: selClient
+      });
+      return;
+    }
+
     if (!selectedTrainer || !selectedTrainer.grade) {
       alert('Selected trainer has no assigned Grade. Please assign a Grade on Trainer Management first.');
       return;
@@ -251,7 +395,6 @@ const PTAssignmentPage = () => {
     // Check for existing active PT package for this client
     const today = new Date().toISOString().split('T')[0];
     const activeAssign = assignments.find(a => a.client_id === formData.client_id && a.status === 'Active' && a.expiry_date >= today);
-    const selClient = clients.find(c => c.id === formData.client_id);
     if (activeAssign) {
       const nextStart = calculateNextDayDate(activeAssign.expiry_date);
       setDuplicateModal({
@@ -280,6 +423,7 @@ const PTAssignmentPage = () => {
         client_id: formData.client_id,
         trainer_id: formData.trainer_id,
         assigned_date: formData.assigned_date,
+        discount_amount: parseFloat(formData.discount_amount || 0),
         hasGst: formData.hasGst,
         gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null,
         ...(formData.is_custom
@@ -495,11 +639,42 @@ const PTAssignmentPage = () => {
                           <div style={{ fontWeight: '600', color: '#0f172a' }}>{item.packageName}</div>
                           <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{item.packageCategory} ({item.duration_days || 30} days)</div>
                         </td>
-                        {isSuperAdmin && (
-                          <td style={{ fontWeight: '800', color: '#059669', fontSize: '0.95rem' }}>
-                            {formatCurrency(item.package_price_snapshot)}
-                          </td>
-                        )}
+                        {isSuperAdmin && (() => {
+                          const priceSnap = parseFloat(item.package_price_snapshot || 0);
+                          const catalogPrice = parseFloat(item.catalogPrice || item.original_price || 0);
+                          let disc = parseFloat(item.discount_amount || item.billDiscount || item.advDiscount || 0);
+
+                          if (disc <= 0 && catalogPrice > priceSnap) {
+                            disc = catalogPrice - priceSnap;
+                          }
+
+                          let gross = priceSnap;
+                          let net = priceSnap;
+
+                          if (disc > 0) {
+                            if (catalogPrice > 0 && Math.abs(catalogPrice - priceSnap) < 1) {
+                              gross = catalogPrice;
+                              net = Math.max(0, catalogPrice - disc);
+                            } else if (catalogPrice > 0 && catalogPrice > priceSnap) {
+                              gross = catalogPrice;
+                              net = priceSnap;
+                            } else {
+                              gross = priceSnap + disc;
+                              net = priceSnap;
+                            }
+                          }
+
+                          return (
+                            <td style={{ fontWeight: '800', color: '#059669', fontSize: '0.95rem' }}>
+                              <div>{formatCurrency(net)}</div>
+                              {disc > 0 && (
+                                <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700', marginTop: '2px' }}>
+                                  (₹{gross.toLocaleString('en-IN')} - ₹{disc.toLocaleString('en-IN')} disc)
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })()}
                         <td className="progress-cell">
                           <div className="progress-bar-wrapper">
                             <div className="progress-text">
@@ -535,6 +710,60 @@ const PTAssignmentPage = () => {
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                               History
                             </button>
+
+                            {/* Edit & Delete Actions (Enabled ONLY if class hasn't started yet) */}
+                            {isSuperAdmin && (() => {
+                              const classesStarted = parseInt(item.classes_completed || 0, 10) > 0;
+                              return (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditModal(item)}
+                                    disabled={classesStarted}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      fontSize: '0.78rem',
+                                      fontWeight: '700',
+                                      borderRadius: '6px',
+                                      border: '1px solid #cbd5e1',
+                                      background: classesStarted ? '#f8fafc' : '#ffffff',
+                                      color: classesStarted ? '#cbd5e1' : '#334155',
+                                      cursor: classesStarted ? 'not-allowed' : 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      opacity: classesStarted ? 0.45 : 1
+                                    }}
+                                    title={classesStarted ? `Cannot edit: ${item.classes_completed} classes already conducted.` : 'Edit PT Assignment'}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAssignment(item)}
+                                    disabled={classesStarted}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      fontSize: '0.78rem',
+                                      fontWeight: '700',
+                                      borderRadius: '6px',
+                                      border: classesStarted ? '1px solid #cbd5e1' : '1px solid #fca5a5',
+                                      background: classesStarted ? '#f8fafc' : '#fef2f2',
+                                      color: classesStarted ? '#cbd5e1' : '#dc2626',
+                                      cursor: classesStarted ? 'not-allowed' : 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      opacity: classesStarted ? 0.45 : 1
+                                    }}
+                                    title={classesStarted ? `Cannot delete: ${item.classes_completed} classes already conducted.` : 'Delete PT Assignment'}
+                                  >
+                                    🗑️ Delete
+                                  </button>
+                                </>
+                              );
+                            })()}
                           </div>
                         </td>
                       </tr>
@@ -612,7 +841,20 @@ const PTAssignmentPage = () => {
                   value={formData.client_id}
                   onChange={e => {
                     const cId = e.target.value;
-                    const selClient = clients.find(c => c.id === cId);
+                    const selClient = clients.find(c => String(c.id) === String(cId));
+                    if (selClient && !isClientActive(selClient)) {
+                      setInactiveWarningModal({
+                        isOpen: true,
+                        client: selClient
+                      });
+                      setFormData(prev => ({
+                        ...prev,
+                        client_id: '',
+                        hasGst: false,
+                        gstin: ''
+                      }));
+                      return;
+                    }
                     setFormData(prev => ({
                       ...prev,
                       client_id: cId,
@@ -624,12 +866,15 @@ const PTAssignmentPage = () => {
                   }}
                   required
                 >
-                  <option value="">-- Choose Client ({clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).length} found) --</option>
-                  {clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.clientId || 'No ID'}) - {c.phone}
-                    </option>
-                  ))}
+                  <option value="">-- Choose Active Client ({clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).length} found) --</option>
+                  {clients.filter(c => (c.name || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.clientId || '').toLowerCase().includes(clientModalSearch.toLowerCase()) || (c.phone || '').toLowerCase().includes(clientModalSearch.toLowerCase())).map(c => {
+                    const active = isClientActive(c);
+                    return (
+                      <option key={c.id} value={c.id} style={{ color: active ? '#0f172a' : '#dc2626' }}>
+                        {c.name} ({formatShortId(c.clientId || c.id)}) - {c.phone} {active ? '' : '🛑 (EXPIRED / INACTIVE)'}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -777,6 +1022,20 @@ const PTAssignmentPage = () => {
                 </div>
               )}
 
+              {/* Discount Amount */}
+              {isSuperAdmin && (
+                <div className="trainer-form-group">
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={formData.discount_amount}
+                    onChange={e => { setFormData({ ...formData, discount_amount: e.target.value }); setIsDirty(true); }}
+                    placeholder="0"
+                  />
+                </div>
+              )}
+
               {/* Assigned Date */}
               <div className="trainer-form-group">
                 <label>Assigned Date *</label>
@@ -869,7 +1128,7 @@ const PTAssignmentPage = () => {
 
       {/* Duplicate Active PT Warning Modal */}
       {duplicateModal.isOpen && (
-        <div className="trainer-modal-overlay">
+        <div className="trainer-modal-overlay" style={{ zIndex: 999999 }}>
           <div className="trainer-modal-card" style={{ maxWidth: '520px', textAlign: 'center', padding: '2rem', background: '#ffffff', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
             <div style={{ width: '64px', height: '64px', background: '#fef3c7', border: '1px solid #fde047', borderRadius: '50%', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '2rem' }}>
               ⚠️
@@ -921,6 +1180,138 @@ const PTAssignmentPage = () => {
         </div>
       )}
 
+      {/* Inactive / Expired Client Warning Modal */}
+      {inactiveWarningModal.isOpen && inactiveWarningModal.client && (
+        <div className="trainer-modal-overlay" style={{ zIndex: 999999 }}>
+          <div className="trainer-modal-card" style={{ maxWidth: '480px', textAlign: 'center', padding: '2rem', background: '#ffffff', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
+            <div style={{ width: '64px', height: '64px', background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '50%', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '2rem' }}>
+              🛑
+            </div>
+
+            <h3 style={{ fontSize: '1.3rem', fontWeight: '900', color: '#1e1b4b', marginBottom: '0.75rem' }}>
+              Cannot Assign PT — Inactive / Expired Client
+            </h3>
+
+            <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: '1.6', marginBottom: '1.25rem' }}>
+              Client <strong>{inactiveWarningModal.client.name}</strong> (#{formatShortId(inactiveWarningModal.client.clientId || inactiveWarningModal.client.id)}) does not have an active general membership.
+              <br />
+              <span style={{ fontSize: '0.85rem', color: '#dc2626', fontWeight: '700' }}>
+                Expired on: {inactiveWarningModal.client.expiryDate ? formatDateDDMMYYYY(inactiveWarningModal.client.expiryDate) : 'N/A'} (Status: {inactiveWarningModal.client.status || 'Expired'})
+              </span>
+            </p>
+
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem', textAlign: 'left', fontSize: '0.85rem', color: '#991b1b', lineHeight: '1.5' }}>
+              ⚠️ <strong>Membership Required:</strong> Personal Training packages can only be assigned to clients with an active gym membership. Please renew this client's general membership plan first.
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setInactiveWarningModal({ isOpen: false, client: null });
+                  setIsModalOpen(false);
+                  navigate('/clients?filter=Inactive');
+                }}
+                style={{ flex: 1.4, padding: '0.75rem 1rem', background: '#dc2626', color: '#ffffff', fontWeight: '800', borderRadius: '10px', border: 'none', cursor: 'pointer' }}
+              >
+                Renew Membership Now
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setInactiveWarningModal({ isOpen: false, client: null })}
+                style={{ flex: 0.8, padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit PT Assignment Modal */}
+      {isEditModalOpen && editingAssignment && (
+        <div className="trainer-modal-overlay">
+          <div className="trainer-modal-content animated-scale-in">
+            <div className="trainer-modal-header">
+              <h2>Edit PT Assignment — {editingAssignment.clientName}</h2>
+              <button className="btn-close" onClick={() => setIsEditModalOpen(false)}>&times;</button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="trainer-form">
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', fontSize: '0.88rem', color: '#1e40af' }}>
+                💡 <strong>Classes Conducted:</strong> 0 / {editingAssignment.total_classes_snapshot} — This assignment can be edited because classes have not started yet.
+              </div>
+
+              {/* Select Trainer */}
+              <div className="trainer-form-group">
+                <label>Assigned Trainer *</label>
+                <select
+                  value={editFormData.trainer_id}
+                  onChange={e => setEditFormData({ ...editFormData, trainer_id: e.target.value })}
+                  required
+                >
+                  <option value="">-- Choose Trainer --</option>
+                  {trainers.map(t => (
+                    <option key={t.id} value={t.id} disabled={!t.grade}>
+                      {t.name} {t.grade ? `(${t.grade})` : '(No Grade Set)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Select PT Package */}
+              <div className="trainer-form-group">
+                <label>PT Package *</label>
+                <select
+                  value={editFormData.pt_package_id}
+                  onChange={e => setEditFormData({ ...editFormData, pt_package_id: e.target.value })}
+                  required
+                >
+                  <option value="">-- Choose Package --</option>
+                  {packages.map(pkg => (
+                    <option key={pkg.id} value={pkg.id}>
+                      {pkg.name} — {pkg.total_classes} classes ({pkg.duration_days || 30} days) ({formatCurrency(pkg.price)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Assigned Start Date */}
+              <div className="trainer-form-group">
+                <label>Assigned Start Date *</label>
+                <input
+                  type="date"
+                  value={editFormData.assigned_date}
+                  onChange={e => setEditFormData({ ...editFormData, assigned_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              {/* Discount Amount */}
+              {isSuperAdmin && (
+                <div className="trainer-form-group">
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFormData.discount_amount}
+                    onChange={e => setEditFormData({ ...editFormData, discount_amount: e.target.value })}
+                    placeholder="0"
+                  />
+                </div>
+              )}
+
+              <div className="trainer-modal-footer">
+                <button type="button" className="trainer-btn-cancel" onClick={() => setIsEditModalOpen(false)}>Cancel</button>
+                <button type="submit" className="trainer-btn-save">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Modal */}
       <InvoicePreviewModal
         isOpen={!!invoiceClient}
         onClose={() => setInvoiceClient(null)}
@@ -953,6 +1344,48 @@ const PTAssignmentPage = () => {
                 style={{ flex: 1, padding: '0.75rem 1.25rem', backgroundColor: '#dc2626', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Yes, Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Alert / Confirm Modal */}
+      {customPopup.isOpen && (
+        <div className="alert-modal-overlay" style={{ zIndex: 999999 }}>
+          <div className="alert-modal-card" style={{ maxWidth: '440px', textAlign: 'center', padding: '2rem', background: '#ffffff', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
+            <div style={{ width: '60px', height: '60px', background: customPopup.type === 'confirm' ? '#fee2e2' : '#e0e7ff', border: customPopup.type === 'confirm' ? '1px solid #fca5a5' : '1px solid #c7d2fe', borderRadius: '50%', color: customPopup.type === 'confirm' ? '#dc2626' : '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '1.8rem' }}>
+              {customPopup.type === 'confirm' ? '🗑️' : 'ℹ️'}
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: '#1e1b4b', marginBottom: '0.75rem' }}>
+              {customPopup.title}
+            </h3>
+
+            <p style={{ fontSize: '0.92rem', color: '#475569', lineHeight: '1.6', marginBottom: '1.5rem', whiteSpace: 'pre-line' }}>
+              {customPopup.message}
+            </p>
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+              {customPopup.type === 'confirm' && (
+                <button
+                  type="button"
+                  onClick={() => setCustomPopup(prev => ({ ...prev, isOpen: false }))}
+                  style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const onConf = customPopup.onConfirm;
+                  setCustomPopup(prev => ({ ...prev, isOpen: false }));
+                  if (onConf) onConf();
+                }}
+                style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: 'none', background: customPopup.type === 'confirm' ? '#dc2626' : '#4f46e5', color: '#ffffff', fontWeight: '800', cursor: 'pointer' }}
+              >
+                {customPopup.type === 'confirm' ? 'Yes, Delete' : 'OK'}
               </button>
             </div>
           </div>

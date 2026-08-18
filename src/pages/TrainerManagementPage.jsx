@@ -28,6 +28,8 @@ const TrainerManagementPage = () => {
     profileImage: ''
   });
 
+  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '' });
+
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -47,6 +49,16 @@ const TrainerManagementPage = () => {
     fetchTrainers();
     fetchDailyStatuses();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && viewImageModal.isOpen) {
+        setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '' });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewImageModal.isOpen]);
 
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -278,9 +290,38 @@ const TrainerManagementPage = () => {
                 </div>
 
                 <div className="trainer-info" style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', margin: '0.75rem 0' }}>
-                  <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, #f1f5f9, #cbd5e1)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #ffffff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                  <div 
+                    className="trainer-avatar-wrapper"
+                    onClick={() => trainer.profileImage && setViewImageModal({
+                      isOpen: true,
+                      imageUrl: trainer.profileImage,
+                      title: trainer.name,
+                      subtitle: `${trainer.trainerId || ''} • ${trainer.specialization || 'General Trainer'}`
+                    })}
+                    style={{ 
+                      width: '56px', 
+                      height: '56px', 
+                      borderRadius: '50%', 
+                      overflow: 'hidden', 
+                      flexShrink: 0, 
+                      background: 'linear-gradient(135deg, #f1f5f9, #cbd5e1)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      border: '2px solid #ffffff', 
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      cursor: trainer.profileImage ? 'pointer' : 'default',
+                      position: 'relative'
+                    }}
+                    title={trainer.profileImage ? "Click to view full photo" : ""}
+                  >
                     {trainer.profileImage ? (
-                      <img src={trainer.profileImage} alt={trainer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <>
+                        <img src={trainer.profileImage} alt={trainer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <div className="avatar-hover-overlay">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                        </div>
+                      </>
                     ) : (
                       <span style={{ fontWeight: '900', fontSize: '1.2rem', color: '#475569' }}>
                         {trainer.name ? trainer.name.charAt(0).toUpperCase() : 'T'}
@@ -360,9 +401,37 @@ const TrainerManagementPage = () => {
               <div className="trainer-form-group" style={{ marginBottom: '1.25rem' }}>
                 <label>Profile Photo</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.25rem' }}>
-                  <div style={{ width: '60px', height: '60px', borderRadius: '50%', overflow: 'hidden', background: '#f1f5f9', border: '2px solid #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <div 
+                    className="trainer-form-avatar-wrapper"
+                    onClick={() => formData.profileImage && setViewImageModal({
+                      isOpen: true,
+                      imageUrl: formData.profileImage,
+                      title: formData.name || 'Trainer Profile Photo',
+                      subtitle: formData.trainerId ? `Trainer ID: ${formData.trainerId}` : ''
+                    })}
+                    style={{ 
+                      width: '64px', 
+                      height: '64px', 
+                      borderRadius: '50%', 
+                      overflow: 'hidden', 
+                      background: '#f1f5f9', 
+                      border: '2px solid #cbd5e1', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      flexShrink: 0,
+                      position: 'relative',
+                      cursor: formData.profileImage ? 'pointer' : 'default'
+                    }}
+                    title={formData.profileImage ? "Click to view full photo" : ""}
+                  >
                     {formData.profileImage ? (
-                      <img src={formData.profileImage} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <>
+                        <img src={formData.profileImage} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <div className="avatar-hover-overlay">
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                        </div>
+                      </>
                     ) : (
                       <span style={{ fontSize: '1.4rem', color: '#94a3b8' }}>📷</span>
                     )}
@@ -370,6 +439,35 @@ const TrainerManagementPage = () => {
                   <div>
                     <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '0.82rem' }} />
                     <small style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', marginTop: '4px' }}>PNG, JPG or WEBP under 2MB</small>
+                    {formData.profileImage && (
+                      <button
+                        type="button"
+                        className="btn-view-full-image"
+                        onClick={() => setViewImageModal({
+                          isOpen: true,
+                          imageUrl: formData.profileImage,
+                          title: formData.name || 'Trainer Profile Photo',
+                          subtitle: formData.trainerId ? `Trainer ID: ${formData.trainerId}` : ''
+                        })}
+                        style={{
+                          marginTop: '6px',
+                          fontSize: '0.78rem',
+                          color: '#ea580c',
+                          background: 'rgba(234, 88, 12, 0.08)',
+                          border: '1px solid rgba(234, 88, 12, 0.3)',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          padding: '3px 8px',
+                          fontWeight: '700',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                        View Full Image
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -469,6 +567,41 @@ const TrainerManagementPage = () => {
               >
                 Yes, Exit
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Image Preview Lightbox Modal */}
+      {viewImageModal.isOpen && (
+        <div 
+          className="image-lightbox-overlay"
+          onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '' })}
+        >
+          <div 
+            className="image-lightbox-card"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="image-lightbox-header">
+              <div>
+                <h3>{viewImageModal.title || 'Trainer Profile Photo'}</h3>
+                {viewImageModal.subtitle && <p>{viewImageModal.subtitle}</p>}
+              </div>
+              <button
+                type="button"
+                className="image-lightbox-close"
+                onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '' })}
+                title="Close (Esc)"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="image-lightbox-body">
+              <img 
+                src={viewImageModal.imageUrl} 
+                alt={viewImageModal.title || 'Full Profile Photo'} 
+                className="image-lightbox-img"
+              />
             </div>
           </div>
         </div>

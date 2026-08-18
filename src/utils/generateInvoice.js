@@ -1,6 +1,7 @@
 import qrImage from '../assets/qr.png';
 import logoImg from '../assets/olympia logo 2025 SATYA-page-1.png';
 import { formatDateDDMMYYYY } from './formatDate';
+import { formatShortId } from './formatShortId';
 
 export const generateInvoice = (client, businessGstin) => {
   const rawDate = client.invoiceDate ? client.invoiceDate : new Date();
@@ -477,7 +478,7 @@ export const generateInvoice = (client, businessGstin) => {
     <div class="bill-to-name">${client.clientName || client.name || 'Client Name'}</div>
     <div class="bill-to-detail">
       Mobile: ${client.mobile || client.phone || 'N/A'}<br>
-      Client ID: ${client.clientId || 'N/A'}<br>
+      Client ID: ${formatShortId(client.clientId || client.id || 'N/A')}<br>
       ${(client.client_gstin_snapshot || client.gstin) ? `GSTIN: ${client.client_gstin_snapshot || client.gstin}<br>` : ''}
       Place of Supply: Tamil Nadu
     </div>

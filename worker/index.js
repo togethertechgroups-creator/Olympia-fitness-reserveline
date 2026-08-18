@@ -32,6 +32,22 @@ export default {
 
       const url = new URL(request.url);
 
+      // ── Route 0: R2 Profile Pictures (/api/images/*) ──
+      if (request.method === 'GET' && url.pathname.startsWith('/api/images/')) {
+        const objectKey = decodeURIComponent(url.pathname.replace('/api/images/', ''));
+        if (env.GYM_PROFILE_PICTURES) {
+          const object = await env.GYM_PROFILE_PICTURES.get(objectKey);
+          if (object) {
+            const headers = new Headers();
+            object.writeHttpMetadata(headers);
+            headers.set('etag', object.httpEtag);
+            headers.set('Cache-Control', 'public, max-age=31536000');
+            headers.set('Access-Control-Allow-Origin', '*');
+            return new Response(object.body, { headers });
+          }
+        }
+      }
+
       // ── Route 1: Backend API calls (/api/*) ──
       if (url.pathname.startsWith('/api')) {
         return await handler(request, env, ctx);

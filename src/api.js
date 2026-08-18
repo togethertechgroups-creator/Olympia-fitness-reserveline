@@ -244,6 +244,22 @@ export const getClientBills = async (clientId) => {
   return handleResponse(response);
 };
 
+export const updateBill = async (id, data) => {
+  const response = await fetch(`${BASE_URL}/bills/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const deleteBill = async (id) => {
+  const response = await fetch(`${BASE_URL}/bills/${id}`, {
+    method: 'DELETE',
+  });
+  return handleResponse(response);
+};
+
 // ─── Inquiry API ───────────────────────────────────────────────────────────
 
 export const getInquiries = async () => {
@@ -438,6 +454,23 @@ export const addPtAssignment = async (assignmentData) => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(assignmentData),
+  });
+  return handleResponse(response);
+};
+
+export const updatePtAssignment = async (id, updateData) => {
+  const response = await fetch(`${BASE_URL}/pt-assignments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updateData),
+  });
+  return handleResponse(response);
+};
+
+export const deletePtAssignment = async (id) => {
+  const response = await fetch(`${BASE_URL}/pt-assignments/${id}`, {
+    method: 'DELETE',
+    headers: { 'x-user-role': localStorage.getItem('userRole') || '' },
   });
   return handleResponse(response);
 };
@@ -814,6 +847,18 @@ export const getOtherServicesSales = async () => {
 };
 
 export const getOtherServiceSales = getOtherServicesSales;
+
+export const updateOtherServiceSale = async (id, data) => {
+  const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-user-role': localStorage.getItem('userRole') || ''
+    },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
 
 export const deleteOtherServiceSale = async (id) => {
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {

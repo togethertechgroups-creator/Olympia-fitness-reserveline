@@ -1,10 +1,16 @@
 export const formatShortId = (id) => {
   if (!id && id !== 0) return 'N/A';
-  const str = String(id).trim();
+  let str = String(id).trim();
   if (!str) return 'N/A';
 
-  // If it's a formatted ID like CLI-2789, CLI-0010, TRN-001, return as is
-  if (/^(CLI|TRN|BILL|PT|SUB|ADM|GST)-/i.test(str)) {
+  // Remove "CLI-" or "cli" prefix
+  if (/^CLI[-_\s]?/i.test(str)) {
+    str = str.replace(/^CLI[-_\s]?/i, '');
+    return str.toUpperCase() || 'N/A';
+  }
+
+  // If it's a formatted ID like TRN-001, BILL-0010, PT-001, return as is
+  if (/^(TRN|BILL|PT|SUB|ADM|GST)-/i.test(str)) {
     return str.toUpperCase();
   }
 

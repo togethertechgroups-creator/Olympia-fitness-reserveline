@@ -13,6 +13,7 @@ const DashboardPage = () => {
   const [revenue, setRevenue] = useState([]);
   const [performance, setPerformance] = useState([]);
   const [clients, setClients] = useState([]);
+  const [allClientsList, setAllClientsList] = useState([]);
   const [ptSummary, setPtSummary] = useState(null);
   const [supplementsSummary, setSupplementsSummary] = useState(null);
   const [activePtCount, setActivePtCount] = useState(0);
@@ -36,18 +37,28 @@ const DashboardPage = () => {
 
   const getFilterDates = () => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    const todayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
     if (dateFilterMode === 'Today') {
       return { start: todayStr, end: todayStr };
     } else if (dateFilterMode === 'This Week') {
       const d = new Date(today);
       const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      const startOfWeek = new Date(d.setDate(diff)).toISOString().split('T')[0];
-      return { start: startOfWeek, end: todayStr };
+      const diffToMon = d.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(d.setDate(diffToMon));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+
+      const startOfWeek = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+      const endOfWeek = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`;
+      return { start: startOfWeek, end: endOfWeek };
     } else if (dateFilterMode === 'This Month') {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-      return { start: firstDay, end: todayStr };
+      const firstDayStr = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDayNum = new Date(year, month + 1, 0).getDate();
+      const lastDayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+      return { start: firstDayStr, end: lastDayStr };
     } else {
       return { start: customStartDate, end: customEndDate };
     }
@@ -72,6 +83,7 @@ const DashboardPage = () => {
         setRevenue(revenueData);
         setPerformance(perfData);
         setClients(clientsData.slice(0, 8));
+        setAllClientsList(clientsData || []);
         setPtSummary(ptData);
         setSupplementsSummary(suppSummaryData);
         const activeCount = (ptAssignData || []).filter(a => (a.status || '').toLowerCase() === 'active').length;
@@ -85,6 +97,11 @@ const DashboardPage = () => {
     };
     loadData();
   }, [selectedMonth, dateFilterMode, customStartDate, customEndDate]);
+
+  const activeMaleCount = rangeStats?.activeMaleClients !== undefined ? rangeStats.activeMaleClients : (stats?.activeMaleClients !== undefined ? stats.activeMaleClients : allClientsList.filter(c => c.status === 'active' && (c.gender || '').toLowerCase() !== 'female').length);
+  const activeFemaleCount = rangeStats?.activeFemaleClients !== undefined ? rangeStats.activeFemaleClients : (stats?.activeFemaleClients !== undefined ? stats.activeFemaleClients : allClientsList.filter(c => c.status === 'active' && (c.gender || '').toLowerCase() === 'female').length);
+  const inactiveMaleCount = rangeStats?.inactiveMaleClients !== undefined ? rangeStats.inactiveMaleClients : (stats?.inactiveMaleClients !== undefined ? stats.inactiveMaleClients : allClientsList.filter(c => c.status !== 'active' && (c.gender || '').toLowerCase() !== 'female').length);
+  const inactiveFemaleCount = rangeStats?.inactiveFemaleClients !== undefined ? rangeStats.inactiveFemaleClients : (stats?.inactiveFemaleClients !== undefined ? stats.inactiveFemaleClients : allClientsList.filter(c => c.status !== 'active' && (c.gender || '').toLowerCase() === 'female').length);
 
   if (loading) return <div className="dashboard-loading-screen">Loading Management Portal...</div>;
 
@@ -209,7 +226,7 @@ const DashboardPage = () => {
             </div>
           )}
 
-          {rangeStats && rangeStats.rangeRevenue !== undefined && (
+          {rangeStats && (
             <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#059669', background: '#ecfdf5', padding: '0.4rem 0.85rem', borderRadius: '8px', border: '1px solid #a7f3d0' }}>
               Period Collection: <strong>₹{(rangeStats.rangeRevenue || 0).toLocaleString('en-IN')}</strong> | Expenses: <strong>₹{(rangeStats.rangeExpenses || 0).toLocaleString('en-IN')}</strong>
             </div>
@@ -394,6 +411,10 @@ const DashboardPage = () => {
                   <div className="combined-metric-box" style={{ background: '#f0fdf4', padding: '0.9rem', borderRadius: '12px', border: '1.5px solid #bbf7d0', cursor: 'pointer', textAlign: 'center' }} onClick={() => navigate('/manage-clients?status=Active')}>
                     <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#16a34a', lineHeight: 1 }}>{stats?.activeClients || 0}</div>
                     <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#15803d', textTransform: 'uppercase', marginTop: '0.35rem' }}>🟢 Active General Clients</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '0.45rem', fontSize: '0.76rem', fontWeight: '800' }}>
+                      <span style={{ background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: '6px', border: '1px solid #86efac' }}>♂️ Male: {activeMaleCount}</span>
+                      <span style={{ background: '#fce7f3', color: '#be185d', padding: '3px 8px', borderRadius: '6px', border: '1px solid #fbcfe8' }}>♀️ Female: {activeFemaleCount}</span>
+                    </div>
                   </div>
 
                   <div className="combined-metric-box" style={{ background: '#fdf2f8', padding: '0.9rem', borderRadius: '12px', border: '1.5px solid #fbcfe8', cursor: 'pointer', textAlign: 'center' }} onClick={() => navigate('/pt-assignments?status=Active')}>
@@ -407,6 +428,10 @@ const DashboardPage = () => {
                   <div className="combined-metric-box" style={{ background: '#fffbeb', padding: '0.9rem', borderRadius: '12px', border: '1.5px solid #fde68a', cursor: 'pointer', textAlign: 'center' }} onClick={() => navigate('/manage-clients?status=Inactive')}>
                     <div style={{ fontSize: '1.6rem', fontWeight: '900', color: '#d97706', lineHeight: 1 }}>{stats?.inactiveClients || 0}</div>
                     <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#b45309', textTransform: 'uppercase', marginTop: '0.35rem' }}>⚠️ Inactive Clients</div>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '0.45rem', fontSize: '0.76rem', fontWeight: '800' }}>
+                      <span style={{ background: '#fef3c7', color: '#b45309', padding: '3px 8px', borderRadius: '6px', border: '1px solid #fde68a' }}>♂️ Male: {inactiveMaleCount}</span>
+                      <span style={{ background: '#ffe4e6', color: '#be123c', padding: '3px 8px', borderRadius: '6px', border: '1px solid #fecdd3' }}>♀️ Female: {inactiveFemaleCount}</span>
+                    </div>
                   </div>
 
                   <div className="combined-metric-box" style={{ background: '#fff1f2', padding: '0.9rem', borderRadius: '12px', border: '1.5px solid #fecdd3', cursor: 'pointer', textAlign: 'center' }} onClick={() => navigate('/pt-assignments?status=Inactive')}>

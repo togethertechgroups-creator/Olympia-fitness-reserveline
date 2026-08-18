@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings } from '../api';
+import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getOtherServicesSales, getExpenses, getSupplementSales } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -28,11 +28,14 @@ const TransactionsPage = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [txnData, clientsData, genBookings, ptBookings] = await Promise.all([
+      const [txnData, clientsData, genBookings, ptBookings, otherServiceSales, expensesData, suppSales] = await Promise.all([
         fetchTransactions(),
         getClients(),
         getGeneralBookings(),
-        getPtAdvanceBookings()
+        getPtAdvanceBookings(),
+        getOtherServicesSales().catch(() => []),
+        getExpenses().catch(() => []),
+        getSupplementSales().catch(() => [])
       ]);
       
       const map = {};
@@ -42,27 +45,108 @@ const TransactionsPage = () => {
         clientsMapById[c.id] = c;
       });
 
-      const mappedGenBookings = (genBookings || []).map(b => ({
-        id: `gen-adv-${b.id}`,
-        clientId: b.client_id,
-        name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
-        method: b.payment_method ? `${b.payment_method} (Adv-Gen)` : 'ADVANCE (Gen)',
-        amount: b.price || 0,
-        date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
-        status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-        timestamp: b.created_at || b.booking_start_date || ''
-      }));
+      const mappedGenBookings = (genBookings || []).map(b => {
+        const grossPrice = parseFloat(b.price) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const netAmount = Math.max(0, grossPrice - discountVal);
+        return {
+          id: `gen-adv-${b.id}`,
+          clientId: b.client_id,
+          name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+          method: b.payment_method ? `${b.payment_method} (ADV-GEN)` : 'ADVANCE (GEN)',
+          amount: netAmount,
+          grossAmount: grossPrice,
+          discountAmount: discountVal,
+          date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
+          status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+          timestamp: b.created_at || b.booking_start_date || ''
+        };
+      });
 
-      const mappedPtBookings = (ptBookings || []).map(b => ({
-        id: `pt-adv-${b.id}`,
-        clientId: b.client_id,
-        name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
-        method: b.payment_method ? `${b.payment_method} (Adv-PT)` : 'ADVANCE (PT)',
-        amount: b.price_snapshot || 0,
-        date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
-        status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-        timestamp: b.created_at || b.booking_start_date || ''
-      }));
+      const mappedPtBookings = (ptBookings || []).map(b => {
+        const grossPrice = parseFloat(b.price_snapshot) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const netAmount = Math.max(0, grossPrice - discountVal);
+        return {
+          id: `pt-adv-${b.id}`,
+          clientId: b.client_id,
+          name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+          method: b.payment_method ? `${b.payment_method} (ADV-PT)` : 'ADVANCE (PT)',
+          amount: netAmount,
+          grossAmount: grossPrice,
+          discountAmount: discountVal,
+          date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
+          status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+          timestamp: b.created_at || b.booking_start_date || ''
+        };
+      });
+
+      const existingBillIds = new Set((txnData || []).map(t => t.billId).filter(Boolean));
+      const existingTxnIds = new Set((txnData || []).map(t => String(t.id)).filter(Boolean));
+
+      const mappedOtherServiceSales = (otherServiceSales || [])
+        .filter(s => {
+          if (s.invoice_id && existingBillIds.has(s.invoice_id)) return false;
+          if (s.id && existingTxnIds.has(String(s.id))) return false;
+          return true;
+        })
+        .map(s => {
+          const grossPrice = parseFloat(s.original_price) || (parseFloat(s.price_snapshot || 0) + (parseFloat(s.discount_amount) || 0));
+          const discountVal = parseFloat(s.discount_amount) || 0;
+          const paidVal = parseFloat(s.paidAmount !== undefined ? s.paidAmount : s.price_snapshot) || 0;
+          const payMethod = s.payment_method ? `${s.payment_method} (OTHER SERVICE)` : 'CASH (OTHER SERVICE)';
+          return {
+            id: `other-svc-${s.id}`,
+            clientId: s.clientCode || s.client_id,
+            name: `${s.clientName || clientsMapById[s.client_id]?.name || 'Unknown Client'} - ${s.serviceName || 'Other Service'}`,
+            method: payMethod,
+            amount: paidVal,
+            grossAmount: grossPrice,
+            discountAmount: discountVal,
+            date: s.sale_date ? s.sale_date.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : ''),
+            status: (s.paymentStatus === 'Cancelled' || s.status === 'Cancelled') ? 'CANCELLED' : (s.paymentStatus || 'CAPTURED').toUpperCase(),
+            timestamp: s.created_at || s.sale_date || ''
+          };
+        });
+
+      const mappedSupplementSales = (suppSales || [])
+        .filter(s => {
+          if (s.invoice_id && existingBillIds.has(s.invoice_id)) return false;
+          if (s.id && existingTxnIds.has(String(s.id))) return false;
+          return true;
+        })
+        .map(s => {
+          const grossPrice = parseFloat(s.total_amount) || 0;
+          const payMethod = s.payment_mode ? `${s.payment_mode.toUpperCase()} (SUPPLEMENT)` : 'CASH (SUPPLEMENT)';
+          const buyerName = s.client_name || s.walkin_name || clientsMapById[s.client_id]?.name || 'Walk-in Customer';
+          return {
+            id: `supp-sale-${s.id}`,
+            clientId: s.client_id ? (clientsMapById[s.client_id]?.clientId || s.client_id) : 'WALK-IN',
+            name: `${buyerName} - ${s.supplement_name || 'Supplement'}`,
+            method: payMethod,
+            amount: grossPrice,
+            grossAmount: grossPrice,
+            discountAmount: 0,
+            date: s.sale_date ? s.sale_date.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : ''),
+            status: 'CAPTURED',
+            timestamp: s.created_at || s.sale_date || ''
+          };
+        });
+
+      const mappedExpenses = (expensesData || []).map(e => {
+        return {
+          id: `exp-${e.id}`,
+          clientId: 'EXPENSE',
+          name: e.name || 'Gym Expense',
+          method: e.paymentMode ? `${e.paymentMode} (EXPENSE)` : 'CASH (EXPENSE)',
+          amount: parseFloat(e.amount) || 0,
+          grossAmount: parseFloat(e.amount) || 0,
+          discountAmount: 0,
+          date: e.date || '',
+          status: 'EXPENSE',
+          timestamp: e.timestamp || e.date || ''
+        };
+      });
 
       const normalizeDateStr = (dStr) => {
           if (!dStr) return '';
@@ -100,7 +184,7 @@ const TransactionsPage = () => {
         return isNaN(numId) ? 0 : numId;
       };
 
-      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings];
+      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
       combinedTxns.sort((a, b) => {
         const timeA = parseTimeToMs(a);
         const timeB = parseTimeToMs(b);
@@ -240,10 +324,17 @@ const TransactionsPage = () => {
   }, 0);
 
   const totalFilteredAmount = filteredTxns.reduce((sum, txn) => {
-    if (isCancelledStatus(txn.status)) {
+    if (isCancelledStatus(txn.status) || txn.status === 'EXPENSE') {
       return sum;
     }
     return sum + Number(txn.amount || 0);
+  }, 0);
+
+  const totalExpenseAmount = filteredTxns.reduce((sum, txn) => {
+    if (txn.status === 'EXPENSE') {
+      return sum + Number(txn.amount || 0);
+    }
+    return sum;
   }, 0);
 
   // Pagination Math
@@ -263,6 +354,7 @@ const TransactionsPage = () => {
   };
 
   const getDisplayClientId = (txn) => {
+    if (txn.clientId === 'EXPENSE') return 'EXPENSE';
     if (clientsMap[txn.name]) return formatShortId(clientsMap[txn.name]);
     const baseName = txn.name ? txn.name.split(' - ')[0].trim() : '';
     if (clientsMap[baseName]) return formatShortId(clientsMap[baseName]);
@@ -362,6 +454,12 @@ const TransactionsPage = () => {
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net Received Amount</span>
           <span style={{ fontSize: '2rem', fontWeight: 900, color: '#16a34a' }}>₹{totalFilteredAmount.toLocaleString()}</span>
         </div>
+        {totalExpenseAmount > 0 && (
+          <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: '#fff7ed', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #ffedd5', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#c2410c', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Expenses / Outflows</span>
+            <span style={{ fontSize: '2rem', fontWeight: 900, color: '#ea580c' }}>₹{totalExpenseAmount.toLocaleString()}</span>
+          </div>
+        )}
         {totalCancelledAmount > 0 && (
           <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: '#fef2f2', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #fecaca', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cancelled Amount</span>
@@ -398,12 +496,25 @@ const TransactionsPage = () => {
                     </span>
                   </td>
                   <td className="date-col">{formatDateDDMMYYYY(txn.date)}</td>
-                  <td className="amount-col" style={isCancelledStatus(txn.status) ? { color: '#dc2626', fontWeight: 700 } : {}}>
-                    ₹{Number(txn.amount || 0).toLocaleString()}
+                  <td className="amount-col" style={isCancelledStatus(txn.status) || txn.status === 'EXPENSE' ? { color: '#dc2626', fontWeight: 700 } : {}}>
+                    <div>{txn.status === 'EXPENSE' ? `-₹${Number(txn.amount || 0).toLocaleString()}` : `₹${Number(txn.amount || 0).toLocaleString()}`}</div>
+                    {txn.discountAmount > 0 && (
+                      <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: 600, marginTop: '2px' }}>
+                        (₹{Number(txn.grossAmount).toLocaleString()} - ₹{Number(txn.discountAmount).toLocaleString()} disc)
+                      </div>
+                    )}
                   </td>
                   <td className="status-col">
-                    <span className="captured-badge" style={isCancelledStatus(txn.status) ? { color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca' } : {}}>
-                      <div className="dot" style={isCancelledStatus(txn.status) ? { background: '#dc2626' } : {}}></div>
+                    <span className="captured-badge" style={
+                      isCancelledStatus(txn.status) ? { color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca' }
+                      : txn.status === 'EXPENSE' ? { color: '#ea580c', background: '#fff7ed', border: '1px solid #ffedd5' }
+                      : {}
+                    }>
+                      <div className="dot" style={
+                        isCancelledStatus(txn.status) ? { background: '#dc2626' }
+                        : txn.status === 'EXPENSE' ? { background: '#ea580c' }
+                        : {}
+                      }></div>
                       {txn.status}
                     </span>
                   </td>

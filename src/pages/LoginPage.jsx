@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginUser } from '../api';
 import loginLogo from '../assets/olympialogo.jpeg';
+import rightPosterLogo from '../assets/olympialogo copy.jpeg';
 import './LoginPage.css';
 
 const LoginPage = ({ onLogin }) => {
@@ -113,7 +114,7 @@ const LoginPage = ({ onLogin }) => {
 
       {/* Right Side: Full Poster Image */}
       <div className="login-image-side">
-        <img src={loginLogo} alt="Olympia Fitness Poster" className="login-poster-img" />
+        <img src={rightPosterLogo} alt="Olympia Fitness Poster" className="login-poster-img" />
       </div>
     </div>
   );

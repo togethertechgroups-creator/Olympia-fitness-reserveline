@@ -50,6 +50,7 @@ export function expressToFetch(expressApp) {
         const req = new http.IncomingMessage(dummySocket);
         req.url    = url.pathname + url.search;
         req.method = request.method;
+        req.env    = env;
 
         // Copy headers
         const reqHeaders = {};
@@ -67,7 +68,10 @@ export function expressToFetch(expressApp) {
         }
         req.push(null); // Signal EOF to Stream.Readable
 
-        if (parsedBody !== undefined) {
+        if (hasBodyMethod) {
+          req.body = parsedBody !== undefined ? parsedBody : {};
+          req._body = true;
+        } else if (parsedBody !== undefined) {
           req.body = parsedBody;
           req._body = true;
         }

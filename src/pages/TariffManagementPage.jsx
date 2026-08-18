@@ -4,6 +4,7 @@ import PTPackageManagementPage from './PTPackageManagementPage';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { getOtherServices, addOtherService, updateOtherService, deleteOtherService, toggleOtherServiceHide, toggleOtherServiceActive, sellOtherService, getOtherServiceSales, getClients } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import { isValidGSTIN } from '../utils/gstValidator';
 import './PricingSettingsPage.css';
 import './TariffManagementPage.css';
@@ -162,6 +163,7 @@ const TariffManagementPage = ({ defaultTab }) => {
         service_id: selectedSvc ? selectedSvc.id : '',
         sale_date: new Date().toISOString().split('T')[0],
         paid_amount: selectedSvc ? selectedSvc.price : 0,
+        discount_amount: 0,
         payment_method: 'UPI'
       });
       setIsSellModalOpen(true);
@@ -183,10 +185,25 @@ const TariffManagementPage = ({ defaultTab }) => {
 
   const handleServiceSelectionChange = (serviceId) => {
     const foundSvc = otherServices.find(s => String(s.id) === String(serviceId));
+    const price = foundSvc ? foundSvc.price : 0;
+    const disc = parseFloat(sellFormData.discount_amount) || 0;
+    const net = Math.max(0, price - disc);
     setSellFormData(prev => ({
       ...prev,
       service_id: serviceId,
-      paid_amount: foundSvc ? foundSvc.price : prev.paid_amount
+      paid_amount: net
+    }));
+  };
+
+  const handleSellDiscountChange = (discVal) => {
+    const disc = parseFloat(discVal) || 0;
+    const foundSvc = otherServices.find(s => String(s.id) === String(sellFormData.service_id));
+    const price = foundSvc ? foundSvc.price : 0;
+    const net = Math.max(0, price - disc);
+    setSellFormData(prev => ({
+      ...prev,
+      discount_amount: discVal,
+      paid_amount: net
     }));
   };
 
@@ -513,7 +530,7 @@ const TariffManagementPage = ({ defaultTab }) => {
                         <option value="">-- Choose Client --</option>
                         {clients.map(c => (
                           <option key={c.id} value={c.id}>
-                            {c.name} ({c.clientId || 'ID N/A'})
+                            {c.name} ({formatShortId(c.clientId || c.id)})
                           </option>
                         ))}
                       </select>
@@ -597,6 +614,20 @@ const TariffManagementPage = ({ defaultTab }) => {
                         />
                       </div>
                       <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Discount Amount (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={sellFormData.discount_amount}
+                          onChange={(e) => handleSellDiscountChange(e.target.value)}
+                          placeholder="0"
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
                         <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Payment Method *</label>
                         <select
                           value={sellFormData.payment_method}
@@ -610,17 +641,16 @@ const TariffManagementPage = ({ defaultTab }) => {
                           <option value="Net Banking">Net Banking</option>
                         </select>
                       </div>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Sale Date *</label>
-                      <input
-                        type="date"
-                        value={sellFormData.sale_date}
-                        onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
-                        required
-                        style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
-                      />
+                      <div>
+                        <label style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase', marginBottom: '0.4rem', display: 'block' }}>Sale Date *</label>
+                        <input
+                          type="date"
+                          value={sellFormData.sale_date}
+                          onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
+                          required
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '700' }}
+                        />
+                      </div>
                     </div>
 
                     <div className="renew-actions-row">

@@ -67,8 +67,83 @@ const PORT = 5000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use((req, res, next) => {
+  if (!req.body || typeof req.body !== 'object') {
+    req.body = {};
+  }
+  next();
+});
+const fs = require('fs');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
+}
 
+app.use('/api/images', express.static(UPLOADS_DIR));
+app.get('/api/images/*', (req, res) => {
+  const relPath = req.params[0];
+  const basename = path.basename(relPath);
+  const filePath = path.join(UPLOADS_DIR, basename);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+  const exactPath = path.join(UPLOADS_DIR, relPath);
+  if (fs.existsSync(exactPath)) {
+    return res.sendFile(exactPath);
+  }
+  res.status(404).json({ error: 'Image not found' });
+});
 
+const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
+  if (!profileImage || typeof profileImage !== 'string') return profileImage || null;
+  if (!profileImage.startsWith('data:image/')) return profileImage;
+
+  try {
+    const match = profileImage.match(/^data:(image\/[a-zA-Z0-9\+\-]+);base64,(.+)$/);
+    if (!match) return profileImage;
+
+    const mimeType = match[1];
+    const base64Data = match[2];
+    const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const filename = `${entityType}_${entityId || randomUUID()}_${Date.now()}.${ext}`;
+    const objectKey = `profile_photos/${filename}`;
+
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // 1. Cloudflare Worker R2 Binding (when deployed / running in Worker context)
+    const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+    if (r2Bucket && typeof r2Bucket.put === 'function') {
+      await r2Bucket.put(objectKey, buffer, {
+        httpMetadata: { contentType: mimeType }
+      });
+      console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket gym-profile-pictures (Worker)`);
+      return `/api/images/${objectKey}`;
+    }
+
+    // 2. Local Node Development Mode - Write to local disk & sync to remote Cloudflare R2 bucket via Wrangler CLI
+    const localFilePath = path.join(UPLOADS_DIR, filename);
+    fs.writeFileSync(localFilePath, buffer);
+
+    try {
+      const { exec } = require('child_process');
+      const cmd = `npx wrangler r2 object put gym-profile-pictures/${objectKey} --file "${localFilePath}" --remote --content-type "${mimeType}"`;
+      exec(cmd, (err) => {
+        if (err) {
+          console.error(`Wrangler R2 upload warning: ${err.message}`);
+        } else {
+          console.log(`✅ Uploaded ${objectKey} to remote Cloudflare R2 bucket gym-profile-pictures via Wrangler CLI`);
+        }
+      });
+    } catch (e) {
+      console.error('Wrangler R2 exec error:', e);
+    }
+
+    return `/api/images/${objectKey}`;
+  } catch (err) {
+    console.error('Failed to save profile picture to R2:', err);
+    return profileImage;
+  }
+};
 
 // ─── Database Setup (Turso Cloud DB / SQLite) ──────────────────────────────
 const db = require('./db.js');
@@ -91,6 +166,11 @@ async function initDb() {
     gstin       TEXT,
     dateAdded   TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE INDEX IF NOT EXISTS idx_clients_dateAdded ON clients(dateAdded);
+  CREATE INDEX IF NOT EXISTS idx_clients_clientId ON clients(clientId);
+  CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
+  CREATE INDEX IF NOT EXISTS idx_clients_expiryDate ON clients(expiryDate);
 
   CREATE TABLE IF NOT EXISTS transactions (
     id        TEXT PRIMARY KEY,
@@ -564,6 +644,7 @@ async function initDb() {
             pt_package_id INTEGER NOT NULL REFERENCES pt_packages(id),
             trainer_id TEXT NOT NULL REFERENCES trainers(id),
             package_price_snapshot REAL NOT NULL,
+            discount_amount REAL DEFAULT 0,
             total_classes_snapshot INTEGER NOT NULL,
             classes_completed INTEGER DEFAULT 0,
             status TEXT CHECK(status IN ('Active','Completed','Cancelled','Expired')) DEFAULT 'Active',
@@ -577,6 +658,10 @@ async function initDb() {
           ALTER TABLE pt_assignments_new RENAME TO pt_assignments;
         `);
         }
+      } catch (e) { }
+
+      try {
+        db.prepare("ALTER TABLE pt_assignments ADD COLUMN discount_amount REAL DEFAULT 0").run();
       } catch (e) { }
 
       db.exec(`
@@ -902,9 +987,45 @@ const autoActivateAdvanceBookings = async () => {
   }
 };
 
+const syncPayrollLocksToExpenses = async () => {
+  try {
+    const locks = await db.prepare('SELECT * FROM payroll_locks').all();
+    for (const l of (locks || [])) {
+      if (l.month && l.total_payroll > 0) {
+        const monthTitle = formatMonthLabel(l.month);
+        const expId = `payroll-lock-${l.month}`;
+        const expName = `Trainer Salary - ${monthTitle}`;
+        const expNotes = `Locked Trainer Salary Payroll for ${monthTitle}`;
+        let expDate = `${l.month}-28`;
+        const mParts = String(l.month).split('-');
+        if (mParts.length === 2) {
+          const yyyy = parseInt(mParts[0], 10);
+          const mm = parseInt(mParts[1], 10);
+          if (!isNaN(yyyy) && !isNaN(mm)) {
+            const lastDay = new Date(yyyy, mm, 0).getDate();
+            expDate = `${mParts[0]}-${String(mm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+          }
+        }
+        await db.prepare(`
+          INSERT INTO expenses (id, date, name, category, amount, paymentMode, notes)
+          VALUES (?, ?, ?, 'Staff Salary', ?, 'BANK TRANSFER', ?)
+          ON CONFLICT(id) DO UPDATE SET
+            date = excluded.date,
+            name = excluded.name,
+            amount = excluded.amount,
+            notes = excluded.notes
+        `).run(expId, expDate, expName, l.total_payroll, expNotes);
+      }
+    }
+  } catch (e) {
+    console.error('Error syncing payroll locks to expenses:', e.message);
+  }
+};
+
 // Run on startup
 autoExpireAssignments();
 autoActivateAdvanceBookings();
+syncPayrollLocksToExpenses();
 
 const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
   const baseStr = assignedDateStr || new Date().toISOString().split('T')[0];
@@ -1073,11 +1194,16 @@ app.get('/api/bills/client/:clientId', async (req, res) => {
 
 // ─── CLIENT Routes ───────────────────────────────────────────────────────────
 
-// GET all clients
+// GET all clients (including R2 profileImage URL)
 app.get('/api/clients', async (req, res) => {
   try {
     const clients = await db.prepare(`
-      SELECT c.*, t.name as trainerName 
+      SELECT 
+        c.id, c.clientId, c.name, c.phone, c.plan, c.fromDate, c.expiryDate, 
+        c.amount, c.paidAmount, c.dueAmount, c.paymentStatus, c.personalTraining, 
+        c.status, c.gender, c.ptCategory, c.ptFromDate, c.ptToDate, c.ptPackage, 
+        c.programType, c.diet, c.trainerId, c.admissionDate, c.profileImage, c.gstin, c.dateAdded,
+        t.name as trainerName 
       FROM clients c 
       LEFT JOIN trainers t ON c.trainerId = t.id 
       ORDER BY c.dateAdded DESC
@@ -1176,6 +1302,7 @@ app.post('/api/clients', async (req, res) => {
     }
 
     const id = randomUUID();
+    const finalProfileImage = await saveImageToR2(profileImage, 'client', id, req.env);
     const finalPaidAmount = req.body.paidAmount !== undefined ? req.body.paidAmount : amount;
     const dueAmount = amount - finalPaidAmount;
     const paymentStatus = dueAmount <= 0 ? 'Paid' : (finalPaidAmount > 0 ? 'Partial' : 'Due');
@@ -1191,7 +1318,7 @@ app.post('/api/clients', async (req, res) => {
       id, clientId || '', name, phone || '', plan || '', fromDate || '', expiryDate || '',
       amount, personalTraining ? 1 : 0, status,
       gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet ? 1 : 0,
-      trainerId, admissionDate, profileImage,
+      trainerId, admissionDate, finalProfileImage,
       finalPaidAmount, dueAmount, paymentStatus, gstinVal
     );
 
@@ -1312,6 +1439,162 @@ app.get('/api/bills', async (req, res) => {
   }
 });
 
+// PUT update bill / invoice (General Plan / PT / Other)
+app.put('/api/bills/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.prepare('SELECT * FROM bills WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Invoice not found' });
+
+    const {
+      billNo,
+      clientName,
+      planName,
+      planAmount,
+      totalPlanAmount,
+      paidAmount,
+      dueAmount,
+      paymentStatus,
+      invoiceDate,
+      joinDate,
+      expiryDate,
+      discount_amount,
+      client_gstin_snapshot,
+      syncClient = true
+    } = req.body;
+
+    const newPlanAmount = planAmount !== undefined ? parseFloat(planAmount) : (parseFloat(existing.planAmount) || 0);
+    const newTotalPlanAmount = totalPlanAmount !== undefined ? parseFloat(totalPlanAmount) : (planAmount !== undefined ? parseFloat(planAmount) : (parseFloat(existing.totalPlanAmount) || newPlanAmount));
+    const newPaidAmount = paidAmount !== undefined ? parseFloat(paidAmount) : (parseFloat(existing.paidAmount) || 0);
+    const newDueAmount = dueAmount !== undefined ? parseFloat(dueAmount) : Math.max(0, newTotalPlanAmount - newPaidAmount);
+    const newPaymentStatus = paymentStatus || (newDueAmount <= 0 ? 'Paid' : (newPaidAmount > 0 ? 'Partial' : 'Due'));
+    const newPlanName = planName !== undefined ? planName : (existing.planName || '');
+    const newInvoiceDate = invoiceDate !== undefined ? invoiceDate : existing.invoiceDate;
+    const newJoinDate = joinDate !== undefined ? joinDate : existing.joinDate;
+    const newExpiryDate = expiryDate !== undefined ? expiryDate : existing.expiryDate;
+    const newDiscount = discount_amount !== undefined ? parseFloat(discount_amount) : (parseFloat(existing.discount_amount) || 0);
+    const newClientGstin = client_gstin_snapshot !== undefined ? client_gstin_snapshot : (existing.client_gstin_snapshot || '');
+    const newClientName = clientName !== undefined ? clientName : existing.clientName;
+    const newBillNo = billNo !== undefined ? billNo : existing.billNo;
+
+    // Recalculate GST breakdown
+    const gstRate = existing.gst_rate_snapshot || 4.8;
+    const gstCalc = computeGstBreakdown(newTotalPlanAmount, gstRate);
+
+    await db.prepare(`
+      UPDATE bills SET
+        billNo = ?,
+        clientName = ?,
+        planName = ?,
+        planAmount = ?,
+        totalPlanAmount = ?,
+        paidAmount = ?,
+        dueAmount = ?,
+        paymentStatus = ?,
+        invoiceDate = ?,
+        joinDate = ?,
+        expiryDate = ?,
+        discount_amount = ?,
+        client_gstin_snapshot = ?,
+        taxable_value = ?,
+        cgst_amount = ?,
+        sgst_amount = ?,
+        remainingBalance = ?
+      WHERE id = ?
+    `).run(
+      newBillNo,
+      newClientName,
+      newPlanName,
+      newPlanAmount,
+      newTotalPlanAmount,
+      newPaidAmount,
+      newDueAmount,
+      newPaymentStatus,
+      newInvoiceDate,
+      newJoinDate,
+      newExpiryDate,
+      newDiscount,
+      newClientGstin,
+      gstCalc.taxable_value,
+      gstCalc.cgst_amount,
+      gstCalc.sgst_amount,
+      newDueAmount,
+      id
+    );
+
+    // Optionally sync client table
+    if (syncClient && existing.clientId) {
+      try {
+        const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(existing.clientId);
+        if (client) {
+          await db.prepare(`
+            UPDATE clients SET
+              name = COALESCE(?, name),
+              plan = COALESCE(?, plan),
+              amount = COALESCE(?, amount),
+              paidAmount = COALESCE(?, paidAmount),
+              dueAmount = COALESCE(?, dueAmount),
+              paymentStatus = COALESCE(?, paymentStatus),
+              fromDate = COALESCE(?, fromDate),
+              expiryDate = COALESCE(?, expiryDate)
+            WHERE id = ?
+          `).run(
+            newClientName,
+            newPlanName,
+            newTotalPlanAmount,
+            newPaidAmount,
+            newDueAmount,
+            newPaymentStatus,
+            newJoinDate,
+            newExpiryDate,
+            existing.clientId
+          );
+        }
+      } catch (err) {
+        console.error('Error syncing client on bill update:', err);
+      }
+    }
+
+    // Update matching transaction if any
+    try {
+      await db.prepare(`
+        UPDATE transactions
+        SET amount = ?, date = ?, name = ?
+        WHERE billId = ?
+      `).run(newPaidAmount, newInvoiceDate, newClientName, id);
+    } catch (e) {}
+
+    const updatedBill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(id);
+    res.json({ success: true, bill: updatedBill });
+  } catch (err) {
+    console.error('Error updating bill:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE bill / invoice
+app.delete('/api/bills/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.prepare('SELECT * FROM bills WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Invoice not found' });
+
+    // Release any foreign key references
+    try {
+      await db.prepare('UPDATE pt_assignments SET invoice_id = NULL WHERE invoice_id = ?').run(id);
+      await db.prepare('UPDATE other_service_sales SET invoice_id = NULL WHERE invoice_id = ?').run(id);
+      await db.prepare('DELETE FROM transactions WHERE billId = ?').run(id);
+    } catch (e) {}
+
+    await db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+    res.json({ success: true, message: 'Invoice deleted successfully.' });
+  } catch (err) {
+    console.error('Error deleting bill:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // PUT update client
 app.put('/api/clients/:id', async (req, res) => {
   try {
@@ -1324,6 +1607,8 @@ app.put('/api/clients/:id', async (req, res) => {
       gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet,
       trainerId, admissionDate, profileImage, gstin
     } = req.body;
+
+    const finalProfileImage = await saveImageToR2(profileImage, 'client', req.params.id, req.env);
 
     // Check for unique clientId
     if (clientId && clientId !== existing.clientId) {
@@ -1363,7 +1648,7 @@ app.put('/api/clients/:id', async (req, res) => {
       status ?? null,
       gender ?? null, ptCategory ?? null, ptFromDate ?? null, ptToDate ?? null,
       ptPackage ?? null, programType ?? null, diet !== undefined ? (diet ? 1 : 0) : null,
-      trainerId ?? null, admissionDate ?? null, profileImage ?? null, gstin ?? null,
+      trainerId ?? null, admissionDate ?? null, finalProfileImage ?? null, gstin ?? null,
       req.params.id
     );
 
@@ -1476,10 +1761,12 @@ app.post('/api/trainers', async (req, res) => {
       : null;
 
     const id = randomUUID();
+    const finalProfileImage = await saveImageToR2(profileImage, 'trainer', id, req.env);
+
     await db.prepare(`
       INSERT INTO trainers (id, trainerId, name, specialization, experience, status, grade, custom_commission_percent, profileImage)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, trainerId, name, specialization, experience, status, grade, commOverride, profileImage || null);
+    `).run(id, trainerId, name, specialization, experience, status, grade, commOverride, finalProfileImage || null);
 
     const newTrainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(id);
     res.status(201).json(newTrainer);
@@ -1499,11 +1786,13 @@ app.put('/api/trainers/:id', async (req, res) => {
       ? parseFloat(custom_commission_percent)
       : null;
 
+    const finalProfileImage = await saveImageToR2(profileImage, 'trainer', req.params.id, req.env);
+
     await db.prepare(`
       UPDATE trainers SET
         trainerId = ?, name = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?
       WHERE id = ?
-    `).run(trainerId, name, specialization, experience, status, grade, commOverride, profileImage || null, req.params.id);
+    `).run(trainerId, name, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id);
 
     const updated = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(req.params.id);
     res.json(updated);
@@ -1609,23 +1898,26 @@ app.get('/api/pt-assignments', async (req, res) => {
     let query = `
       SELECT a.*, 
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
-             t.name as trainerName, t.grade as trainerGrade,
-             p.name as packageName, p.category as packageCategory, p.duration_days
+             t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
+             p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
+             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
+             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
       FROM pt_assignments a
-      JOIN clients c ON a.client_id = c.id
-      JOIN trainers t ON a.trainer_id = t.id
-      JOIN pt_packages p ON a.pt_package_id = p.id
+      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
+      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
       WHERE 1=1
     `;
     const params = [];
-    if (client_id) { query += ' AND a.client_id = ?'; params.push(client_id); }
-    if (trainer_id) { query += ' AND a.trainer_id = ?'; params.push(trainer_id); }
+    if (client_id) { query += ' AND (CAST(a.client_id AS TEXT) = CAST(? AS TEXT) OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT))'; params.push(client_id, client_id); }
+    if (trainer_id) { query += ' AND CAST(a.trainer_id AS TEXT) = CAST(? AS TEXT)'; params.push(trainer_id); }
     if (status) { query += ' AND a.status = ?'; params.push(status); }
 
     query += ' ORDER BY a.created_at DESC';
     const assignments = await db.prepare(query).all(...params);
     res.json(assignments);
   } catch (err) {
+    console.error('Error fetching pt-assignments:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1635,18 +1927,22 @@ app.get('/api/clients/:clientId/pt-assignments', async (req, res) => {
     autoExpireAssignments();
     const assignments = await db.prepare(`
       SELECT a.*, 
-             t.name as trainerName, t.grade as trainerGrade,
-             p.name as packageName, p.category as packageCategory, p.duration_days
+             c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
+             t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
+             p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
+             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
+             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
       FROM pt_assignments a
-      JOIN trainers t ON a.trainer_id = t.id
-      JOIN pt_packages p ON a.pt_package_id = p.id
-      JOIN clients c ON a.client_id = c.id
+      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
+      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
       WHERE CAST(a.client_id AS TEXT) = CAST(? AS TEXT)
          OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT)
       ORDER BY a.created_at DESC
     `).all(req.params.clientId, req.params.clientId);
     res.json(assignments);
   } catch (err) {
+    console.error('Error fetching client pt-assignments:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1657,12 +1953,15 @@ app.get('/api/pt-assignments/client/:clientId', async (req, res) => {
     const { clientId } = req.params;
     const assignments = await db.prepare(`
       SELECT a.*, 
+             c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
              t.name as trainerName, t.grade as trainerGrade,
-             p.name as packageName, p.category as packageCategory, p.duration_days
+             p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
+             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
+             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
       FROM pt_assignments a
-      JOIN trainers t ON a.trainer_id = t.id
-      JOIN pt_packages p ON a.pt_package_id = p.id
-      JOIN clients c ON a.client_id = c.id
+      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
+      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
       WHERE CAST(a.client_id AS TEXT) = CAST(? AS TEXT)
          OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT)
       ORDER BY a.created_at DESC
@@ -1760,6 +2059,84 @@ app.post('/api/pt-assignments', async (req, res) => {
   }
 });
 
+app.put('/api/pt-assignments/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(id);
+    if (!assignment) return res.status(404).json({ error: 'PT Assignment not found.' });
+
+    if (parseInt(assignment.classes_completed || 0, 10) > 0) {
+      return res.status(400).json({ error: `Cannot edit PT assignment because classes have already started (${assignment.classes_completed} classes completed).` });
+    }
+
+    const { trainer_id, pt_package_id, assigned_date, discount_amount } = req.body;
+    
+    let updateFields = [];
+    let params = [];
+
+    if (trainer_id) { updateFields.push('trainer_id = ?'); params.push(trainer_id); }
+    if (pt_package_id) {
+      const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
+      if (pkg) {
+        updateFields.push('pt_package_id = ?', 'package_price_snapshot = ?', 'total_classes_snapshot = ?');
+        params.push(pt_package_id, pkg.price, pkg.total_classes);
+      }
+    }
+    if (assigned_date) {
+      updateFields.push('assigned_date = ?');
+      params.push(assigned_date);
+      const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id || assignment.pt_package_id);
+      const durDays = pkg ? (pkg.duration_days || 30) : 30;
+      const expiry = calculateExpiryDate(assigned_date, durDays);
+      updateFields.push('expiry_date = ?');
+      params.push(expiry);
+    }
+    if (discount_amount !== undefined) {
+      updateFields.push('discount_amount = ?');
+      params.push(parseFloat(discount_amount || 0));
+    }
+
+    if (updateFields.length > 0) {
+      params.push(id);
+      await db.prepare(`UPDATE pt_assignments SET ${updateFields.join(', ')} WHERE id = ?`).run(...params);
+    }
+
+    const updated = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(id);
+    res.json({ success: true, assignment: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/pt-assignments/:id', async (req, res) => {
+  try {
+    const role = req.headers['x-user-role'] || req.query.user_role || req.body.user_role;
+    if (role !== 'superadmin') {
+      return res.status(403).json({ error: 'Access denied. Master / Superadmin permission required to delete PT assignments.' });
+    }
+
+    const { id } = req.params;
+    const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(id);
+    if (!assignment) return res.status(404).json({ error: 'PT Assignment not found.' });
+
+    if (parseInt(assignment.classes_completed || 0, 10) > 0) {
+      return res.status(400).json({ error: `Cannot delete PT assignment because classes have already started (${assignment.classes_completed} classes completed).` });
+    }
+
+    await db.prepare('DELETE FROM pt_assignments WHERE id = ?').run(id);
+
+    try {
+      await db.prepare(`
+        UPDATE clients SET personalTraining = 0, ptCategory = NULL, ptPackage = NULL, ptFromDate = NULL, ptToDate = NULL, trainerId = NULL WHERE id = ?
+      `).run(assignment.client_id);
+    } catch (e) {}
+
+    res.json({ success: true, message: 'PT Assignment deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GENERAL PACKAGE ADVANCE BOOKING Routes ─────────────────────────
 app.get('/api/general-bookings', async (req, res) => {
   try {
@@ -1777,7 +2154,7 @@ app.get('/api/general-bookings', async (req, res) => {
 
 app.post('/api/general-bookings', async (req, res) => {
   try {
-    const { client_id, plan_type, price, booking_start_date, booking_end_date, discount_amount = 0 } = req.body;
+    const { client_id, plan_type, price, booking_start_date, booking_end_date, discount_amount = 0, payment_method = 'CASH' } = req.body;
     const discAmt = parseFloat(discount_amount) || 0;
 
     if (!client_id || !plan_type || price === undefined || price === null || !booking_start_date) {
@@ -1813,9 +2190,9 @@ app.post('/api/general-bookings', async (req, res) => {
     }
 
     const result = await db.prepare(`
-      INSERT INTO general_package_bookings (client_id, plan_type, price, discount_amount, booking_start_date, booking_end_date, status)
-      VALUES (?, ?, ?, ?, ?, ?, 'Scheduled')
-    `).run(client_id, plan_type, parseFloat(price), discAmt, booking_start_date, endDate);
+      INSERT INTO general_package_bookings (client_id, plan_type, price, discount_amount, payment_method, booking_start_date, booking_end_date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Scheduled')
+    `).run(client_id, plan_type, parseFloat(price), discAmt, payment_method || 'CASH', booking_start_date, endDate);
 
     const newBooking = await db.prepare(`
       SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode
@@ -1959,25 +2336,52 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
     const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate);
     const invoiceId = invoiceObj ? invoiceObj.billId : null;
 
+    // Complete any previous active PT assignment for this client
+    try {
+      await db.prepare(`
+        UPDATE pt_assignments 
+        SET status = 'Completed' 
+        WHERE client_id = ? AND status = 'Active'
+      `).run(booking.client_id);
+    } catch (e) {}
+
     const assignResult = await db.prepare(`
       INSERT INTO pt_assignments (
-        client_id, pt_package_id, trainer_id, package_price_snapshot, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
-      ) VALUES (?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
-    `).run(booking.client_id, booking.pt_package_id, booking.trainer_id, booking.price_snapshot, booking.total_classes_snapshot, assignDate, expiryDate, invoiceId);
+        client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
+    `).run(booking.client_id, booking.pt_package_id, booking.trainer_id, booking.price_snapshot, parseFloat(booking.discount_amount || 0), booking.total_classes_snapshot, assignDate, expiryDate, invoiceId);
+
+    // Sync client record in clients table
+    try {
+      await db.prepare(`
+        UPDATE clients 
+        SET ptCategory = 'Personal Training',
+            ptPackage = ?,
+            ptFromDate = ?,
+            ptToDate = ?,
+            trainerId = ?,
+            personalTraining = 1
+        WHERE id = ?
+      `).run(pkgName, assignDate, expiryDate, booking.trainer_id, booking.client_id);
+    } catch (e) {}
 
     await db.prepare("UPDATE pt_advance_bookings SET status = 'Active', booking_start_date = ? WHERE id = ?").run(assignDate, id);
 
-    const newAssignment = await db.prepare(`
-      SELECT a.*, c.name as clientName, t.name as trainerName, p.name as packageName
-      FROM pt_assignments a
-      JOIN clients c ON a.client_id = c.id
-      JOIN trainers t ON a.trainer_id = t.id
-      JOIN pt_packages p ON a.pt_package_id = p.id
-      WHERE a.id = ?
-    `).get(assignResult.lastInsertRowid);
+    let newAssignment = null;
+    try {
+      newAssignment = await db.prepare(`
+        SELECT a.*, c.name as clientName, t.name as trainerName, p.name as packageName
+        FROM pt_assignments a
+        LEFT JOIN clients c ON a.client_id = c.id
+        LEFT JOIN trainers t ON a.trainer_id = t.id
+        LEFT JOIN pt_packages p ON a.pt_package_id = p.id
+        WHERE a.id = ?
+      `).get(assignResult.lastInsertRowid);
+    } catch (e) {}
 
     res.json({ success: true, assignment: newAssignment, billNo: invoiceObj?.billNo });
   } catch (err) {
+    console.error('Error activating PT advance booking:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -2559,7 +2963,37 @@ app.post('/api/payroll-locks', async (req, res) => {
         total_payroll = excluded.total_payroll
     `).run(month, validLockedBy, finalPayroll);
 
-    res.json({ success: true, message: `Payroll for ${month} is now locked.`, total_payroll: finalPayroll });
+    const monthTitle = formatMonthLabel(month);
+    const expId = `payroll-lock-${month}`;
+    const expName = `Trainer Salary - ${monthTitle}`;
+    const expNotes = `Locked Trainer Salary Payroll for ${monthTitle}`;
+
+    let expDate = `${month}-28`;
+    const mParts = String(month).split('-');
+    if (mParts.length === 2) {
+      const yyyy = parseInt(mParts[0], 10);
+      const mm = parseInt(mParts[1], 10);
+      if (!isNaN(yyyy) && !isNaN(mm)) {
+        const lastDay = new Date(yyyy, mm, 0).getDate();
+        expDate = `${mParts[0]}-${String(mm).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      }
+    }
+
+    try {
+      await db.prepare(`
+        INSERT INTO expenses (id, date, name, category, amount, paymentMode, notes)
+        VALUES (?, ?, ?, 'Staff Salary', ?, 'BANK TRANSFER', ?)
+        ON CONFLICT(id) DO UPDATE SET
+          date = excluded.date,
+          name = excluded.name,
+          amount = excluded.amount,
+          notes = excluded.notes
+      `).run(expId, expDate, expName, finalPayroll, expNotes);
+    } catch (expErr) {
+      console.error('Error syncing payroll expense into expenses table:', expErr.message);
+    }
+
+    res.json({ success: true, message: `Payroll for ${monthTitle} is now locked.`, total_payroll: finalPayroll });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2582,8 +3016,12 @@ app.delete('/api/payroll-locks/:month', async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Master / Superadmin permission required to unlock payroll month.' });
     }
     const { month } = req.params;
+    const monthTitle = formatMonthLabel(month);
     await db.prepare('DELETE FROM payroll_locks WHERE month = ?').run(month);
-    res.json({ success: true, message: `Payroll for ${month} is now unlocked.` });
+    try {
+      await db.prepare("DELETE FROM expenses WHERE id = ? OR notes LIKE ? OR name LIKE ?").run(`payroll-lock-${month}`, `%${month}%`, `%${monthTitle}%`);
+    } catch (e) {}
+    res.json({ success: true, message: `Payroll for ${monthTitle} is now unlocked.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2627,7 +3065,7 @@ app.get('/api/stats/pt-summary', async (req, res) => {
 // POST restore all data
 app.post('/api/restore', async (req, res) => {
   try {
-    const { clients = [], transactions = [], trainers = [] } = req.body;
+    const { clients = [], transactions = [], trainers = [], mode = 'overwrite' } = req.body;
 
     // Validate inputs
     if (!Array.isArray(clients) || !Array.isArray(transactions) || !Array.isArray(trainers)) {
@@ -2639,13 +3077,15 @@ app.post('/api/restore', async (req, res) => {
         await db.prepare('PRAGMA foreign_keys = OFF').run();
       } catch (_) {}
 
-      await db.prepare('DELETE FROM clients').run();
-      await db.prepare('DELETE FROM transactions').run();
-      if (trainersData.length > 0) {
-        await db.prepare('DELETE FROM trainers').run();
+      if (mode === 'overwrite') {
+        await db.prepare('DELETE FROM clients').run();
+        await db.prepare('DELETE FROM transactions').run();
+        if (trainersData.length > 0) {
+          await db.prepare('DELETE FROM trainers').run();
+        }
       }
 
-      const chunkSize = 40;
+      const chunkSize = 4;
 
       if (trainersData.length > 0) {
         for (let i = 0; i < trainersData.length; i += chunkSize) {
@@ -2924,7 +3364,7 @@ app.get('/api/other-services/sales', async (req, res) => {
         s.id,
         s.client_id,
         s.service_id,
-        s.price_snapshot,
+        COALESCE(b.planAmount, s.price_snapshot) AS price_snapshot,
         s.sale_date,
         s.invoice_id,
         s.created_at,
@@ -2932,6 +3372,7 @@ app.get('/api/other-services/sales', async (req, res) => {
         COALESCE(c.clientId, c.id, s.client_id) AS clientCode,
         COALESCE(c.phone, '') AS clientPhone,
         COALESCE(t.name, 'Other Service') AS serviceName,
+        COALESCE(t.price, s.price_snapshot + COALESCE(b.discount_amount, 0)) AS original_price,
         COALESCE(t.duration_days, 30) AS duration_days,
         COALESCE(b.billNo, '') AS billNo,
         COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
@@ -2964,7 +3405,7 @@ app.get('/api/other-services/sales/client/:clientId', async (req, res) => {
         s.id,
         s.client_id,
         s.service_id,
-        s.price_snapshot,
+        COALESCE(b.planAmount, s.price_snapshot) AS price_snapshot,
         s.sale_date,
         s.invoice_id,
         s.created_at,
@@ -2972,6 +3413,7 @@ app.get('/api/other-services/sales/client/:clientId', async (req, res) => {
         COALESCE(c.clientId, c.id, s.client_id) AS clientCode,
         COALESCE(c.phone, '') AS clientPhone,
         COALESCE(t.name, 'Other Service') AS serviceName,
+        COALESCE(t.price, s.price_snapshot + COALESCE(b.discount_amount, 0)) AS original_price,
         COALESCE(t.duration_days, 30) AS duration_days,
         COALESCE(b.billNo, '') AS billNo,
         COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
@@ -3177,7 +3619,7 @@ app.post('/api/other-services/sell', async (req, res) => {
     const result = await db.prepare(`
       INSERT INTO other_service_sales (client_id, service_id, price_snapshot, sale_date, invoice_id)
       VALUES (?, ?, ?, ?, ?)
-    `).run(String(client.id || client_id), service.id, priceSnapshot, saleDateStr, billId);
+    `).run(String(client.id || client_id), service.id, discountedPrice, saleDateStr, billId);
 
     const saleRecord = await db.prepare(`
       SELECT s.*, c.name as clientName, t.name as serviceName
@@ -3221,12 +3663,119 @@ app.post('/api/other-services/sell', async (req, res) => {
   }
 });
 
+app.put('/api/other-services/sales/:id', async (req, res) => {
+  try {
+    const saleId = req.params.id;
+    const sale = await db.prepare('SELECT * FROM other_service_sales WHERE id = ?').get(saleId);
+    if (!sale) {
+      return res.status(404).json({ error: 'Service sale record not found.' });
+    }
+
+    const {
+      service_id,
+      price_snapshot,
+      discount_amount = 0,
+      paid_amount,
+      due_amount,
+      payment_method,
+      sale_date
+    } = req.body;
+
+    const targetServiceId = service_id !== undefined ? service_id : sale.service_id;
+    const service = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(targetServiceId);
+    const serviceName = service ? service.name : 'Other Service';
+    const durationDays = service ? (service.duration_days || 30) : 30;
+
+    const saleDateStr = sale_date || sale.sale_date || new Date().toISOString().split('T')[0];
+    const expiryDateStr = calculateExpiryDate(saleDateStr, durationDays);
+
+    const priceSnapshotVal = price_snapshot !== undefined ? parseFloat(price_snapshot) : (service ? service.price : sale.price_snapshot);
+    const discAmt = discount_amount !== undefined ? (parseFloat(discount_amount) || 0) : 0;
+    const discountedPrice = Math.max(0, priceSnapshotVal - discAmt);
+
+    const paidVal = paid_amount !== undefined && paid_amount !== null && paid_amount !== '' ? parseFloat(paid_amount) : discountedPrice;
+    const dueVal = due_amount !== undefined && due_amount !== null && due_amount !== '' ? parseFloat(due_amount) : Math.max(0, discountedPrice - paidVal);
+    const payStatusVal = dueVal <= 0 ? 'Paid' : (paidVal > 0 ? 'Partial' : 'Due');
+
+    // 1. Update other_service_sales table
+    await db.prepare(`
+      UPDATE other_service_sales
+      SET service_id = ?, price_snapshot = ?, sale_date = ?
+      WHERE id = ?
+    `).run(targetServiceId, discountedPrice, saleDateStr, saleId);
+
+    // 2. Update linked bill if present
+    if (sale.invoice_id) {
+      await db.prepare(`
+        UPDATE bills
+        SET planName = ?, planAmount = ?, totalPlanAmount = ?, paidAmount = ?, dueAmount = ?, remainingBalance = ?, paymentStatus = ?, invoiceDate = ?, joinDate = ?, expiryDate = ?, discount_amount = ?
+        WHERE id = ?
+      `).run(
+        `Service: ${serviceName}`,
+        discountedPrice,
+        discountedPrice,
+        paidVal,
+        dueVal,
+        dueVal,
+        payStatusVal,
+        saleDateStr,
+        saleDateStr,
+        expiryDateStr,
+        discAmt,
+        sale.invoice_id
+      );
+
+      // Update linked transaction
+      try {
+        await db.prepare(`
+          UPDATE transactions
+          SET amount = ?, date = ?, method = COALESCE(?, method)
+          WHERE billId = ?
+        `).run(paidVal, saleDateStr, payment_method || null, sale.invoice_id);
+      } catch (txErr) {
+        console.warn('Notice: Could not update transactions:', txErr.message);
+      }
+    }
+
+    const updatedSale = await db.prepare(`
+      SELECT 
+        s.id,
+        s.client_id,
+        s.service_id,
+        s.price_snapshot,
+        s.sale_date,
+        s.invoice_id,
+        s.created_at,
+        COALESCE(c.name, b.clientName, 'Unknown Client') AS clientName,
+        COALESCE(c.clientId, c.id, s.client_id) AS clientCode,
+        COALESCE(c.phone, '') AS clientPhone,
+        COALESCE(t.name, 'Other Service') AS serviceName,
+        COALESCE(t.duration_days, 30) AS duration_days,
+        COALESCE(b.billNo, '') AS billNo,
+        COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
+        COALESCE(b.dueAmount, 0) AS dueAmount,
+        COALESCE(b.paymentStatus, 'Paid') AS paymentStatus,
+        COALESCE(b.discount_amount, 0) AS discount_amount,
+        b.expiryDate
+      FROM other_service_sales s
+      LEFT JOIN clients c ON (
+        CAST(s.client_id AS TEXT) = CAST(c.id AS TEXT)
+        OR CAST(s.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      )
+      LEFT JOIN other_service_tariffs t ON CAST(s.service_id AS INTEGER) = t.id
+      LEFT JOIN bills b ON CAST(s.invoice_id AS TEXT) = CAST(b.id AS TEXT)
+      WHERE s.id = ?
+    `).get(saleId);
+
+    res.json({ success: true, message: 'Other service sale updated successfully.', sale: updatedSale });
+  } catch (err) {
+    console.error('Error updating other service sale:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/other-services/sales/:id', async (req, res) => {
   try {
-    const role = req.headers['x-user-role'] || req.query.user_role || req.body.user_role;
-    if (role !== 'superadmin') {
-      return res.status(403).json({ error: 'Access denied. Master / Superadmin permission required to delete service sales history.' });
-    }
     const saleId = req.params.id;
     const sale = await db.prepare('SELECT * FROM other_service_sales WHERE id = ?').get(saleId);
     if (!sale) {
@@ -3278,6 +3827,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const ptBookingsAll = await db.prepare("SELECT * FROM pt_advance_bookings WHERE status != 'Cancelled'").all();
     const allExpenses = await db.prepare('SELECT * FROM expenses').all();
 
+    const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
+
     // 1. Transactions collection in range
     let rangeRevenue = allTxns.reduce((sum, t) => {
       const d = parseAnyDate(t.date || t.timestamp);
@@ -3287,16 +3838,18 @@ app.get('/api/dashboard/stats', async (req, res) => {
       return sum;
     }, 0);
 
-    // 2. Other services sales in range
+    // 2. Other services sales in range (only if not already in transactions table)
     (otherSales || []).forEach(s => {
+      if (s.invoice_id && txnBillIds.has(s.invoice_id)) return;
       const d = parseAnyDate(s.sale_date || s.created_at);
       if (d && d >= startObj && d <= endObj) {
         rangeRevenue += (s.price_snapshot || 0);
       }
     });
 
-    // 3. Supplement sales in range
+    // 3. Supplement sales in range (only if not already in transactions table)
     (suppSales || []).forEach(s => {
+      if (s.invoice_id && txnBillIds.has(s.invoice_id)) return;
       const d = parseAnyDate(s.sale_date || s.created_at);
       if (d && d >= startObj && d <= endObj) {
         rangeRevenue += (s.total_amount || 0);
@@ -3321,31 +3874,38 @@ app.get('/api/dashboard/stats', async (req, res) => {
       }
     });
 
-    // 6. Operational Expenses in range
-    const operationalExpenses = allExpenses.reduce((sum, e) => {
+    // Calculate total discount in range
+    let rangeDiscount = 0;
+    try {
+      const allBillsInRange = await db.prepare('SELECT * FROM bills').all();
+      (allBillsInRange || []).forEach(b => {
+        const d = parseAnyDate(b.invoiceDate || b.timestamp);
+        if (d && d >= startObj && d <= endObj) {
+          rangeDiscount += (parseFloat(b.discount_amount) || 0);
+        }
+      });
+      (genBookingsAll || []).forEach(b => {
+        const d = parseAnyDate(b.created_at || b.booking_start_date);
+        if (d && d >= startObj && d <= endObj) {
+          rangeDiscount += (parseFloat(b.discount_amount) || 0);
+        }
+      });
+      (ptBookingsAll || []).forEach(b => {
+        const d = parseAnyDate(b.created_at || b.booking_start_date);
+        if (d && d >= startObj && d <= endObj) {
+          rangeDiscount += (parseFloat(b.discount_amount) || 0);
+        }
+      });
+    } catch (e) {}
+
+    // 6. Operational Expenses in range (includes synced payroll lock expenses)
+    const rangeExpenses = allExpenses.reduce((sum, e) => {
       const d = parseAnyDate(e.date || e.timestamp);
       if (d && d >= startObj && d <= endObj) {
         return sum + (e.amount || 0);
       }
       return sum;
     }, 0);
-
-    // 7. Locked Payroll Expenses in range
-    const lockedLocks = await db.prepare('SELECT month, total_payroll FROM payroll_locks').all();
-    let lockedPayrollInRange = 0;
-    (lockedLocks || []).forEach(l => {
-      if (l.month) {
-        const parts = l.month.split('-');
-        if (parts.length === 2) {
-          const pDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, 1);
-          if (pDate >= startObj && pDate <= endObj) {
-            lockedPayrollInRange += (l.total_payroll || 0);
-          }
-        }
-      }
-    });
-
-    const rangeExpenses = operationalExpenses + lockedPayrollInRange;
 
     const inactivePtCount = (await db.prepare(
       "SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')"
@@ -3354,6 +3914,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
     res.json({
       rangeRevenue,
       rangeExpenses,
+      rangeDiscount,
       inactivePT: inactivePtCount
     });
   } catch (err) {
@@ -3377,6 +3938,11 @@ app.get('/api/stats', async (req, res) => {
 
     const allTxns = await db.prepare('SELECT * FROM transactions').all();
     const otherServiceSalesAll = await db.prepare('SELECT * FROM other_service_sales').all();
+    const suppSalesAllStats = await db.prepare('SELECT * FROM supplement_sales').all();
+
+    const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
+    const unloggedOtherServiceSalesAll = (otherServiceSalesAll || []).filter(s => !s.invoice_id || !txnBillIds.has(s.invoice_id));
+
     const totalOtherServiceRevenue = otherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0);
 
     const genBookingsAllStats = await db.prepare("SELECT * FROM general_package_bookings WHERE status != 'Cancelled'").all();
@@ -3385,13 +3951,33 @@ app.get('/api/stats', async (req, res) => {
     const totalGenBookingsRevenue = (genBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price || 0) - (b.discount_amount || 0)), 0);
     const totalPtBookingsRevenue = (ptBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0)), 0);
 
-    const totalRevenueVal = allTxns.reduce((sum, t) => sum + (t.amount || 0), 0) + totalOtherServiceRevenue + totalGenBookingsRevenue + totalPtBookingsRevenue;
+    const totalRevenueVal = allTxns.reduce((sum, t) => sum + (t.amount || 0), 0) + unloggedOtherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0) + totalGenBookingsRevenue + totalPtBookingsRevenue;
 
     const monthlyOtherServiceRevenueRes = await db.prepare(`
       SELECT SUM(price_snapshot) as total FROM other_service_sales
       WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
     `).get(mm, String(currentYear));
     const monthlyOtherServiceRevenue = monthlyOtherServiceRevenueRes ? (monthlyOtherServiceRevenueRes.total || 0) : 0;
+
+    const monthlyUnloggedOtherServiceRevenue = (unloggedOtherServiceSalesAll || [])
+      .filter(s => {
+        const d = parseAnyDate(s.sale_date || s.created_at);
+        if (!d) return false;
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        return mStr === mm && yStr === String(currentYear);
+      })
+      .reduce((sum, s) => sum + (s.price_snapshot || 0), 0);
+
+    const monthlySuppSalesRev = (suppSalesAllStats || [])
+      .filter(s => {
+        const d = parseAnyDate(s.sale_date || s.created_at);
+        if (!d) return false;
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        return mStr === mm && yStr === String(currentYear);
+      })
+      .reduce((sum, s) => sum + (s.total_amount || 0), 0);
 
     const monthlyGenBookingsRev = (genBookingsAllStats || [])
       .filter(b => {
@@ -3421,10 +4007,10 @@ app.get('/api/stats', async (req, res) => {
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
       })
-      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev;
+      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlySuppSalesRev;
 
     const allExpenses = await db.prepare('SELECT * FROM expenses').all();
-    const operationalExpensesVal = allExpenses
+    const monthlyExpensesVal = allExpenses
       .filter(e => {
         const d = parseAnyDate(e.date || e.timestamp);
         if (!d) return false;
@@ -3434,12 +4020,6 @@ app.get('/api/stats', async (req, res) => {
       })
       .reduce((sum, e) => sum + (e.amount || 0), 0);
 
-    const yearMonthKey = `${currentYear}-${mm}`;
-    const lockedPayrollRow = await db.prepare('SELECT total_payroll FROM payroll_locks WHERE month = ?').get(yearMonthKey);
-    const lockedPayrollVal = lockedPayrollRow ? (lockedPayrollRow.total_payroll || 0) : 0;
-
-    const monthlyExpensesVal = operationalExpensesVal + lockedPayrollVal;
-
     const netProfitVal = monthlyCollectionVal - monthlyExpensesVal;
 
     const todayObj = new Date();
@@ -3447,7 +4027,11 @@ app.get('/api/stats', async (req, res) => {
 
     const allClientsList = await db.prepare('SELECT * FROM clients').all();
     let activeCount = 0;
+    let activeMaleCount = 0;
+    let activeFemaleCount = 0;
     let inactiveCount = 0;
+    let inactiveMaleCount = 0;
+    let inactiveFemaleCount = 0;
     let expiredCount = 0;
     let expiredPTCount = 0;
 
@@ -3463,12 +4047,21 @@ app.get('/api/stats', async (req, res) => {
       const isExplicitExpired = st === 'expired';
       const isDateExpired = expDate ? (expDate < todayObj) : false;
 
+      const g = (c.gender || '').toLowerCase().trim();
+      const isFemale = g === 'female' || g === 'f';
+
       if (isExplicitInactive) {
         inactiveCount++;
+        if (isFemale) inactiveFemaleCount++;
+        else inactiveMaleCount++;
       } else if (isExplicitExpired || isDateExpired) {
         expiredCount++;
+        if (isFemale) inactiveFemaleCount++;
+        else inactiveMaleCount++;
       } else {
         activeCount++;
+        if (isFemale) activeFemaleCount++;
+        else activeMaleCount++;
       }
 
       if (c.ptCategory && c.ptCategory !== 'None' && ptExpDate && ptExpDate < todayObj) {
@@ -3507,6 +4100,39 @@ app.get('/api/stats', async (req, res) => {
     `).get(mm, String(currentYear));
     const monthlyOtherServiceSalesCount = monthlyOtherServiceSalesCountRes ? (monthlyOtherServiceSalesCountRes.cnt || 0) : 0;
 
+    const allBillsStats = await db.prepare('SELECT * FROM bills').all();
+    const monthlyBillsDiscount = (allBillsStats || [])
+      .filter(b => {
+        const d = parseAnyDate(b.invoiceDate || b.timestamp);
+        if (!d) return false;
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        return mStr === mm && yStr === String(currentYear);
+      })
+      .reduce((sum, b) => sum + (parseFloat(b.discount_amount) || 0), 0);
+
+    const monthlyGenBookingsDisc = (genBookingsAllStats || [])
+      .filter(b => {
+        const d = parseAnyDate(b.created_at || b.booking_start_date);
+        if (!d) return false;
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        return mStr === mm && yStr === String(currentYear);
+      })
+      .reduce((sum, b) => sum + (parseFloat(b.discount_amount) || 0), 0);
+
+    const monthlyPtBookingsDisc = (ptBookingsAllStats || [])
+      .filter(b => {
+        const d = parseAnyDate(b.created_at || b.booking_start_date);
+        if (!d) return false;
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        return mStr === mm && yStr === String(currentYear);
+      })
+      .reduce((sum, b) => sum + (parseFloat(b.discount_amount) || 0), 0);
+
+    const monthlyDiscountVal = monthlyBillsDiscount + monthlyGenBookingsDisc + monthlyPtBookingsDisc;
+
     const recentTxns = allTxns.slice(0, 5);
 
     res.json({
@@ -3514,11 +4140,16 @@ app.get('/api/stats', async (req, res) => {
       monthlySales: monthlySalesVal,
       monthlyCollection: monthlyCollectionVal,
       monthlyExpenses: monthlyExpensesVal,
+      monthlyDiscount: monthlyDiscountVal,
       netProfit: netProfitVal,
       otherServicesRevenue: monthlyOtherServiceRevenue,
       otherServicesSalesCount: monthlyOtherServiceSalesCount,
       activeClients: activeCount,
+      activeMaleClients: activeMaleCount,
+      activeFemaleClients: activeFemaleCount,
       inactiveClients: inactiveCount,
+      inactiveMaleClients: inactiveMaleCount,
+      inactiveFemaleClients: inactiveFemaleCount,
       expiredClients: expiredCount,
       inactivePt: inactivePtCount,
       expiredPlans: expiredCount,
@@ -4285,7 +4916,7 @@ app.delete('/api/clients/:clientId/measurements/:id', async (req, res) => {
 
 // ─── DYNAMIC DASHBOARD STATS ROUTE ───────────────────────────────────────────
 
-const parseAnyDate = (dateStr) => {
+function parseAnyDate(dateStr) {
   if (!dateStr) return null;
   if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
   const str = String(dateStr).trim();
@@ -4311,7 +4942,22 @@ const parseAnyDate = (dateStr) => {
 
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
-};
+}
+
+function formatMonthLabel(monthStr) {
+  if (!monthStr) return '';
+  const str = String(monthStr).trim();
+  const parts = str.split('-');
+  if (parts.length === 2) {
+    const yyyy = parseInt(parts[0], 10);
+    const mm = parseInt(parts[1], 10) - 1;
+    if (!isNaN(yyyy) && !isNaN(mm) && mm >= 0 && mm <= 11) {
+      const dateObj = new Date(yyyy, mm, 1);
+      return dateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+  }
+  return str;
+}
 
 app.get('/api/dashboard/dynamic-stats', async (req, res) => {
   try {
@@ -4338,6 +4984,10 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
     let ptActive = 0, ptExp = 0;
     let pendingClientsCount = 0;
     let inactiveClientsCount = 0;
+    let activeMaleCount = 0;
+    let activeFemaleCount = 0;
+    let inactiveMaleCount = 0;
+    let inactiveFemaleCount = 0;
 
     clients.forEach(c => {
       const statusLower = (c.status || '').toLowerCase().trim();
@@ -4353,6 +5003,17 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
 
       const isExplicitInactive = statusLower === 'inactive' || statusLower === 'expired';
       const isActiveStatus = !isExplicitInactive && !isExpired;
+
+      const g = (c.gender || '').toLowerCase().trim();
+      const isFemale = g === 'female' || g === 'f';
+
+      if (isActiveStatus) {
+        if (isFemale) activeFemaleCount++;
+        else activeMaleCount++;
+      } else {
+        if (isFemale) inactiveFemaleCount++;
+        else inactiveMaleCount++;
+      }
 
       // Pending dues
       if ((c.dueAmount || 0) > 0) {
@@ -4424,6 +5085,10 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
       personalTraining: { active: ptActive, expiring: ptExp },
       pendingClients: pendingClientsCount,
       inactiveClients: inactiveClientsCount,
+      activeMaleClients: activeMaleCount,
+      activeFemaleClients: activeFemaleCount,
+      inactiveMaleClients: inactiveMaleCount,
+      inactiveFemaleClients: inactiveFemaleCount,
       financials: {
         receipts: receiptsTotal,
         payments: paymentsTotal,

@@ -557,11 +557,14 @@ const PTClassLogPage = () => {
                           ? `-- Select Client (${filteredAssignments.length} Active) --`
                           : `-- Select Active Client (${filteredAssignments.length} Total) --`}
                       </option>
-                      {filteredAssignments.map(a => (
-                        <option key={a.id} value={a.id}>
-                          {a.clientName} ({a.packageName}) — {a.trainerName} [{a.classes_completed}/{a.total_classes_snapshot}] ({formatDateDDMMYYYY(a.assigned_date)} to {formatDateDDMMYYYY(a.expiry_date)})
-                        </option>
-                      ))}
+                      {filteredAssignments.map(a => {
+                        const cId = formatShortId(a.clientCode || a.clientId || a.client_id);
+                        return (
+                          <option key={a.id} value={a.id}>
+                            {cId && cId !== 'N/A' ? `${cId} - ` : ''}{a.clientName} ({a.packageName}) — {a.trainerName} [{a.classes_completed}/{a.total_classes_snapshot}] ({formatDateDDMMYYYY(a.assigned_date)} to {formatDateDDMMYYYY(a.expiry_date)})
+                          </option>
+                        );
+                      })}
                     </select>
 
                     {filteredAssignments.length === 0 && selectedTrainerFilter && (
@@ -575,8 +578,8 @@ const PTClassLogPage = () => {
                   {selectedAssignment && (
                     <div className="assignment-details-box">
                       <div className="detail-row">
-                        <span><strong>Client:</strong> {selectedAssignment.clientName} ({selectedAssignment.clientId})</span>
-                        <span><strong>Trainer:</strong> {selectedAssignment.trainerName} ({selectedAssignment.trainerGrade || 'No Grade'})</span>
+                        <span><strong>Client:</strong> {selectedAssignment.clientName} (#{formatShortId(selectedAssignment.clientCode || selectedAssignment.clientId || selectedAssignment.client_id)})</span>
+                        <span><strong>Trainer:</strong> {selectedAssignment.trainerName} (#{formatShortId(selectedAssignment.trainerCode || selectedAssignment.trainer_id)}) ({selectedAssignment.trainerGrade ? `Grade ${selectedAssignment.trainerGrade}` : 'No Grade'})</span>
                       </div>
                       <div className="detail-row">
                         <span><strong>Package:</strong> {selectedAssignment.packageName}</span>
@@ -825,7 +828,7 @@ const PTClassLogPage = () => {
               >
                 <option value="">All Clients</option>
                 {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.clientId})</option>
+                  <option key={c.id} value={c.id}>{c.name} ({formatShortId(c.clientId || c.id)})</option>
                 ))}
               </select>
             </div>

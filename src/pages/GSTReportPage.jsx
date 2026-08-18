@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getGstReport, runGstBackfill, getGstSettings } from '../api';
+import { getGstReport, runGstBackfill, getGstSettings, updateBill, deleteBill } from '../api';
 import * as XLSX from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './GSTReportPage.css';
@@ -13,6 +13,17 @@ const GSTReportPage = () => {
   const [toastMessage, setToastMessage] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    bill: null,
+    planName: '',
+    totalPlanAmount: '',
+    paidAmount: '',
+    dueAmount: '',
+    invoiceDate: '',
+    discount_amount: '',
+    isSaving: false
+  });
   const printRef = useRef(null);
 
   const fetchReportData = async (month) => {
@@ -31,6 +42,57 @@ const GSTReportPage = () => {
     fetchReportData(selectedMonth);
     setCurrentPage(1);
   }, [selectedMonth]);
+
+  const handleOpenEdit = (inv) => {
+    setEditModal({
+      isOpen: true,
+      bill: inv,
+      planName: inv.planName || inv.plan_name || 'General Plan',
+      totalPlanAmount: inv.totalInvoiceValue !== undefined ? inv.totalInvoiceValue : (inv.totalPlanAmount || 0),
+      paidAmount: inv.paidAmount !== undefined ? inv.paidAmount : (inv.totalInvoiceValue || 0),
+      dueAmount: inv.dueAmount !== undefined ? inv.dueAmount : 0,
+      invoiceDate: inv.date || inv.invoiceDate || new Date().toISOString().split('T')[0],
+      discount_amount: inv.discount_amount || 0,
+      isSaving: false
+    });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editModal.bill) return;
+    setEditModal(prev => ({ ...prev, isSaving: true }));
+    try {
+      await updateBill(editModal.bill.id, {
+        planName: editModal.planName,
+        totalPlanAmount: parseFloat(editModal.totalPlanAmount) || 0,
+        planAmount: parseFloat(editModal.totalPlanAmount) || 0,
+        paidAmount: parseFloat(editModal.paidAmount) || 0,
+        dueAmount: parseFloat(editModal.dueAmount) || 0,
+        invoiceDate: editModal.invoiceDate,
+        discount_amount: parseFloat(editModal.discount_amount) || 0,
+        syncClient: true
+      });
+      setToastMessage('Invoice updated successfully.');
+      setEditModal({ isOpen: false, bill: null, isSaving: false });
+      await fetchReportData(selectedMonth);
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      alert(err.message || 'Failed to update invoice');
+      setEditModal(prev => ({ ...prev, isSaving: false }));
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this invoice? This will remove the invoice and linked transaction records.')) return;
+    try {
+      await deleteBill(id);
+      setToastMessage('Invoice deleted successfully.');
+      await fetchReportData(selectedMonth);
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      alert(err.message || 'Failed to delete invoice');
+    }
+  };
 
   const handleConfirmBackfill = async () => {
     setIsBackfilling(true);
@@ -405,6 +467,7 @@ const GSTReportPage = () => {
                         <th style={{ textAlign: 'right' }}>CGST (2.4%)</th>
                         <th style={{ textAlign: 'right' }}>SGST (2.4%)</th>
                         <th style={{ textAlign: 'right' }}>Total Invoice Value</th>
+                        <th style={{ textAlign: 'center' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -417,6 +480,22 @@ const GSTReportPage = () => {
                           <td style={{ textAlign: 'right', color: '#6366f1', fontWeight: '700' }}>{formatCurrency(inv.cgst)}</td>
                           <td style={{ textAlign: 'right', color: '#6366f1', fontWeight: '700' }}>{formatCurrency(inv.sgst)}</td>
                           <td style={{ textAlign: 'right', fontWeight: '900', color: '#059669' }}>{formatCurrency(inv.totalInvoiceValue)}</td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', background: '#fef3c7', color: '#d97706', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700', marginRight: '6px' }}
+                              onClick={() => handleOpenEdit(inv)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                              onClick={() => handleDelete(inv.id)}
+                            >
+                              Delete
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -485,6 +564,116 @@ const GSTReportPage = () => {
           </div>
         </div>
       ) : null}
+
+      {/* Edit Invoice Modal */}
+      {editModal.isOpen && editModal.bill && (
+        <div className="gst-backfill-overlay">
+          <div className="gst-backfill-modal" style={{ maxWidth: '520px', textAlign: 'left' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#0f172a' }}>Edit General Invoice — {editModal.bill.billNo}</h3>
+              <button
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+                onClick={() => setEditModal({ isOpen: false, bill: null })}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Plan / Description</label>
+                <input
+                  type="text"
+                  style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  value={editModal.planName}
+                  onChange={e => setEditModal({ ...editModal, planName: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Total Amount (₹)</label>
+                  <input
+                    type="number"
+                    style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    value={editModal.totalPlanAmount}
+                    onChange={e => {
+                      const total = parseFloat(e.target.value) || 0;
+                      const paid = parseFloat(editModal.paidAmount) || 0;
+                      setEditModal({ ...editModal, totalPlanAmount: e.target.value, dueAmount: Math.max(0, total - paid) });
+                    }}
+                    required
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Paid Amount (₹)</label>
+                  <input
+                    type="number"
+                    style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    value={editModal.paidAmount}
+                    onChange={e => {
+                      const paid = parseFloat(e.target.value) || 0;
+                      const total = parseFloat(editModal.totalPlanAmount) || 0;
+                      setEditModal({ ...editModal, paidAmount: e.target.value, dueAmount: Math.max(0, total - paid) });
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Due Balance (₹)</label>
+                  <input
+                    type="number"
+                    style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    value={editModal.dueAmount}
+                    onChange={e => setEditModal({ ...editModal, dueAmount: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Discount (₹)</label>
+                  <input
+                    type="number"
+                    style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                    value={editModal.discount_amount}
+                    onChange={e => setEditModal({ ...editModal, discount_amount: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', color: '#475569', marginBottom: '4px' }}>Invoice Date</label>
+                <input
+                  type="date"
+                  style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem' }}
+                  value={editModal.invoiceDate}
+                  onChange={e => setEditModal({ ...editModal, invoiceDate: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#f8fafc', fontWeight: '700', cursor: 'pointer' }}
+                  onClick={() => setEditModal({ isOpen: false, bill: null })}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editModal.isSaving}
+                  style={{ padding: '0.6rem 1.2rem', borderRadius: '8px', border: 'none', background: '#4f46e5', color: '#ffffff', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  {editModal.isSaving ? 'Saving...' : 'Save Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

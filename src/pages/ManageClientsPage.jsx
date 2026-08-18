@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient } from '../api';
+import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient, updateBill, deleteBill, deleteOtherServiceSale } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import ExpiredPlansModal from '../components/ExpiredPlansModal';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
@@ -49,30 +49,49 @@ const ManageClientsPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All');
+  const [activeFilter, setActiveFilter] = useState('Active');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   // Removed isPTAlertOpen state
 
   const [combinedExpiredList, setCombinedExpiredList] = useState([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importOptionsModal, setImportOptionsModal] = useState({ isOpen: false, clientsData: [], txnsData: [] });
   const [trainers, setTrainers] = useState([]);
   const [trainerFilter, setTrainerFilter] = useState('All');
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, name: '', clientId: '' });
-  const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null, ptAssignments: [], otherServices: [], loadingDetails: false });
+  const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null, ptAssignments: [], otherServices: [], bills: [], loadingDetails: false, activeTab: 'overview' });
   const [invoicePreviewClient, setInvoicePreviewClient] = useState(null);
+  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, url: '', name: '' });
   const [paymentModal, setPaymentModal] = useState({ isOpen: false, client: null, amount: '', method: 'CASH', date: new Date().toISOString().split('T')[0] });
+  const [editBillModal, setEditBillModal] = useState({
+    isOpen: false,
+    bill: null,
+    planName: '',
+    totalPlanAmount: '',
+    paidAmount: '',
+    dueAmount: '',
+    invoiceDate: '',
+    joinDate: '',
+    expiryDate: '',
+    discount_amount: '',
+    isSaving: false
+  });
   const fileInputRef = useRef(null);
 
   const handleViewClient = async (client) => {
-    setViewClientModal({ isOpen: true, client, ptAssignments: [], otherServices: [], loadingDetails: true });
+    setViewClientModal({ isOpen: true, client, ptAssignments: [], otherServices: [], bills: [], loadingDetails: true, activeTab: 'overview' });
     try {
-      const [ptRes, svcRes] = await Promise.all([
-        getPtAssignmentsByClient(client.id),
-        getOtherServiceSalesByClient(client.id)
+      const [ptRes, svcRes, billsRes] = await Promise.all([
+        getPtAssignmentsByClient(client.id).catch(() => []),
+        getOtherServiceSalesByClient(client.id).catch(() => []),
+        getClientBills(client.id).catch(() => [])
       ]);
       let ptData = Array.isArray(ptRes) ? ptRes : [];
       let svcData = Array.isArray(svcRes) ? svcRes : [];
+      let billsData = Array.isArray(billsRes) ? billsRes : [];
 
       if (ptData.length === 0 && client.clientId) {
         try {
@@ -88,16 +107,84 @@ const ManageClientsPage = () => {
         } catch (e) {}
       }
 
+      if (billsData.length === 0 && client.clientId) {
+        try {
+          const altBills = await getClientBills(client.clientId);
+          if (Array.isArray(altBills) && altBills.length > 0) billsData = altBills;
+        } catch (e) {}
+      }
+
       setViewClientModal({
         isOpen: true,
         client,
         ptAssignments: ptData,
         otherServices: svcData,
-        loadingDetails: false
+        bills: billsData,
+        loadingDetails: false,
+        activeTab: 'overview'
       });
     } catch (err) {
       console.error('Failed to load client details:', err);
       setViewClientModal(prev => ({ ...prev, loadingDetails: false }));
+    }
+  };
+
+  const handleOpenEditBill = (bill) => {
+    setEditBillModal({
+      isOpen: true,
+      bill,
+      planName: bill.planName || viewClientModal.client?.plan || 'General Plan',
+      totalPlanAmount: bill.totalPlanAmount !== undefined ? bill.totalPlanAmount : (bill.planAmount || 0),
+      paidAmount: bill.paidAmount !== undefined ? bill.paidAmount : 0,
+      dueAmount: bill.dueAmount !== undefined ? bill.dueAmount : 0,
+      invoiceDate: bill.invoiceDate || new Date().toISOString().split('T')[0],
+      joinDate: bill.joinDate || viewClientModal.client?.fromDate || '',
+      expiryDate: bill.expiryDate || viewClientModal.client?.expiryDate || '',
+      discount_amount: bill.discount_amount || 0,
+      isSaving: false
+    });
+  };
+
+  const handleSaveEditBill = async (e) => {
+    e.preventDefault();
+    if (!editBillModal.bill) return;
+    setEditBillModal(prev => ({ ...prev, isSaving: true }));
+    try {
+      await updateBill(editBillModal.bill.id, {
+        planName: editBillModal.planName,
+        totalPlanAmount: parseFloat(editBillModal.totalPlanAmount) || 0,
+        planAmount: parseFloat(editBillModal.totalPlanAmount) || 0,
+        paidAmount: parseFloat(editBillModal.paidAmount) || 0,
+        dueAmount: parseFloat(editBillModal.dueAmount) || 0,
+        invoiceDate: editBillModal.invoiceDate,
+        joinDate: editBillModal.joinDate,
+        expiryDate: editBillModal.expiryDate,
+        discount_amount: parseFloat(editBillModal.discount_amount) || 0,
+        syncClient: true
+      });
+      alert('Invoice updated successfully.');
+      setEditBillModal({ isOpen: false, bill: null, isSaving: false });
+      await fetchClients();
+      if (viewClientModal.client) {
+        handleViewClient(viewClientModal.client);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to update invoice');
+      setEditBillModal(prev => ({ ...prev, isSaving: false }));
+    }
+  };
+
+  const handleDeleteBill = async (billId) => {
+    if (!window.confirm('Are you sure you want to delete this invoice? This will remove the invoice record.')) return;
+    try {
+      await deleteBill(billId);
+      alert('Invoice deleted successfully.');
+      await fetchClients();
+      if (viewClientModal.client) {
+        handleViewClient(viewClientModal.client);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to delete invoice');
     }
   };
 
@@ -129,6 +216,12 @@ const ManageClientsPage = () => {
       setActiveFilter('Inactive');
     } else if (statusParam === 'Reminder') {
       setActiveFilter('Reminder');
+    } else if (statusParam === 'Due Payment' || statusParam === 'Due') {
+      setActiveFilter('Due Payment');
+    } else if (statusParam === 'All') {
+      setActiveFilter('All');
+    } else if (!statusParam) {
+      setActiveFilter('Active');
     }
   }, [location.search]);
 
@@ -243,26 +336,59 @@ const ManageClientsPage = () => {
 
   const fetchClients = async () => {
     try {
-      const [data, genBookings, ptBookings] = await Promise.all([
-        getClients(),
-        getGeneralBookings().catch(() => []),
-        getPtAdvanceBookings().catch(() => [])
-      ]);
+      const data = await getClients();
       setClients(data);
-      setAdvanceBookings({
-        general: Array.isArray(genBookings) ? genBookings : [],
-        pt: Array.isArray(ptBookings) ? ptBookings : []
-      });
+      setLoading(false);
 
       // Unified Expiry Check
-      const todayISO = new Date().toISOString().split('T')[0];
-      const expiredMembership = data.filter(c => new Date(c.expiryDate).toISOString().split('T')[0] < todayISO).map(c => ({
-        ...c,
-        type: 'Membership',
-        expiryDate: c.expiryDate
-      }));
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-      const combined = [...expiredMembership]; // Removed expiredPT from combined
+      // Clients with <= 7 days remaining (0 to 7 days left)
+      const expiringSoon = data.filter(c => {
+        if (!c.expiryDate) return false;
+        const exp = new Date(c.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((exp - today) / (1000 * 60 * 60 * 24));
+        const isNotExpired = diffDays >= 0 && (c.status === 'Active' || c.status === 'active' || !c.status);
+        return isNotExpired && diffDays <= 7;
+      }).map(c => {
+        const exp = new Date(c.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((exp - today) / (1000 * 60 * 60 * 24));
+        return {
+          ...c,
+          type: 'ExpiringSoon',
+          daysLeft: diffDays,
+          daysAgo: 0,
+          isExpiringSoon: true,
+          isExpired: false
+        };
+      }).sort((a, b) => a.daysLeft - b.daysLeft);
+
+      // Expired clients
+      const expiredMembership = data.filter(c => {
+        if (!c.expiryDate) return false;
+        const exp = new Date(c.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((exp - today) / (1000 * 60 * 60 * 24));
+        return diffDays < 0 || c.status === 'inactive' || c.status === 'Inactive' || c.status === 'Expired';
+      }).map(c => {
+        const exp = new Date(c.expiryDate);
+        exp.setHours(0, 0, 0, 0);
+        const diffDays = Math.round((exp - today) / (1000 * 60 * 60 * 24));
+        return {
+          ...c,
+          type: 'Expired',
+          daysLeft: 0,
+          daysAgo: Math.abs(diffDays),
+          isExpiringSoon: false,
+          isExpired: true
+        };
+      }).sort((a, b) => a.daysAgo - b.daysAgo);
+
+      // Combined list: 7 days remaining on TOP, followed by expired below
+      const combined = [...expiringSoon, ...expiredMembership];
       setCombinedExpiredList(combined);
 
       const hasSeenPTAlert = sessionStorage.getItem('hasSeenPTAlert');
@@ -283,9 +409,19 @@ const ManageClientsPage = () => {
       // Update last seen to match the current count
       localStorage.setItem('lastSeenExpiredCount', combined.length.toString());
 
+      // Non-blocking background fetch for advance bookings details
+      Promise.all([
+        getGeneralBookings().catch(() => []),
+        getPtAdvanceBookings().catch(() => [])
+      ]).then(([genBookings, ptBookings]) => {
+        setAdvanceBookings({
+          general: Array.isArray(genBookings) ? genBookings : [],
+          pt: Array.isArray(ptBookings) ? ptBookings : []
+        });
+      });
+
     } catch (error) {
       console.error('Failed to fetch clients');
-    } finally {
       setLoading(false);
     }
   };
@@ -385,12 +521,34 @@ const ManageClientsPage = () => {
 
 
 
+  const parseClientDate = (dateStr) => {
+    if (!dateStr) return null;
+    let str = String(dateStr).trim();
+    if (str.includes('T')) str = str.split('T')[0];
+    if (str.includes(' ')) str = str.split(' ')[0];
+
+    // DD-MM-YYYY or DD/MM/YYYY -> YYYY-MM-DD
+    if (str.includes('-') && str.split('-')[0].length === 2) {
+      const parts = str.split('-');
+      if (parts.length === 3) str = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    } else if (str.includes('/')) {
+      const parts = str.split('/');
+      if (parts.length === 3) str = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+
   const getValidityDisplay = (expiryDate) => {
-    if (!expiryDate) return { text: 'N/A', subtext: '', isExpired: false, isWarning: false, days: 0 };
+    if (!expiryDate) return { text: 'N/A', subtext: '', isExpired: true, isWarning: false, days: 0 };
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const expiry = new Date(expiryDate);
-    expiry.setHours(0, 0, 0, 0);
+    const expiry = parseClientDate(expiryDate);
+    if (!expiry) return { text: 'N/A', subtext: '', isExpired: true, isWarning: false, days: 0 };
+
     const diffTime = expiry - today;
     const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
@@ -415,8 +573,7 @@ const ManageClientsPage = () => {
   const getAdvanceBookingDaysDisplay = (startDate, endDate) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const start = startDate ? new Date(startDate) : null;
-    if (start) start.setHours(0, 0, 0, 0);
+    const start = startDate ? parseClientDate(startDate) : null;
 
     if (start && start > today) {
       const diffDays = Math.round((start - today) / (1000 * 60 * 60 * 24));
@@ -428,47 +585,101 @@ const ManageClientsPage = () => {
     return null;
   };
 
-  const filteredClients = clients.filter(client => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = client.name.toLowerCase().includes(searchLower) ||
-      client.phone.includes(searchTerm) ||
-      client.clientId?.toLowerCase().includes(searchLower) ||
-      client.id?.toLowerCase().includes(searchLower) ||
-      client.trainerName?.toLowerCase().includes(searchLower);
-
-    if (!matchesSearch) return false;
-
-    // Trainer Filter
-    if (trainerFilter !== 'All' && client.trainerId !== trainerFilter) return false;
-
+  const filteredClients = useMemo(() => {
+    const searchLower = searchTerm.trim().toLowerCase();
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize today
-    const expiry = new Date(client.expiryDate);
-    expiry.setHours(0, 0, 0, 0); // Normalize expiry
+    today.setHours(0, 0, 0, 0);
 
-    const isExpired = client.status === 'inactive' || client.status === 'Inactive' || client.status === 'Expired' || (client.expiryDate ? expiry < today : false);
+    const list = clients.filter(client => {
+      if (searchLower) {
+        const matchesSearch =
+          (client.name && client.name.toLowerCase().includes(searchLower)) ||
+          (client.phone && client.phone.includes(searchLower)) ||
+          (client.clientId && client.clientId.toLowerCase().includes(searchLower)) ||
+          (client.id && client.id.toLowerCase().includes(searchLower)) ||
+          (client.trainerName && client.trainerName.toLowerCase().includes(searchLower));
 
-    const diffTime = expiry - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const isExpiringSoon = diffDays >= 0 && diffDays <= 5;
+        if (!matchesSearch) return false;
+      }
 
-    const { actualTotal, actualPaid, effectiveDue } = calcClientDueDetails(client);
+      if (trainerFilter !== 'All' && client.trainerId !== trainerFilter) return false;
 
-    if (activeFilter === 'Active') return !isExpired;
-    if (activeFilter === 'Inactive') return isExpired;
-    if (activeFilter === 'Reminder') return isExpiringSoon;
-    if (activeFilter === 'Due Payment') return effectiveDue > 0;
+      const expiry = parseClientDate(client.expiryDate);
+      const isExpired = expiry ? (expiry < today) : true;
 
-    return true;
+      const diffDays = expiry ? Math.ceil((expiry - today) / (1000 * 60 * 60 * 24)) : -1;
+      const isExpiringSoon = !isExpired && diffDays >= 0 && diffDays <= 5;
 
-  });
+      const { effectiveDue } = calcClientDueDetails(client);
 
+      if (activeFilter === 'Active') return !isExpired;
+      if (activeFilter === 'Inactive') return isExpired;
+      if (activeFilter === 'Reminder') return isExpiringSoon;
+      if (activeFilter === 'Due Payment') return effectiveDue > 0;
 
+      return true;
+    });
 
-  const stats = {
-    total: clients.length,
-    expired: clients.filter(c => new Date(c.expiryDate) < new Date()).length
-  };
+    if (activeFilter === 'Inactive') {
+      list.sort((a, b) => {
+        const dateA = parseClientDate(a.expiryDate);
+        const dateB = parseClientDate(b.expiryDate);
+        const timeA = dateA ? dateA.getTime() : 0;
+        const timeB = dateB ? dateB.getTime() : 0;
+        if (timeA !== timeB) {
+          return timeB - timeA; // Most recently expired plan first
+        }
+        return String(b.clientId || '').localeCompare(String(a.clientId || ''));
+      });
+    }
+
+    return list;
+  }, [clients, searchTerm, trainerFilter, activeFilter]);
+
+  const dynamicGenderCounts = useMemo(() => {
+    let male = 0;
+    let female = 0;
+    for (let i = 0; i < filteredClients.length; i++) {
+      const g = (filteredClients[i].gender || '').toLowerCase().trim();
+      if (g === 'female' || g === 'f') {
+        female++;
+      } else {
+        male++;
+      }
+    }
+    return { male, female, total: filteredClients.length };
+  }, [filteredClients]);
+
+  const stats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let expiredCount = 0;
+
+    for (let i = 0; i < clients.length; i++) {
+      const c = clients[i];
+      if (c.expiryDate && new Date(c.expiryDate) < today) {
+        expiredCount++;
+      }
+    }
+
+    return {
+      total: clients.length,
+      expired: expiredCount
+    };
+  }, [clients]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, activeFilter, trainerFilter, itemsPerPage]);
+
+  const totalItems = filteredClients.length;
+  const totalPages = itemsPerPage > 0 ? Math.max(1, Math.ceil(totalItems / itemsPerPage)) : 1;
+
+  const paginatedClients = useMemo(() => {
+    if (itemsPerPage <= 0) return filteredClients;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredClients.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredClients, currentPage, itemsPerPage]);
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -496,35 +707,69 @@ const ManageClientsPage = () => {
     }
   };
 
+  const executeImport = async (clientsData, txnsData, importMode) => {
+    setIsImporting(true);
+    setImportOptionsModal({ isOpen: false, clientsData: [], txnsData: [] });
+
+    try {
+      const BATCH_SIZE = 300;
+      const totalClients = clientsData.length;
+      let importedCount = 0;
+
+      for (let i = 0; i < Math.max(1, totalClients); i += BATCH_SIZE) {
+        const clientBatch = clientsData.slice(i, i + BATCH_SIZE);
+        const txnBatch = (i === 0) ? txnsData : [];
+        const mode = (i === 0) ? importMode : 'append';
+
+        await restoreData({
+          clients: clientBatch,
+          transactions: txnBatch,
+          mode: mode
+        });
+
+        importedCount += clientBatch.length;
+      }
+
+      alert(`Import successful! ${importMode === 'append' ? 'Added / Merged' : 'Restored'} ${importedCount} Clients and ${txnsData.length} Transactions.`);
+      await fetchClients();
+    } catch (error) {
+      console.error('Import execution failed:', error);
+      alert('Failed to import data: ' + (error.message || 'Error occurred during restore.'));
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = null;
+    }
+  };
+
   const handleImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (!window.confirm("Warning: Importing data will overwrite all existing clients and transactions. Are you sure you want to proceed?")) {
-      e.target.value = null;
-      return;
-    }
-
-    setIsImporting(true);
     try {
       const data = await file.arrayBuffer();
       const wb = read(data);
-
-      const { clientsData, txnsData } = parseUploadedExcel(wb);
+      const { clientsData, txnsData } = parseUploadedExcel(wb, file.name);
 
       if (clientsData.length === 0 && txnsData.length === 0) {
         alert("No valid data found in the uploaded Excel file. Please check that your sheet contains member columns like Name, Phone, and Plan.");
+        if (fileInputRef.current) fileInputRef.current.value = null;
         return;
       }
 
-      await restoreData({ clients: clientsData, transactions: txnsData });
-      alert(`Import & restore successful! Mapped ${clientsData.length} Clients and ${txnsData.length} Transactions.`);
-      await fetchClients();
+      // If existing client records exist in DB, show Import Options Modal (Add On vs Replace)
+      if (clients.length > 0) {
+        setImportOptionsModal({
+          isOpen: true,
+          clientsData,
+          txnsData
+        });
+      } else {
+        // Direct import if DB is empty
+        await executeImport(clientsData, txnsData, 'overwrite');
+      }
     } catch (error) {
       console.error('Import failed:', error);
       alert('Failed to import data: ' + (error.message || 'Please check file format.'));
-    } finally {
-      setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = null;
     }
   };
@@ -541,6 +786,14 @@ const ManageClientsPage = () => {
           <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('All')}>
             <span className="stat-label">Total Strength</span>
             <span className="stat-value">{stats.total}</span>
+          </div>
+          <div className="stat-item" title="Male clients in current filtered view">
+            <span className="stat-label">♂️ Total Male</span>
+            <span className="stat-value" style={{ color: '#2563eb' }}>{dynamicGenderCounts.male}</span>
+          </div>
+          <div className="stat-item" title="Female clients in current filtered view">
+            <span className="stat-label">♀️ Total Female</span>
+            <span className="stat-value" style={{ color: '#db2777' }}>{dynamicGenderCounts.female}</span>
           </div>
           <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Due Payment')}>
             <span className="stat-label">Clients With Due</span>
@@ -634,16 +887,20 @@ const ManageClientsPage = () => {
             <tbody>
               {loading ? (
                 <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem' }}>Loading clients...</td></tr>
-              ) : filteredClients.length === 0 ? (
+              ) : paginatedClients.length === 0 ? (
                 <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem' }}>No clients found.</td></tr>
-              ) : filteredClients.map(client => {
+              ) : paginatedClients.map(client => {
                 const validity = getValidityDisplay(client.expiryDate);
                 return (
                   <tr key={client.id}>
                     <td className="id-cell">{formatShortId(client.clientId || client.id)}</td>
                     <td className="name-cell">
                       <div className="name-avatar-group">
-                        <div className="client-avatar-mini">
+                        <div 
+                          className={`client-avatar-mini ${client.profileImage ? 'has-image' : ''}`}
+                          onClick={() => client.profileImage && setViewImageModal({ isOpen: true, url: client.profileImage, name: client.name })}
+                          title={client.profileImage ? "Click to view full photo" : client.name}
+                        >
                           {client.profileImage ? (
                             <img src={client.profileImage} alt={client.name} />
                           ) : (
@@ -720,10 +977,18 @@ const ManageClientsPage = () => {
                             </div>
                           );
                         } else {
+                          const discAmt = Number(client.discount || client.discount_amount || 0);
                           return (
-                            <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', display: 'inline-block' }}>
-                              ✓ Fully Paid (₹{actualTotal.toLocaleString()})
-                            </span>
+                            <div>
+                              <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #dcfce7', padding: '3px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: '700', display: 'inline-block' }}>
+                                ✓ Fully Paid (₹{actualTotal.toLocaleString()})
+                              </span>
+                              {discAmt > 0 && (
+                                <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700', marginTop: '2px' }}>
+                                  (₹{(actualTotal + discAmt).toLocaleString()} - ₹{discAmt.toLocaleString()} disc)
+                                </div>
+                              )}
+                            </div>
                           );
                         }
                       })()}
@@ -814,6 +1079,73 @@ const ManageClientsPage = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Footer */}
+        {filteredClients.length > 0 && (
+          <div className="pagination-footer">
+            <div className="pagination-info">
+              Showing {itemsPerPage > 0 ? Math.min((currentPage - 1) * itemsPerPage + 1, totalItems) : 1} to {itemsPerPage > 0 ? Math.min(currentPage * itemsPerPage, totalItems) : totalItems} of {totalItems} entries
+            </div>
+
+            <div className="pagination-controls">
+              <div className="per-page-selector">
+                <label>Show: </label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                  className="per-page-select"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={0}>All</option>
+                </select>
+              </div>
+
+              {itemsPerPage > 0 && totalPages > 1 && (
+                <div className="pagination-pages">
+                  <button
+                    className="page-btn nav-btn"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2)
+                    .reduce((acc, page, idx, src) => {
+                      if (idx > 0 && page - src[idx - 1] > 1) {
+                        acc.push('...');
+                      }
+                      acc.push(page);
+                      return acc;
+                    }, [])
+                    .map((p, idx) => p === '...' ? (
+                      <span key={`ellipsis-${idx}`} className="page-ellipsis">...</span>
+                    ) : (
+                      <button
+                        key={p}
+                        className={`page-btn ${currentPage === p ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(p)}
+                      >
+                        {p}
+                      </button>
+                    ))}
+
+                  <button
+                    className="page-btn nav-btn"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  >
+                    Next ›
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Custom Delete Confirmation Modal */}
@@ -825,7 +1157,7 @@ const ManageClientsPage = () => {
             </div>
             <h3>Delete Client?</h3>
             <p>
-              Are you sure you want to delete <strong>{deleteConfirm.name}</strong> ({deleteConfirm.clientId})?<br />
+              Are you sure you want to delete <strong>{deleteConfirm.name}</strong> ({formatShortId(deleteConfirm.clientId)})?<br />
               This action cannot be undone and all associated records will be lost.
             </p>
             <div className="alert-modal-actions">
@@ -868,252 +1200,698 @@ const ManageClientsPage = () => {
         );
         const otherServices = viewClientModal.otherServices || [];
 
+        // Historic Plans Timeline & Records
+        const historicPlans = (() => {
+          const history = [];
+          const bills = viewClientModal.bills || [];
+
+          bills.forEach(b => {
+            history.push({
+              id: `bill-${b.id}`,
+              type: b.invoice_category === 'PT' ? 'Personal Training' : (b.invoice_category === 'OtherService' ? 'Other Service' : 'General Membership'),
+              planName: b.planName || b.packageName || 'Membership Plan',
+              billNo: b.billNo || 'INVOICE',
+              startDate: b.joinDate || b.invoiceDate,
+              expiryDate: b.expiryDate,
+              amount: Number(b.totalPlanAmount || b.planAmount || 0),
+              paidAmount: Number(b.paidAmount || 0),
+              dueAmount: Number(b.dueAmount || 0),
+              paymentStatus: b.paymentStatus || (Number(b.dueAmount) <= 0 ? 'Paid' : 'Due'),
+              date: b.invoiceDate || b.joinDate || b.timestamp,
+              billObj: b
+            });
+          });
+
+          ptAssignments.forEach(pt => {
+            const exists = history.some(item => item.planName === pt.packageName && (item.startDate === pt.assigned_date || item.expiryDate === pt.expiry_date));
+            if (!exists) {
+              history.push({
+                id: `pt-${pt.id}`,
+                type: 'Personal Training',
+                planName: pt.packageName || 'PT Package',
+                trainerName: pt.trainerName || 'Assigned',
+                classesCompleted: pt.classes_completed || 0,
+                totalClasses: pt.total_classes_snapshot || 0,
+                startDate: pt.assigned_date,
+                expiryDate: pt.expiry_date,
+                amount: Number(pt.package_price_snapshot || 0),
+                paidAmount: Number(pt.package_price_snapshot || 0),
+                dueAmount: 0,
+                paymentStatus: pt.status || 'Active',
+                date: pt.assigned_date
+              });
+            }
+          });
+
+          clientGenBookings.forEach(b => {
+            const exists = history.some(item => item.planName === b.plan_type && item.startDate === b.booking_start_date);
+            if (!exists) {
+              const net = Math.max(0, Number(b.price || 0) - Number(b.discount_amount || 0));
+              history.push({
+                id: `gen-adv-${b.id}`,
+                type: 'Advance General',
+                planName: b.plan_type || 'General Plan',
+                startDate: b.booking_start_date,
+                expiryDate: b.booking_end_date,
+                amount: net,
+                paidAmount: net,
+                dueAmount: 0,
+                paymentStatus: b.status || 'Scheduled',
+                date: b.created_at || b.booking_start_date
+              });
+            }
+          });
+
+          clientPtBookings.forEach(b => {
+            const exists = history.some(item => item.planName === b.packageName && item.startDate === b.booking_start_date);
+            if (!exists) {
+              const net = Math.max(0, Number(b.price_snapshot || 0) - Number(b.discount_amount || 0));
+              history.push({
+                id: `pt-adv-${b.id}`,
+                type: 'Advance PT',
+                planName: b.packageName || 'PT Package',
+                trainerName: b.trainerName || 'Assigned',
+                startDate: b.booking_start_date,
+                expiryDate: b.expiry_date || b.booking_end_date,
+                amount: net,
+                paidAmount: net,
+                dueAmount: 0,
+                paymentStatus: b.status || 'Scheduled',
+                date: b.created_at || b.booking_start_date
+              });
+            }
+          });
+
+          otherServices.forEach(s => {
+            const exists = history.some(item => item.id === `bill-${s.invoice_id}`);
+            if (!exists) {
+              history.push({
+                id: `svc-${s.id}`,
+                type: 'Other Service',
+                planName: s.serviceName || 'Service',
+                startDate: s.sale_date,
+                expiryDate: s.sale_date,
+                amount: Number(s.price_snapshot || 0),
+                paidAmount: Number(s.price_snapshot || 0),
+                dueAmount: 0,
+                paymentStatus: s.paymentStatus || 'Paid',
+                date: s.sale_date
+              });
+            }
+          });
+
+          if (c.plan && c.fromDate && history.length === 0) {
+            const tot = Number(c.amount || 0);
+            const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
+            const due = Math.max(0, tot - pd);
+            history.push({
+              id: `current-${c.id}`,
+              type: 'General Membership',
+              planName: c.plan,
+              startDate: c.fromDate,
+              expiryDate: c.expiryDate,
+              amount: tot,
+              paidAmount: pd,
+              dueAmount: due,
+              paymentStatus: due <= 0 ? 'Paid' : 'Due',
+              date: c.fromDate
+            });
+          }
+
+          history.sort((a, b) => {
+            const timeA = new Date(a.startDate || a.date || 0).getTime();
+            const timeB = new Date(b.startDate || b.date || 0).getTime();
+            return timeB - timeA;
+          });
+
+          return history;
+        })();
+
+        const activeTab = viewClientModal.activeTab || 'overview';
+
+        const handleOpenPdf = (item) => {
+          if (item && item.billObj) {
+            setInvoicePreviewClient(item.billObj);
+          } else if (item) {
+            setInvoicePreviewClient({
+              id: c.id,
+              clientId: c.clientId,
+              name: c.name,
+              phone: c.phone,
+              gender: c.gender,
+              plan: item.planName || c.plan,
+              planName: item.planName || c.plan,
+              fromDate: item.startDate || c.fromDate,
+              expiryDate: item.expiryDate || c.expiryDate,
+              amount: item.amount !== undefined ? item.amount : c.amount,
+              paidAmount: item.paidAmount !== undefined ? item.paidAmount : c.paidAmount,
+              dueAmount: item.dueAmount !== undefined ? item.dueAmount : 0,
+              paymentStatus: item.paymentStatus || 'Paid',
+              invoiceDate: item.startDate || c.fromDate,
+              joinDate: item.startDate || c.fromDate
+            });
+          }
+          setViewClientModal({ isOpen: false, client: null });
+        };
+
         return (
           <div className="alert-modal-overlay">
-            <div className="alert-modal-card view-modal-card-landscape reveal">
-              <button className="btn-close-modal" onClick={() => setViewClientModal({ isOpen: false, client: null })} title="Close / Exit">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <div className="alert-modal-card view-modal-card-landscape reveal" style={{ maxWidth: activeTab === 'history' ? '1000px' : '920px', position: 'relative' }}>
+              <button
+                className="btn-close-modal"
+                onClick={() => setViewClientModal({ isOpen: false, client: null })}
+                title="Close / Exit (Esc)"
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  background: '#0f172a',
+                  color: '#ffffff',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  zIndex: 1000,
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
               </button>
 
-              <div className="landscape-modal-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '75vh', overflow: 'hidden' }}>
-                <div className="landscape-modal-content">
-                  {/* Column 1: Profile Info */}
-                  <div className="landscape-col profile-col">
-                    <div className="landscape-avatar-container">
-                      <div className="view-modal-avatar-lg">
-                        {c.profileImage ? (
-                          <img src={c.profileImage} alt={c.name} />
-                        ) : (
-                          <span>{c.name.charAt(0)}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="profile-main-info">
-                      <h2>{c.name}</h2>
-                      <div className="view-modal-badges" style={{ justifyContent: 'center' }}>
-                        <span className="badge-id">ID: {c.clientId}</span>
-                        <span className={`badge-status ${c.status === 'Active' ? 'active' : 'inactive'}`}>
-                          {c.status}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="profile-details">
-                      <div className="detail-row"><span>Mobile:</span> <strong>{c.phone}</strong></div>
-                      <div className="detail-row"><span>Gender:</span> <strong>{c.gender || 'N/A'}</strong></div>
-                      <div className="detail-row"><span>Join Date:</span> <strong>{formatDateDDMMYYYY(c.fromDate)}</strong></div>
-                    </div>
+              <div className="landscape-modal-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%', maxHeight: '78vh', overflow: 'hidden' }}>
+                
+                {/* Header Segmented Tab Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1.25rem', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', paddingRight: '3.5rem', flexShrink: 0 }}>
+                  <div style={{ display: 'inline-flex', background: '#e2e8f0', padding: '3px', borderRadius: '10px', gap: '3px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setViewClientModal(prev => ({ ...prev, activeTab: 'overview' }))}
+                      style={{
+                        padding: '0.45rem 1.1rem',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: activeTab === 'overview' ? '#ffffff' : 'transparent',
+                        color: activeTab === 'overview' ? '#ea580c' : '#64748b',
+                        fontWeight: '800',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: activeTab === 'overview' ? '0 2px 6px rgba(0,0,0,0.08)' : 'none',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <span>📊 Active Overview</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setViewClientModal(prev => ({ ...prev, activeTab: 'history' }))}
+                      style={{
+                        padding: '0.45rem 1.1rem',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: activeTab === 'history' ? 'linear-gradient(135deg, #4f46e5, #4338ca)' : 'transparent',
+                        color: activeTab === 'history' ? '#ffffff' : '#64748b',
+                        fontWeight: '800',
+                        fontSize: '0.85rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: activeTab === 'history' ? '0 4px 12px rgba(79, 70, 229, 0.3)' : 'none',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <span>📜 Historic Plan Details ({historicPlans.length})</span>
+                    </button>
                   </div>
 
-                  {/* Column 2: General Membership */}
-                  <div className="landscape-col general-col">
-                    <div className="col-header">
-                      <span className="col-icon">📋</span>
-                      <h3>General Membership</h3>
-                    </div>
-                    <div className="plan-highlight">
-                      <span className="plan-pill">{c.plan}</span>
-                      <span className={`badge-status ${validity.isExpired ? 'inactive' : (vmStatus === 'Paid' ? 'active' : 'warning')}`}>
-                        {validity.isExpired ? 'Inactive' : vmStatus}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>
+                      Client:
+                    </span>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '800', color: '#0f172a', background: '#ffffff', border: '1px solid #cbd5e1', padding: '0.25rem 0.65rem', borderRadius: '6px' }}>
+                      {c.name} ({formatShortId(c.clientId)})
+                    </span>
+                  </div>
+                </div>
+
+                {activeTab === 'history' ? (
+                  /* Historic Plan Details Full Timeline & Table View */
+                  <div className="historic-plans-section" style={{ flex: 1, overflowY: 'auto', padding: '1.25rem' }}>
+                    
+                    {/* Header Gradient Card */}
+                    <div style={{ background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', color: '#ffffff', padding: '1.1rem 1.5rem', borderRadius: '14px', marginBottom: '1.25rem', boxShadow: '0 8px 20px rgba(30, 27, 75, 0.25)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: '900', color: '#ffffff', letterSpacing: '0.02em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>📜</span> Complete Client Historic Plan Details
+                        </h3>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#c7d2fe', opacity: 0.9 }}>
+                          Timeline of all historic general memberships, PT packages, advance bookings, and service invoices
+                        </p>
+                      </div>
+                      <span style={{ fontSize: '0.82rem', fontWeight: '900', background: 'rgba(255, 255, 255, 0.15)', color: '#ffffff', border: '1px solid rgba(255, 255, 255, 0.25)', padding: '0.4rem 0.9rem', borderRadius: '100px', backdropFilter: 'blur(4px)' }}>
+                        {historicPlans.length} {historicPlans.length === 1 ? 'Record' : 'Records'} Total
                       </span>
                     </div>
-                    <div className="landscape-date-box">
-                      <div className="date-item">
-                        <span className="date-label">From Date</span>
-                        <strong className="date-value">{formatDateDDMMYYYY(c.fromDate)}</strong>
-                      </div>
-                      <div className="date-divider">→</div>
-                      <div className="date-item">
-                        <span className="date-label">To Date</span>
-                        <strong className="date-value">{formatDateDDMMYYYY(c.expiryDate)}</strong>
-                      </div>
-                    </div>
-                    <div className="landscape-validity-status" style={{
-                      background: validity.isExpired ? '#fef2f2' : (validity.isWarning ? '#fff7ed' : '#f0fdf4'),
-                      color: validity.isExpired ? '#dc2626' : (validity.isWarning ? '#ea580c' : '#16a34a'),
-                      border: `1px solid ${validity.isExpired ? '#fecaca' : (validity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
-                      padding: '0.45rem 0.75rem',
-                      borderRadius: '8px',
-                      fontSize: '0.82rem',
-                      fontWeight: '800',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      margin: '0.6rem 0'
-                    }}>
-                      <span>⏳ Remaining Days:</span>
-                      <strong>{validity.text}</strong>
-                    </div>
-                    <div className="landscape-payment-summary">
-                      <div className="pay-row"><span>Total:</span> <strong>₹{vmTotal.toLocaleString()}</strong></div>
-                      <div className="pay-row"><span>Paid:</span> <strong className="text-green">₹{vmPaid.toLocaleString()}</strong></div>
-                      {vmDue > 0 && <div className="pay-row"><span>Due:</span> <strong style={{color:'#ea580c'}}>₹{vmDue.toLocaleString()}</strong></div>}
-                    </div>
-                  </div>
 
-                  {/* Column 3: PT Package Info */}
-                  <div className="landscape-col pt-col">
-                    <div className="col-header">
-                      <span className="col-icon">🏋️</span>
-                      <h3>Personal Training</h3>
-                    </div>
-                    {activePt ? (() => {
-                      const ptValidity = (activePt.expiry_date || activePt.expiryDate) ? getValidityDisplay(activePt.expiry_date || activePt.expiryDate) : null;
-                      return (
-                        <>
-                          <div className="plan-highlight pt-highlight">
-                            <strong className="pt-plan-name">{activePt.packageName}</strong>
-                            <span className={`badge-status ${activePt.status === 'Active' ? 'active' : 'inactive'}`}>
-                              {activePt.status}
-                            </span>
-                          </div>
-                          <div className="landscape-date-box pt-dates">
-                            <div className="date-item">
-                              <span className="date-label">From Date</span>
-                              <strong className="date-value">{formatDateDDMMYYYY(activePt.assigned_date)}</strong>
-                            </div>
-                            <div className="date-divider">→</div>
-                            <div className="date-item">
-                              <span className="date-label">To Date</span>
-                              <strong className="date-value">{formatDateDDMMYYYY(activePt.expiry_date || activePt.expiryDate)}</strong>
-                            </div>
-                          </div>
-                          {ptValidity && (
-                            <div className="landscape-validity-status" style={{
-                              background: ptValidity.isExpired ? '#fef2f2' : (ptValidity.isWarning ? '#fff7ed' : '#f0fdf4'),
-                              color: ptValidity.isExpired ? '#dc2626' : (ptValidity.isWarning ? '#ea580c' : '#16a34a'),
-                              border: `1px solid ${ptValidity.isExpired ? '#fecaca' : (ptValidity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
-                              padding: '0.45rem 0.75rem',
-                              borderRadius: '8px',
-                              fontSize: '0.82rem',
-                              fontWeight: '800',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              margin: '0.6rem 0'
-                            }}>
-                              <span>⏳ Remaining Days:</span>
-                              <strong>{ptValidity.text}</strong>
-                            </div>
-                          )}
-                          <div className="landscape-pt-details">
-                            <div className="detail-row"><span>Trainer:</span> <strong>{activePt.trainerName || 'Assigned'}</strong></div>
-                            <div className="detail-row"><span>Classes:</span> <strong>{activePt.classes_completed} / {activePt.total_classes_snapshot}</strong></div>
-                          </div>
-                        </>
-                      );
-                    })() : (
-                      <div className="empty-pt-state">
-                        <span className="empty-icon">🏃</span>
-                        <p>No Active PT Package</p>
+                    {historicPlans.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '3rem', background: '#ffffff', borderRadius: '12px', border: '1px dashed #cbd5e1', color: '#64748b' }}>
+                        No historic plan details found for this client.
+                      </div>
+                    ) : (
+                      <div className="table-responsive" style={{ background: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                        <table className="txn-full-table" style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: '#0f172a', color: '#f8fafc', fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              <th style={{ padding: '12px 16px', textAlign: 'center', width: '45px' }}>#</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'left' }}>Category</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'left' }}>Plan Name & Invoice</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'left' }}>Validity Period</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'left' }}>Trainer / Details</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'left' }}>Amount & Status</th>
+                              <th style={{ padding: '12px 16px', textAlign: 'right' }}>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {historicPlans.map((item, idx) => (
+                              <tr key={`${item.id}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                                <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: '#94a3b8' }}>
+                                  {idx + 1}
+                                </td>
+                                <td style={{ padding: '12px 16px' }}>
+                                  <span className="category-badge" style={{
+                                    background: item.type.includes('PT') ? '#f3e8ff' : (item.type.includes('Service') ? '#e0e7ff' : (item.type.includes('Advance') ? '#fff7ed' : '#e0f2fe')),
+                                    color: item.type.includes('PT') ? '#7e22ce' : (item.type.includes('Service') ? '#4338ca' : (item.type.includes('Advance') ? '#c2410c' : '#0369a1')),
+                                    border: `1px solid ${item.type.includes('PT') ? '#d8b4fe' : (item.type.includes('Service') ? '#c7d2fe' : (item.type.includes('Advance') ? '#ffedd5' : '#bae6fd'))}`,
+                                    padding: '4px 9px',
+                                    borderRadius: '6px',
+                                    fontWeight: '800',
+                                    fontSize: '0.75rem',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {item.type}
+                                  </span>
+                                </td>
+
+                                <td style={{ padding: '12px 16px' }}>
+                                  <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.9rem' }}>{item.planName}</strong>
+                                  {item.billNo && (
+                                    <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '600' }}>
+                                      Invoice #{item.billNo}
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '12px 16px', fontWeight: '700', color: '#334155', whiteSpace: 'nowrap' }}>
+                                  {formatDateDDMMYYYY(item.startDate)} → {formatDateDDMMYYYY(item.expiryDate)}
+                                </td>
+
+                                <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: '#475569' }}>
+                                  {item.trainerName ? (
+                                    <div>
+                                      <strong>Trainer:</strong> {item.trainerName}
+                                      {item.totalClasses ? ` (${item.classesCompleted || 0}/${item.totalClasses} classes)` : ''}
+                                    </div>
+                                  ) : item.totalClasses ? (
+                                    <div><strong>Classes:</strong> {item.classesCompleted || 0}/{item.totalClasses}</div>
+                                  ) : (
+                                    <div>—</div>
+                                  )}
+                                </td>
+
+                                <td style={{ padding: '12px 16px' }}>
+                                  <div style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.92rem' }}>₹{item.amount.toLocaleString()}</div>
+                                  <span className="mc-status" style={{
+                                    background: item.dueAmount > 0 ? '#fff7ed' : '#dcfce7',
+                                    color: item.dueAmount > 0 ? '#c2410c' : '#15803d',
+                                    border: `1px solid ${item.dueAmount > 0 ? '#ffedd5' : '#bbf7d0'}`,
+                                    padding: '2px 7px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: '800',
+                                    display: 'inline-block',
+                                    marginTop: '2px'
+                                  }}>
+                                    {item.dueAmount > 0 ? `Due ₹${item.dueAmount.toLocaleString()}` : (item.paymentStatus || 'Paid')}
+                                  </span>
+                                </td>
+
+                                <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                  <button
+                                    type="button"
+                                    style={{
+                                      padding: '0.4rem 0.85rem',
+                                      fontSize: '0.78rem',
+                                      background: '#e0f2fe',
+                                      color: '#0284c7',
+                                      border: '1px solid #bae6fd',
+                                      borderRadius: '6px',
+                                      cursor: 'pointer',
+                                      fontWeight: '800',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                    }}
+                                    onClick={() => handleOpenPdf(item)}
+                                  >
+                                    📄 Bill PDF
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Bottom Row: Additional Data */}
-                <div className="landscape-bottom-row">
-                  {/* Adv General */}
-                  <div className="landscape-bottom-col">
-                    <div className="col-header-small">
-                      <span>🏷️ Adv General ({clientGenBookings.length})</span>
-                    </div>
-                    <div className="scrollable-list">
-                      {clientGenBookings.length > 0 ? clientGenBookings.map(b => {
-                        const genBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.booking_end_date);
-                        return (
-                          <div key={`gen-${b.id}`} className="mini-card adv-gen-card">
-                            <div className="mc-head">
-                              <strong>{b.plan_type}</strong>
-                              <span className="mc-status">{b.status}</span>
-                            </div>
-                            <div className="mc-dates">{formatDateDDMMYYYY(b.booking_start_date)} → {formatDateDDMMYYYY(b.booking_end_date)}</div>
-                            {genBVal && (
-                              <div style={{
-                                fontSize: '0.75rem',
-                                fontWeight: '800',
-                                marginTop: '4px',
-                                color: genBVal.isExpired ? '#dc2626' : (genBVal.isFuture ? '#6366f1' : '#16a34a')
-                              }}>
-                                ⏳ {genBVal.isFuture ? genBVal.text : `Remaining: ${genBVal.text}`}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }) : <div className="mini-empty">No Adv General</div>}
-                    </div>
-                  </div>
-
-                  {/* Adv PT */}
-                  <div className="landscape-bottom-col">
-                    <div className="col-header-small" style={{ color: '#0d9488' }}>
-                      <span>🏋️ Adv PT ({clientPtBookings.length})</span>
-                    </div>
-                    <div className="scrollable-list">
-                      {clientPtBookings.length > 0 ? clientPtBookings.map(b => {
-                        const ptBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.expiry_date || b.booking_end_date);
-                        return (
-                          <div key={`pt-${b.id}`} className="mini-card adv-pt-card">
-                            <div className="mc-head">
-                              <strong style={{color:'#0f766e'}}>{b.packageName}</strong>
-                              <span className="mc-status" style={{background:'#0d9488'}}>{b.status}</span>
-                            </div>
-                            <div className="mc-dates">{b.trainerName || 'Assigned'} • {formatDateDDMMYYYY(b.booking_start_date)}</div>
-                            {ptBVal && (
-                              <div style={{
-                                fontSize: '0.75rem',
-                                fontWeight: '800',
-                                marginTop: '4px',
-                                color: ptBVal.isExpired ? '#dc2626' : (ptBVal.isFuture ? '#0d9488' : '#16a34a')
-                              }}>
-                                ⏳ {ptBVal.isFuture ? ptBVal.text : `Remaining: ${ptBVal.text}`}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }) : <div className="mini-empty">No Adv PT</div>}
-                    </div>
-                  </div>
-
-                  {/* Other Services */}
-                  <div className="landscape-bottom-col">
-                    <div className="col-header-small" style={{ color: '#4f46e5' }}>
-                      <span>🧩 Other Services ({otherServices.length})</span>
-                    </div>
-                    <div className="scrollable-list">
-                      {otherServices.length > 0 ? otherServices.map(svc => (
-                        <div key={svc.id} className="mini-card os-card">
-                          <div className="mc-head">
-                            <strong style={{color:'#3730a3'}}>{svc.serviceName}</strong>
-                            <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
-                          </div>
-                          <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
+                ) : (
+                  /* Standard Landscape Overview View */
+                  <div className="landscape-modal-content" style={{ padding: '1.25rem' }}>
+                    {/* Column 1: Profile Info */}
+                    <div className="landscape-col profile-col">
+                      <div className="landscape-avatar-container">
+                        <div className="view-modal-avatar-lg">
+                          {c.profileImage ? (
+                            <img src={c.profileImage} alt={c.name} />
+                          ) : (
+                            <span>{c.name.charAt(0)}</span>
+                          )}
                         </div>
-                      )) : <div className="mini-empty">No Other Services</div>}
+                      </div>
+                      <div className="profile-main-info">
+                        <h2>{c.name}</h2>
+                        <div className="view-modal-badges" style={{ justifyContent: 'center' }}>
+                          <span className="badge-id">ID: {formatShortId(c.clientId)}</span>
+                          <span className={`badge-status ${c.status === 'Active' ? 'active' : 'inactive'}`}>
+                            {c.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="profile-details">
+                        <div className="detail-row"><span>Mobile:</span> <strong>{c.phone}</strong></div>
+                        <div className="detail-row"><span>Gender:</span> <strong>{c.gender || 'N/A'}</strong></div>
+                        <div className="detail-row"><span>Join Date:</span> <strong>{formatDateDDMMYYYY(c.fromDate)}</strong></div>
+                      </div>
+                    </div>
+
+                    {/* Column 2: General Membership */}
+                    <div className="landscape-col general-col">
+                      <div className="col-header">
+                        <span className="col-icon">📋</span>
+                        <h3>General Membership</h3>
+                      </div>
+                      <div className="plan-highlight">
+                        <span className="plan-pill">{c.plan}</span>
+                        <span className={`badge-status ${validity.isExpired ? 'inactive' : (vmStatus === 'Paid' ? 'active' : 'warning')}`}>
+                          {validity.isExpired ? 'Inactive' : vmStatus}
+                        </span>
+                      </div>
+                      <div className="landscape-date-box">
+                        <div className="date-item">
+                          <span className="date-label">From Date</span>
+                          <strong className="date-value">{formatDateDDMMYYYY(c.fromDate)}</strong>
+                        </div>
+                        <div className="date-divider">→</div>
+                        <div className="date-item">
+                          <span className="date-label">To Date</span>
+                          <strong className="date-value">{formatDateDDMMYYYY(c.expiryDate)}</strong>
+                        </div>
+                      </div>
+                      <div className="landscape-validity-status" style={{
+                        background: validity.isExpired ? '#fef2f2' : (validity.isWarning ? '#fff7ed' : '#f0fdf4'),
+                        color: validity.isExpired ? '#dc2626' : (validity.isWarning ? '#ea580c' : '#16a34a'),
+                        border: `1px solid ${validity.isExpired ? '#fecaca' : (validity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
+                        padding: '0.45rem 0.75rem',
+                        borderRadius: '8px',
+                        fontSize: '0.82rem',
+                        fontWeight: '800',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        margin: '0.6rem 0'
+                      }}>
+                        <span>⏳ Remaining Days:</span>
+                        <strong>{validity.text}</strong>
+                      </div>
+                      <div className="landscape-payment-summary">
+                        <div className="pay-row"><span>Total:</span> <strong>₹{vmTotal.toLocaleString()}</strong></div>
+                        <div className="pay-row"><span>Paid:</span> <strong className="text-green">₹{vmPaid.toLocaleString()}</strong></div>
+                        {vmDue > 0 && <div className="pay-row"><span>Due:</span> <strong style={{color:'#ea580c'}}>₹{vmDue.toLocaleString()}</strong></div>}
+                      </div>
+                    </div>
+
+                    {/* Column 3: PT Package Info */}
+                    <div className="landscape-col pt-col">
+                      <div className="col-header">
+                        <span className="col-icon">🏋️</span>
+                        <h3>Personal Training</h3>
+                      </div>
+                      {activePt ? (() => {
+                        const ptValidity = (activePt.expiry_date || activePt.expiryDate) ? getValidityDisplay(activePt.expiry_date || activePt.expiryDate) : null;
+                        return (
+                          <>
+                            <div className="plan-highlight pt-highlight">
+                              <strong className="pt-plan-name">{activePt.packageName}</strong>
+                              <span className={`badge-status ${activePt.status === 'Active' ? 'active' : 'inactive'}`}>
+                                {activePt.status}
+                              </span>
+                            </div>
+                            <div className="landscape-date-box pt-dates">
+                              <div className="date-item">
+                                <span className="date-label">From Date</span>
+                                <strong className="date-value">{formatDateDDMMYYYY(activePt.assigned_date)}</strong>
+                              </div>
+                              <div className="date-divider">→</div>
+                              <div className="date-item">
+                                <span className="date-label">To Date</span>
+                                <strong className="date-value">{formatDateDDMMYYYY(activePt.expiry_date || activePt.expiryDate)}</strong>
+                              </div>
+                            </div>
+                            {ptValidity && (
+                              <div className="landscape-validity-status" style={{
+                                background: ptValidity.isExpired ? '#fef2f2' : (ptValidity.isWarning ? '#fff7ed' : '#f0fdf4'),
+                                color: ptValidity.isExpired ? '#dc2626' : (ptValidity.isWarning ? '#ea580c' : '#16a34a'),
+                                border: `1px solid ${ptValidity.isExpired ? '#fecaca' : (ptValidity.isWarning ? '#fed7aa' : '#bbf7d0')}`,
+                                padding: '0.45rem 0.75rem',
+                                borderRadius: '8px',
+                                fontSize: '0.82rem',
+                                fontWeight: '800',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                margin: '0.6rem 0'
+                              }}>
+                                <span>⏳ Remaining Days:</span>
+                                <strong>{ptValidity.text}</strong>
+                              </div>
+                            )}
+                            <div className="landscape-pt-details">
+                              <div className="detail-row"><span>Trainer:</span> <strong>{activePt.trainerName || 'Assigned'}</strong></div>
+                              <div className="detail-row"><span>Classes:</span> <strong>{activePt.classes_completed} / {activePt.total_classes_snapshot}</strong></div>
+                            </div>
+                          </>
+                        );
+                      })() : (
+                        <div className="empty-pt-state">
+                          <span className="empty-icon">🏃</span>
+                          <p>No Active PT Package</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Bottom Row: Additional Data Cards (Overview mode) */}
+                {activeTab === 'overview' && (
+                  <div className="landscape-bottom-row" style={{ flexShrink: 0, padding: '0 1.25rem 1.25rem 1.25rem' }}>
+                    {/* Adv General */}
+                    <div className="landscape-bottom-col">
+                      <div className="col-header-small">
+                        <span>🏷️ Adv General ({clientGenBookings.length})</span>
+                      </div>
+                      <div className="scrollable-list">
+                        {clientGenBookings.length > 0 ? clientGenBookings.map(b => {
+                          const genBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.booking_end_date);
+                          return (
+                            <div key={`gen-${b.id}`} className="mini-card adv-gen-card">
+                              <div className="mc-head">
+                                <strong>{b.plan_type}</strong>
+                                <span className="mc-status">{b.status}</span>
+                              </div>
+                              <div className="mc-dates">{formatDateDDMMYYYY(b.booking_start_date)} → {formatDateDDMMYYYY(b.booking_end_date)}</div>
+                              {genBVal && (
+                                <div style={{
+                                  fontSize: '0.75rem',
+                                  fontWeight: '800',
+                                  marginTop: '4px',
+                                  color: genBVal.isExpired ? '#dc2626' : (genBVal.isFuture ? '#6366f1' : '#16a34a')
+                                }}>
+                                  ⏳ {genBVal.isFuture ? genBVal.text : `Remaining: ${genBVal.text}`}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }) : <div className="mini-empty">No Adv General</div>}
+                      </div>
+                    </div>
+
+                    {/* Adv PT */}
+                    <div className="landscape-bottom-col">
+                      <div className="col-header-small" style={{ color: '#0d9488' }}>
+                        <span>🏋️ Adv PT ({clientPtBookings.length})</span>
+                      </div>
+                      <div className="scrollable-list">
+                        {clientPtBookings.length > 0 ? clientPtBookings.map(b => {
+                          const ptBVal = getAdvanceBookingDaysDisplay(b.booking_start_date, b.expiry_date || b.booking_end_date);
+                          return (
+                            <div key={`pt-${b.id}`} className="mini-card adv-pt-card">
+                              <div className="mc-head">
+                                <strong style={{color:'#0f766e'}}>{b.packageName}</strong>
+                                <span className="mc-status" style={{background:'#0d9488'}}>{b.status}</span>
+                              </div>
+                              <div className="mc-dates">{b.trainerName || 'Assigned'} • {formatDateDDMMYYYY(b.booking_start_date)}</div>
+                              {ptBVal && (
+                                <div style={{
+                                  fontSize: '0.75rem',
+                                  fontWeight: '800',
+                                  marginTop: '4px',
+                                  color: ptBVal.isExpired ? '#dc2626' : (ptBVal.isFuture ? '#0d9488' : '#16a34a')
+                                }}>
+                                  ⏳ {ptBVal.isFuture ? ptBVal.text : `Remaining: ${ptBVal.text}`}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }) : <div className="mini-empty">No Adv PT</div>}
+                      </div>
+                    </div>
+
+                    {/* Other Services */}
+                    <div className="landscape-bottom-col">
+                      <div className="col-header-small" style={{ color: '#4f46e5' }}>
+                        <span>🧩 Other Services ({otherServices.length})</span>
+                      </div>
+                      <div className="scrollable-list">
+                        {otherServices.length > 0 ? otherServices.map(svc => (
+                          <div key={svc.id} className="mini-card os-card">
+                            <div className="mc-head">
+                              <strong style={{color:'#3730a3'}}>{svc.serviceName}</strong>
+                              <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
+                            </div>
+                            <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                              <button
+                                type="button"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                onClick={async () => {
+                                  if (!window.confirm(`Delete service "${svc.serviceName}"?`)) return;
+                                  try {
+                                    await deleteOtherServiceSale(svc.id);
+                                    setOtherServices(prev => prev.filter(s => s.id !== svc.id));
+                                    alert('Service deleted successfully.');
+                                  } catch (e) {
+                                    alert(e.message || 'Failed to delete service');
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )) : <div className="mini-empty">No Other Services</div>}
+                      </div>
+                    </div>
+
+                    {/* Historic Plan Invoices */}
+                    <div className="landscape-bottom-col">
+                      <div className="col-header-small" style={{ color: '#ea580c' }}>
+                        <span>📜 Plan History Invoices ({viewClientModal.bills ? viewClientModal.bills.length : 0})</span>
+                      </div>
+                      <div className="scrollable-list">
+                        {viewClientModal.bills && viewClientModal.bills.length > 0 ? viewClientModal.bills.map(b => (
+                          <div key={`bill-${b.id}`} className="mini-card" style={{ borderLeft: '3px solid #ea580c' }}>
+                            <div className="mc-head">
+                              <strong style={{ color: '#0f172a' }}>{b.billNo || 'INVOICE'}</strong>
+                              <span className="mc-status" style={{ background: b.dueAmount > 0 ? '#ea580c' : '#16a34a' }}>
+                                {b.dueAmount > 0 ? `Due ₹${b.dueAmount}` : 'Paid'}
+                              </span>
+                            </div>
+                            <div className="mc-dates">
+                              <strong>{b.planName || 'Membership'}</strong> • ₹{Number(b.totalPlanAmount || b.planAmount || 0).toLocaleString()}
+                            </div>
+                            <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '2px' }}>
+                              {formatDateDDMMYYYY(b.joinDate || b.invoiceDate)} → {formatDateDDMMYYYY(b.expiryDate)}
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                              <button
+                                type="button"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#e0f2fe', color: '#0284c7', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                onClick={() => {
+                                  setInvoicePreviewClient(b);
+                                  setViewClientModal({ isOpen: false, client: null });
+                                }}
+                              >
+                                PDF
+                              </button>
+                              <button
+                                type="button"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fef3c7', color: '#d97706', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                onClick={() => handleOpenEditBill(b)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                onClick={() => handleDeleteBill(b.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )) : <div className="mini-empty">No Invoices Found</div>}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="view-modal-footer">
+              <div className="view-modal-footer" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', padding: '0.85rem 1.5rem', background: '#f8fafc', borderTop: '1px solid #e2e8f0', flexShrink: 0 }}>
                 <button
-                  className="btn-cancel-gray"
+                  type="button"
+                  style={{ padding: '0.55rem 1.25rem', background: '#ffffff', color: '#0284c7', border: '1.5px solid #bae6fd', borderRadius: '10px', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 6px rgba(0,0,0,0.03)' }}
                   onClick={() => {
                     setInvoicePreviewClient(c);
                     setViewClientModal({ isOpen: false, client: null });
                   }}
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                   View Bill PDF
                 </button>
                 {vmDue > 0 && (
                   <button
-                    className="btn-save-green"
-                    style={{ background: 'linear-gradient(135deg, #ea580c, #c2410c)' }}
+                    type="button"
+                    style={{ padding: '0.55rem 1.25rem', background: 'linear-gradient(135deg, #ea580c, #c2410c)', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(234, 88, 12, 0.25)' }}
                     onClick={() => setPaymentModal({ isOpen: true, client: c, amount: vmDue, method: 'CASH', date: new Date().toISOString().split('T')[0] })}
                   >
                     Add Payment (₹{vmDue.toLocaleString()})
                   </button>
                 )}
+                <button
+                  type="button"
+                  style={{ padding: '0.55rem 1.25rem', background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', borderRadius: '10px', fontWeight: '800', fontSize: '0.85rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                  onClick={() => setViewClientModal({ isOpen: false, client: null })}
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
@@ -1142,7 +1920,7 @@ const ManageClientsPage = () => {
               <div style={{ background: '#fff7ed', border: '1px solid #ffedd5', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                   <span style={{ color: '#64748b' }}>Client Name:</span>
-                  <strong style={{ color: '#0f172a' }}>{paymentModal.client.name} ({paymentModal.client.clientId || 'No ID'})</strong>
+                  <strong style={{ color: '#0f172a' }}>{paymentModal.client.name} ({formatShortId(paymentModal.client.clientId) || 'No ID'})</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                   <span style={{ color: '#64748b' }}>Total Plan Amount:</span>
@@ -1203,6 +1981,127 @@ const ManageClientsPage = () => {
         );
       })()}
 
+      {/* Edit Invoice Modal */}
+      {editBillModal.isOpen && editBillModal.bill && (
+        <div className="alert-modal-overlay">
+          <div className="payment-modal-card reveal" style={{ maxWidth: '520px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ margin: 0 }}>Edit Invoice — {editBillModal.bill.billNo || 'Invoice'}</h3>
+              <button
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+                onClick={() => setEditBillModal({ isOpen: false, bill: null })}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditBill}>
+              <div className="payment-form-group">
+                <label className="payment-form-label">Plan / Description</label>
+                <input
+                  type="text"
+                  className="payment-form-input"
+                  value={editBillModal.planName}
+                  onChange={e => setEditBillModal({ ...editBillModal, planName: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Total Plan Amount (₹)</label>
+                  <input
+                    type="number"
+                    className="payment-form-input"
+                    value={editBillModal.totalPlanAmount}
+                    onChange={e => {
+                      const total = parseFloat(e.target.value) || 0;
+                      const paid = parseFloat(editBillModal.paidAmount) || 0;
+                      setEditBillModal({ ...editBillModal, totalPlanAmount: e.target.value, dueAmount: Math.max(0, total - paid) });
+                    }}
+                    required
+                  />
+                </div>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Paid Amount (₹)</label>
+                  <input
+                    type="number"
+                    className="payment-form-input"
+                    value={editBillModal.paidAmount}
+                    onChange={e => {
+                      const paid = parseFloat(e.target.value) || 0;
+                      const total = parseFloat(editBillModal.totalPlanAmount) || 0;
+                      setEditBillModal({ ...editBillModal, paidAmount: e.target.value, dueAmount: Math.max(0, total - paid) });
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Due Balance (₹)</label>
+                  <input
+                    type="number"
+                    className="payment-form-input"
+                    value={editBillModal.dueAmount}
+                    onChange={e => setEditBillModal({ ...editBillModal, dueAmount: e.target.value })}
+                  />
+                </div>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    className="payment-form-input"
+                    value={editBillModal.discount_amount}
+                    onChange={e => setEditBillModal({ ...editBillModal, discount_amount: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">From Date / Join Date</label>
+                  <input
+                    type="date"
+                    className="payment-form-input"
+                    value={editBillModal.joinDate}
+                    onChange={e => setEditBillModal({ ...editBillModal, joinDate: e.target.value })}
+                  />
+                </div>
+                <div className="payment-form-group">
+                  <label className="payment-form-label">Expiry Date / To Date</label>
+                  <input
+                    type="date"
+                    className="payment-form-input"
+                    value={editBillModal.expiryDate}
+                    onChange={e => setEditBillModal({ ...editBillModal, expiryDate: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="payment-form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="payment-form-label">Invoice Date</label>
+                <input
+                  type="date"
+                  className="payment-form-input"
+                  value={editBillModal.invoiceDate}
+                  onChange={e => setEditBillModal({ ...editBillModal, invoiceDate: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="payment-modal-actions">
+                <button type="button" className="btn-payment-cancel" onClick={() => setEditBillModal({ isOpen: false, bill: null })}>Cancel</button>
+                <button type="submit" className="btn-payment-submit" disabled={editBillModal.isSaving}>
+                  {editBillModal.isSaving ? 'Saving...' : 'Save Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Expired Plans Alert Modal */}
       <ExpiredPlansModal
         isOpen={isAlertOpen}
@@ -1237,7 +2136,7 @@ const ManageClientsPage = () => {
             <div className="renew-modal-header">
               <div className="renew-header-title">
                 <h3>Renew Membership Plan</h3>
-                <p className="renew-subtitle">Select a plan to reactivate <strong>{renewModal.client.name}</strong> ({renewModal.client.clientId})</p>
+                <p className="renew-subtitle">Select a plan to reactivate <strong>{renewModal.client.name}</strong> ({formatShortId(renewModal.client.clientId)})</p>
               </div>
               <button className="btn-close-modal" onClick={() => setRenewModal({ isOpen: false, client: null, plan: '', price: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', durationDays: 30, hasGst: false, gstin: '' })}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
@@ -1394,6 +2293,146 @@ const ManageClientsPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Options Modal */}
+      {importOptionsModal.isOpen && (
+        <div className="alert-overlay" onClick={() => setImportOptionsModal({ isOpen: false, clientsData: [], txnsData: [] })}>
+          <div className="alert-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="alert-header">
+              <h3>📥 Import Options</h3>
+              <button className="btn-close-alert" onClick={() => setImportOptionsModal({ isOpen: false, clientsData: [], txnsData: [] })}>×</button>
+            </div>
+            <div className="alert-body" style={{ textAlign: 'left', padding: '20px' }}>
+              <p style={{ margin: '0 0 16px 0', fontSize: '0.95rem', color: '#475569', lineHeight: '1.5' }}>
+                You are importing <strong>{importOptionsModal.clientsData.length} clients</strong>. You currently have <strong>{clients.length} existing clients</strong> in your database.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <button
+                  type="button"
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '14px 18px',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    fontSize: '0.95rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)'
+                  }}
+                  onClick={() => executeImport(importOptionsModal.clientsData, importOptionsModal.txnsData, 'append')}
+                >
+                  <span>➕ Add On / Append to Existing Data</span>
+                  <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '6px' }}>Keep {clients.length} Clients</span>
+                </button>
+
+                <button
+                  type="button"
+                  style={{
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '14px 18px',
+                    borderRadius: '10px',
+                    fontWeight: '700',
+                    fontSize: '0.95rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)'
+                  }}
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to OVERWRITE and DELETE all ${clients.length} existing client records?`)) {
+                      executeImport(importOptionsModal.clientsData, importOptionsModal.txnsData, 'overwrite');
+                    }
+                  }}
+                >
+                  <span>🔄 Replace All Existing Data</span>
+                  <span style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '6px' }}>Overwrite DB</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Profile Photo Modal */}
+      {viewImageModal.isOpen && (
+        <div 
+          className="image-lightbox-overlay" 
+          onClick={() => setViewImageModal({ isOpen: false, url: '', name: '' })}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 12000,
+            padding: '2rem'
+          }}
+        >
+          <div 
+            className="image-lightbox-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'relative',
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              background: '#0f172a',
+              borderRadius: '16px',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center'
+            }}
+          >
+            <button 
+              type="button"
+              onClick={() => setViewImageModal({ isOpen: false, url: '', name: '' })}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                width: '36px',
+                height: '36px',
+                borderRadius: '50%',
+                background: 'rgba(0,0,0,0.6)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: 10
+              }}
+            >
+              ✕
+            </button>
+            <img 
+              src={viewImageModal.url} 
+              alt={viewImageModal.name}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '75vh',
+                objectFit: 'contain',
+                display: 'block'
+              }} 
+            />
+            <div style={{ padding: '0.85rem 1.5rem', background: '#1e293b', width: '100%', textAlign: 'center', color: '#ffffff', fontWeight: '800' }}>
+              {viewImageModal.name} - Profile Picture
+            </div>
           </div>
         </div>
       )}

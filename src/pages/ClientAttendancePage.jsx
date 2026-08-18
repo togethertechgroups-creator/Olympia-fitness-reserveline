@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getClients, getAttendanceByDate, markAttendance, getAttendanceMonthly, getClientBills } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
+import { formatShortId } from '../utils/formatShortId';
 import './ClientAttendancePage.css';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -172,7 +173,7 @@ const ClientAttendancePage = () => {
                 <div key={client.id} className="sidebar-client-item">
                   <div className="client-info-compact" onClick={() => openReport(client)} style={{ cursor: 'pointer' }}>
                     <span className="client-name-compact">{client.name}</span>
-                    <span className="client-id-compact">{client.clientId}</span>
+                    <span className="client-id-compact">{formatShortId(client.clientId || client.id)}</span>
                   </div>
                   <div className="client-action-group">
                     {status ? (
@@ -223,7 +224,7 @@ const ClientAttendancePage = () => {
                         </div>
                         <div className="record-details">
                           <span className="record-name" onClick={() => openReport(client)} style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}>{client.name}</span>
-                          <span className="record-id">{client.clientId}</span>
+                          <span className="record-id">{formatShortId(client.clientId || client.id)}</span>
                         </div>
                       </div>
                       <span className={`status-badge ${activeTab}`}>
@@ -247,7 +248,7 @@ const ClientAttendancePage = () => {
             <div className="report-modal-header">
               <div>
                 <h2>{reportClient.name}</h2>
-                <span className="report-client-id">{reportClient.clientId}</span>
+                <span className="report-client-id">{formatShortId(reportClient.clientId || reportClient.id)}</span>
               </div>
               <button className="modal-close-btn" onClick={() => setReportClient(null)}>✕</button>
             </div>

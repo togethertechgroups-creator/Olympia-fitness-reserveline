@@ -6,6 +6,7 @@ import {
   updateClientMeasurement, 
   deleteClientMeasurement 
 } from '../api';
+import { formatShortId } from '../utils/formatShortId';
 import {
   LineChart,
   Line,
@@ -339,7 +340,7 @@ const ClientMeasurementsPage = () => {
             </div>
             <div>
               <div className="name">{selectedClient.name}</div>
-              <div className="meta">ID: {selectedClient.clientId} • {selectedClient.plan || 'Monthly'}</div>
+              <div className="meta">ID: {formatShortId(selectedClient.clientId || selectedClient.id)} • {selectedClient.plan || 'Monthly'}</div>
             </div>
           </div>
         )}
@@ -380,7 +381,7 @@ const ClientMeasurementsPage = () => {
                   </div>
                   <div className="client-info-text">
                     <span className="name">{client.name}</span>
-                    <span className="meta">ID: {client.clientId} • {client.plan || 'Monthly'}</span>
+                    <span className="meta">ID: {formatShortId(client.clientId || client.id)} • {client.plan || 'Monthly'}</span>
                   </div>
                   <span className={`status-dot-indicator ${client.status === 'Active' ? 'active' : 'inactive'}`} />
                 </div>

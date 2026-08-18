@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getSupplements, getClients, getSupplementSales, addSupplementSale, deleteSupplementSale } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatShortId } from '../utils/formatShortId';
 import './SupplementSalePage.css';
 
 const SupplementSalePage = () => {
@@ -281,7 +282,7 @@ const SupplementSalePage = () => {
                       <option value="">-- Select Client ({filteredClients.length} found) --</option>
                       {filteredClients.map(c => (
                         <option key={c.id} value={c.id}>
-                          {c.name} {c.phone ? `(${c.phone})` : ''} {c.clientId ? `[${c.clientId}]` : ''}
+                          {c.name} {c.phone ? `(${c.phone})` : ''} [{formatShortId(c.clientId || c.id)}]
                         </option>
                       ))}
                     </select>

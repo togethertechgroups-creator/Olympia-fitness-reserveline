@@ -1,5 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { formatShortId } from '../utils/formatShortId';
 import './PTExpiryModal.css';
 
 const PTExpiryModal = ({ isOpen, onClose, expiredClients }) => {
@@ -31,7 +32,7 @@ const PTExpiryModal = ({ isOpen, onClose, expiredClients }) => {
               <div key={`${item.id}-${idx}`} className="pt-list-item">
                 <div className="client-meta">
                   <span className="c-name">{item.name}</span>
-                  <span className="c-id">{item.clientId}</span>
+                  <span className="c-id">{formatShortId(item.clientId || item.id)}</span>
                 </div>
                 <div className="type-meta">
                   <span className={`type-tag ${item.type === 'PT' ? 'tag-pt' : 'tag-member'}`}>

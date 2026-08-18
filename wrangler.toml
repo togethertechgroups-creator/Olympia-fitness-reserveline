@@ -16,6 +16,11 @@ binding = "DB"
 database_name = "olympia-fitness-db"
 database_id = "ed446766-e8b8-49bf-ad46-16d0ae326ec3"
 
+# ─── Cloudflare R2 Bucket Binding ─────────────────────────────────────────────
+[[r2_buckets]]
+binding = "GYM_PROFILE_PICTURES"
+bucket_name = "gym-profile-pictures"
+
 # ─── Environment Variables (non-secret) ──────────────────────────────────────
 [vars]
 CF_WORKER = "1"

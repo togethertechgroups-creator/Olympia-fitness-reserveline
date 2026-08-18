@@ -5,6 +5,7 @@ import {
   getSettings,
   getPtPackages,
   getTrainers,
+  getPtAssignments,
   getGeneralBookings,
   addGeneralBooking,
   cancelGeneralBooking,
@@ -73,6 +74,7 @@ const AdvanceBookingPage = () => {
   
   const [generalBookings, setGeneralBookings] = useState([]);
   const [ptBookings, setPtBookings] = useState([]);
+  const [ptAssignments, setPtAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -196,13 +198,14 @@ const AdvanceBookingPage = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [clientsRes, settingsRes, pkgRes, trainerRes, genRes, ptRes] = await Promise.all([
+      const [clientsRes, settingsRes, pkgRes, trainerRes, genRes, ptRes, assignRes] = await Promise.all([
         getClients(),
         getSettings(),
         getPtPackages(),
         getTrainers(),
         getGeneralBookings(),
-        getPtAdvanceBookings()
+        getPtAdvanceBookings(),
+        getPtAssignments().catch(() => [])
       ]);
       setClients(clientsRes);
       setSettings(settingsRes);
@@ -210,11 +213,24 @@ const AdvanceBookingPage = () => {
       setTrainers(trainerRes.filter(t => t.status === 'Active'));
       setGeneralBookings(genRes);
       setPtBookings(ptRes);
+      setPtAssignments(assignRes || []);
     } catch (err) {
       console.error('Failed to load advance booking data:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const hasRunningPtPlan = (clientId) => {
+    if (!clientId || !ptAssignments || ptAssignments.length === 0) return null;
+    const today = new Date().toISOString().split('T')[0];
+    
+    return ptAssignments.find(a => 
+      (String(a.client_id) === String(clientId) || String(a.clientCode) === String(clientId)) &&
+      a.status === 'Active' &&
+      a.expiry_date >= today &&
+      (a.classes_completed < a.total_classes_snapshot)
+    ) || null;
   };
 
   const calculateNextDayDate = (dateStr) => {
@@ -257,18 +273,12 @@ const AdvanceBookingPage = () => {
 
   const handlePtClientChange = (cId) => {
     setIsDirty(true);
-    const selClient = clients.find(c => c.id === cId);
-    let defaultStart = new Date().toISOString().split('T')[0];
-    const todayStr = defaultStart;
-
-    if (selClient && selClient.expiryDate && selClient.expiryDate >= todayStr) {
-      defaultStart = calculateNextDayDate(selClient.expiryDate);
-    }
+    const todayStr = new Date().toISOString().split('T')[0];
 
     setPtForm(prev => ({
       ...prev,
       client_id: cId,
-      booking_start_date: defaultStart
+      booking_start_date: todayStr
     }));
   };
 
@@ -705,18 +715,43 @@ const AdvanceBookingPage = () => {
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             Invoice
                           </button>
-                          {['Scheduled', 'ReadyToActivate'].includes(b.status) && (
-                            <button 
-                              className="btn-activate-now" 
-                              onClick={() => handleActivatePtBooking(b.id)}
-                              disabled={b.status === 'Scheduled'}
-                              title={b.status === 'Scheduled' ? 'Activation will be available when current PT plan ends or classes are completed.' : ''}
-                              style={b.status === 'Scheduled' ? { opacity: 0.5, cursor: 'not-allowed', filter: 'grayscale(1)' } : {}}
-                            >
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
-                              Activate Now
-                            </button>
-                          )}
+                          {['Scheduled', 'ReadyToActivate'].includes(b.status) && (() => {
+                            const runningPt = hasRunningPtPlan(b.client_id || b.clientCode);
+                            const isDisabled = !!runningPt;
+
+                            return (
+                              <button 
+                                className={`btn-activate-now ${isDisabled ? 'disabled' : ''}`}
+                                onClick={() => {
+                                  if (isDisabled) {
+                                    showCustomAlert(
+                                      'Cannot Activate Yet',
+                                      `Client ${b.clientName} currently has an active running PT plan (${runningPt.packageName}) with ${runningPt.classes_completed}/${runningPt.total_classes_snapshot} classes conducted, expiring on ${formatDateDDMMYYYY(runningPt.expiry_date)}.\n\nAdvance bookings can only be activated once the current PT plan expires or all classes are completed.`
+                                    );
+                                  } else {
+                                    handleActivatePtBooking(b.id);
+                                  }
+                                }}
+                                disabled={isDisabled}
+                                style={{
+                                  opacity: isDisabled ? 0.5 : 1,
+                                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                  filter: isDisabled ? 'grayscale(80%)' : 'none',
+                                  background: isDisabled ? '#cbd5e1' : undefined,
+                                  color: isDisabled ? '#64748b' : undefined,
+                                  borderColor: isDisabled ? '#94a3b8' : undefined
+                                }}
+                                title={
+                                  isDisabled 
+                                    ? `Current PT plan active (${runningPt.classes_completed}/${runningPt.total_classes_snapshot} classes, exp ${formatDateDDMMYYYY(runningPt.expiry_date)})` 
+                                    : 'Activate PT Package Booking Now'
+                                }
+                              >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
+                                {isDisabled ? 'Locked (Plan Running)' : 'Activate Now'}
+                              </button>
+                            );
+                          })()}
                           {isSuperAdmin && ['Scheduled', 'ReadyToActivate'].includes(b.status) && (
                             <button className="btn-cancel-booking" onClick={() => handleCancelPtBooking(b.id)}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -782,7 +817,7 @@ const AdvanceBookingPage = () => {
                     <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
                     {filteredClientsForSelect.map(c => (
                       <option key={c.id} value={c.id}>
-                        {c.name} ({c.clientId || 'No Code'}) • Current Plan Expiry: {c.expiryDate ? formatDateDDMMYYYY(c.expiryDate) : 'None'}
+                        {c.name} ({formatShortId(c.clientId || c.id)}) • Current Plan Expiry: {c.expiryDate ? formatDateDDMMYYYY(c.expiryDate) : 'None'}
                       </option>
                     ))}
                   </select>
@@ -905,7 +940,7 @@ const AdvanceBookingPage = () => {
                     <option value="">-- Choose Existing Client ({filteredClientsForSelect.length}) --</option>
                     {filteredClientsForSelect.map(c => (
                       <option key={c.id} value={c.id}>
-                        {c.name} ({c.clientId || 'No Code'}) • Phone: {c.phone || 'N/A'}
+                        {c.name} ({formatShortId(c.clientId || c.id)}) • Phone: {c.phone || 'N/A'}
                       </option>
                     ))}
                   </select>

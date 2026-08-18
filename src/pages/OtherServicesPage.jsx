@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
-import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale } from '../api';
+import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale, updateOtherServiceSale } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import './OtherServicesPage.css';
@@ -28,9 +28,25 @@ const OtherServicesPage = () => {
     service_id: '',
     sale_date: new Date().toISOString().split('T')[0],
     paid_amount: 0,
+    discount_amount: 0,
     payment_method: 'UPI'
   });
   const [isSubmittingSell, setIsSubmittingSell] = useState(false);
+
+  // Edit Sale Modal State
+  const [editSaleModal, setEditSaleModal] = useState({
+    isOpen: false,
+    sale: null,
+    service_id: '',
+    price: '',
+    discount_amount: '',
+    paid_amount: '',
+    due_amount: '',
+    sale_date: '',
+    payment_method: 'UPI',
+    isSubmitting: false
+  });
+
   const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -118,6 +134,51 @@ const OtherServicesPage = () => {
     }
   };
 
+  const handleOpenEditSaleModal = (item) => {
+    const matchedService = services.find(s => String(s.id) === String(item.service_id)) || (services.length > 0 ? services[0] : null);
+    const disc = parseFloat(item.discount_amount) || 0;
+    const price = item.price_snapshot !== undefined ? (parseFloat(item.price_snapshot) + disc) : (matchedService ? matchedService.price : 0);
+    const paid = item.paidAmount !== undefined ? item.paidAmount : (item.price_snapshot || 0);
+    const due = item.dueAmount !== undefined ? item.dueAmount : 0;
+
+    setEditSaleModal({
+      isOpen: true,
+      sale: item,
+      service_id: item.service_id || (matchedService ? matchedService.id : ''),
+      price: price,
+      discount_amount: disc,
+      paid_amount: paid,
+      due_amount: due,
+      sale_date: item.sale_date || new Date().toISOString().split('T')[0],
+      payment_method: 'UPI',
+      isSubmitting: false
+    });
+  };
+
+  const handleSaveEditSale = async (e) => {
+    e.preventDefault();
+    if (!editSaleModal.sale) return;
+    setEditSaleModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      await updateOtherServiceSale(editSaleModal.sale.id, {
+        service_id: editSaleModal.service_id,
+        price_snapshot: parseFloat(editSaleModal.price) || 0,
+        discount_amount: parseFloat(editSaleModal.discount_amount) || 0,
+        paid_amount: parseFloat(editSaleModal.paid_amount) || 0,
+        due_amount: parseFloat(editSaleModal.due_amount) || 0,
+        payment_method: editSaleModal.payment_method,
+        sale_date: editSaleModal.sale_date
+      });
+      setToastMessage('Service subscription updated successfully.');
+      setEditSaleModal({ isOpen: false, sale: null, isSubmitting: false });
+      await fetchData();
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err) {
+      alert(err.message || 'Failed to update service subscription');
+      setEditSaleModal(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
   const handleDeleteSale = async (item) => {
     if (!window.confirm(`Are you sure you want to delete the service subscription "${item.serviceName}" for ${item.clientName}? This action cannot be undone.`)) {
       return;
@@ -134,10 +195,25 @@ const OtherServicesPage = () => {
 
   const handleServiceSelectionChange = (serviceId) => {
     const foundSvc = services.find(s => String(s.id) === String(serviceId));
+    const price = foundSvc ? foundSvc.price : 0;
+    const disc = parseFloat(sellFormData.discount_amount) || 0;
+    const net = Math.max(0, price - disc);
     setSellFormData(prev => ({
       ...prev,
       service_id: serviceId,
-      paid_amount: foundSvc ? foundSvc.price : prev.paid_amount
+      paid_amount: net
+    }));
+  };
+
+  const handleSellDiscountChange = (discVal) => {
+    const disc = parseFloat(discVal) || 0;
+    const foundSvc = services.find(s => String(s.id) === String(sellFormData.service_id));
+    const price = foundSvc ? foundSvc.price : 0;
+    const net = Math.max(0, price - disc);
+    setSellFormData(prev => ({
+      ...prev,
+      discount_amount: discVal,
+      paid_amount: net
     }));
   };
 
@@ -200,7 +276,11 @@ const OtherServicesPage = () => {
 
   // Summary Metrics
   const totalSalesCount = salesList.length;
-  const totalRevenue = salesList.reduce((sum, item) => sum + (item.price_snapshot || 0), 0);
+  const totalRevenue = salesList.reduce((sum, item) => {
+    const paid = parseFloat(item.paidAmount);
+    const snap = parseFloat(item.price_snapshot) || 0;
+    return sum + (!isNaN(paid) ? paid : snap);
+  }, 0);
   const activeCount = salesList.filter(item => {
     const days = calculateDaysLeft(item.expiryDate);
     return days === null || days >= 0;
@@ -231,7 +311,7 @@ const OtherServicesPage = () => {
 
           {isSuperAdmin && (
             <button className="btn-manage-tariffs-secondary" onClick={() => navigate('/settings?tab=other')}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
@@ -385,6 +465,11 @@ const OtherServicesPage = () => {
                     </td>
                     <td className="col-price">
                       <div className="price-val">{formatCurrency(item.price_snapshot)}</div>
+                      {parseFloat(item.discount_amount || 0) > 0 && (
+                        <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700', marginTop: '1px' }}>
+                          (₹{(Number(item.original_price || item.price_snapshot || 0) + Number(item.discount_amount || 0)).toLocaleString()} - ₹{Number(item.discount_amount).toLocaleString()} disc)
+                        </div>
+                      )}
                       <span className={`status-pill ${item.paymentStatus === 'Due' ? 'due' : 'paid'}`}>
                         {item.paymentStatus || 'Paid'}
                       </span>
@@ -407,6 +492,31 @@ const OtherServicesPage = () => {
                         )}
 
                         <button
+                          className="btn-action-edit-service"
+                          onClick={() => handleOpenEditSaleModal(item)}
+                          title="Edit Service Subscription"
+                          style={{
+                            background: '#fef3c7',
+                            color: '#b45309',
+                            border: '1px solid #fde68a',
+                            padding: '6px 11px',
+                            borderRadius: '8px',
+                            fontWeight: '800',
+                            cursor: 'pointer',
+                            fontSize: '0.78rem',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                          </svg>
+                          Edit
+                        </button>
+
+                        <button
                           className="btn-action-view-invoice"
                           onClick={() => setInvoiceModal({ isOpen: true, data: billObj })}
                           title="View / Print Invoice"
@@ -418,18 +528,16 @@ const OtherServicesPage = () => {
                           Invoice
                         </button>
 
-                        {isSuperAdmin && (
-                          <button
-                            className="btn-action-delete-service"
-                            onClick={() => handleDeleteSale(item)}
-                            title="Delete Subscription Record"
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <polyline points="3 6 5 6 21 6"></polyline>
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            </svg>
-                          </button>
-                        )}
+                        <button
+                          className="btn-action-delete-service"
+                          onClick={() => handleDeleteSale(item)}
+                          title="Delete Subscription Record"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -528,7 +636,7 @@ const OtherServicesPage = () => {
                     type="number"
                     min="0"
                     value={sellFormData.discount_amount}
-                    onChange={(e) => setSellFormData({ ...sellFormData, discount_amount: e.target.value })}
+                    onChange={(e) => handleSellDiscountChange(e.target.value)}
                     placeholder="0"
                   />
                 </div>
@@ -564,6 +672,157 @@ const OtherServicesPage = () => {
                 </button>
                 <button type="submit" className="btn-modal-confirm" disabled={isSubmittingSell}>
                   {isSubmittingSell ? 'Processing Sale...' : 'Process Sale & Generate Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Service Sale Modal */}
+      {editSaleModal.isOpen && editSaleModal.sale && (
+        <div className="os-modal-overlay">
+          <div className="os-modal-card">
+            <div className="os-modal-header">
+              <h3>Edit Service Subscription — {editSaleModal.sale.clientName}</h3>
+              <button onClick={() => setEditSaleModal({ isOpen: false, sale: null })} className="btn-close-modal">✕</button>
+            </div>
+
+            <form onSubmit={handleSaveEditSale} className="os-modal-body">
+              <div className="form-group">
+                <label>Select Service Tariff *</label>
+                <select
+                  value={editSaleModal.service_id}
+                  onChange={(e) => {
+                    const svcId = e.target.value;
+                    const foundSvc = services.find(s => String(s.id) === String(svcId));
+                    const price = foundSvc ? foundSvc.price : editSaleModal.price;
+                    const disc = parseFloat(editSaleModal.discount_amount) || 0;
+                    const net = Math.max(0, price - disc);
+                    setEditSaleModal({
+                      ...editSaleModal,
+                      service_id: svcId,
+                      price: price,
+                      paid_amount: net,
+                      due_amount: 0
+                    });
+                  }}
+                  required
+                >
+                  <option value="">-- Choose Service --</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} — ₹{s.price} ({s.duration_days} Days)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Tariff Price (₹) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editSaleModal.price}
+                    onChange={(e) => {
+                      const p = parseFloat(e.target.value) || 0;
+                      const disc = parseFloat(editSaleModal.discount_amount) || 0;
+                      const net = Math.max(0, p - disc);
+                      setEditSaleModal({
+                        ...editSaleModal,
+                        price: e.target.value,
+                        paid_amount: net,
+                        due_amount: 0
+                      });
+                    }}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editSaleModal.discount_amount}
+                    onChange={(e) => {
+                      const disc = parseFloat(e.target.value) || 0;
+                      const p = parseFloat(editSaleModal.price) || 0;
+                      const net = Math.max(0, p - disc);
+                      setEditSaleModal({
+                        ...editSaleModal,
+                        discount_amount: e.target.value,
+                        paid_amount: net,
+                        due_amount: 0
+                      });
+                    }}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Paid Amount (₹) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editSaleModal.paid_amount}
+                    onChange={(e) => {
+                      const paid = parseFloat(e.target.value) || 0;
+                      const p = parseFloat(editSaleModal.price) || 0;
+                      const disc = parseFloat(editSaleModal.discount_amount) || 0;
+                      const net = Math.max(0, p - disc);
+                      setEditSaleModal({
+                        ...editSaleModal,
+                        paid_amount: e.target.value,
+                        due_amount: Math.max(0, net - paid)
+                      });
+                    }}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Due Balance (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editSaleModal.due_amount}
+                    onChange={(e) => setEditSaleModal({ ...editSaleModal, due_amount: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Payment Method</label>
+                  <select
+                    value={editSaleModal.payment_method}
+                    onChange={(e) => setEditSaleModal({ ...editSaleModal, payment_method: e.target.value })}
+                  >
+                    <option value="UPI">UPI</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Net Banking">Net Banking</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Sale Date *</label>
+                  <input
+                    type="date"
+                    value={editSaleModal.sale_date}
+                    onChange={(e) => setEditSaleModal({ ...editSaleModal, sale_date: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="os-modal-actions">
+                <button type="button" className="btn-modal-cancel" onClick={() => setEditSaleModal({ isOpen: false, sale: null })} disabled={editSaleModal.isSubmitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-modal-confirm" disabled={editSaleModal.isSubmitting}>
+                  {editSaleModal.isSubmitting ? 'Saving Changes...' : 'Save Changes'}
                 </button>
               </div>
             </form>
