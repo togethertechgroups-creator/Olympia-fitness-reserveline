@@ -654,16 +654,27 @@ const ManageClientsPage = () => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     let expiredCount = 0;
+    let activeCount = 0;
 
     for (let i = 0; i < clients.length; i++) {
       const c = clients[i];
-      if (c.expiryDate && new Date(c.expiryDate) < today) {
+      if (c.status === 'inactive') {
         expiredCount++;
+      } else if (c.status === 'active') {
+        activeCount++;
+      } else {
+        const expiry = parseClientDate(c.expiryDate);
+        if (expiry && expiry < today) {
+          expiredCount++;
+        } else {
+          activeCount++;
+        }
       }
     }
 
     return {
       total: clients.length,
+      active: activeCount,
       expired: expiredCount
     };
   }, [clients]);
@@ -786,6 +797,10 @@ const ManageClientsPage = () => {
           <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('All')}>
             <span className="stat-label">Total Strength</span>
             <span className="stat-value">{stats.total}</span>
+          </div>
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Active')}>
+            <span className="stat-label">🟢 Active Plans</span>
+            <span className="stat-value green" style={{ color: '#16a34a' }}>{stats.active}</span>
           </div>
           <div className="stat-item" title="Male clients in current filtered view">
             <span className="stat-label">♂️ Total Male</span>

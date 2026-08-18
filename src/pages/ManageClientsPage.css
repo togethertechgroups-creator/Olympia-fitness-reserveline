@@ -102,6 +102,10 @@
   color: #ef4444;
 }
 
+.stat-value.green {
+  color: #16a34a;
+}
+
 .controls-row {
   display: flex;
   justify-content: space-between;
