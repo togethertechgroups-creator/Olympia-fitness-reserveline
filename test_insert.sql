@@ -1,1 +1,0 @@
-INSERT INTO clients (id, clientId, name, phone, plan, fromDate, expiryDate, amount, paidAmount, dueAmount, paymentStatus, personalTraining, status, gender, admissionDate) VALUES ('test-id-100', '9999', 'TEST CLIENT 1', '+91 9999999999', 'Monthly', '2026-08-18', '2026-09-18', 2500, 2500, 0, 'Paid', 0, 'active', 'Male', '2026-08-18');

@@ -296,6 +296,15 @@
   color: var(--text-base);
 }
 
+.phone-cell {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--text-base);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .name-avatar-group {
   display: flex;
   align-items: center;

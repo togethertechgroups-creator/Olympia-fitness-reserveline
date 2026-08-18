@@ -892,11 +892,11 @@ const ManageClientsPage = () => {
               <tr>
                 <th style={{ width: '6%' }}>ID ↑↓</th>
                 <th style={{ width: '20%' }}>Client Name</th>
-                <th style={{ width: '12%' }}>Phone Number</th>
+                <th style={{ width: '14%' }}>Phone Number</th>
                 <th style={{ width: '10%' }}>Program</th>
                 <th style={{ width: '18%' }}>Payment / Due Status</th>
                 <th style={{ width: '14%' }}>Validity</th>
-                <th style={{ textAlign: 'right', width: '20%' }}>Actions</th>
+                <th style={{ textAlign: 'right', width: '18%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -940,7 +940,13 @@ const ManageClientsPage = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="phone-cell">{client.phone}</td>
+                    <td className="phone-cell">
+                      {(() => {
+                        const raw = String(client.phone || '').trim();
+                        if (!raw || raw === '+91' || raw === '+91 ') return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>-</span>;
+                        return raw;
+                      })()}
+                    </td>
                     <td>
                       <div className="plan-display-group">
                         <span className="plan-pill">{client.plan}</span>
