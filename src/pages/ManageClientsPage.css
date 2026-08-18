@@ -389,6 +389,26 @@
 .days-left.warning { color: var(--primary-neon); } /* Orange warning when < 7 days */
 .days-left.expired { color: #ef4444; } /* Red when Expired */
 
+.validity-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.validity-dates-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  line-height: 1.25;
+}
+
+.expiry-date-line {
+  white-space: nowrap;
+}
+
 .expiry-date {
   font-size: 0.7rem;
   color: var(--text-dim);

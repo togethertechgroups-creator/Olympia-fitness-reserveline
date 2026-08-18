@@ -1019,9 +1019,14 @@ const ManageClientsPage = () => {
                         <span className={`days-left ${validity.isExpired ? 'expired' : ''} ${validity.isWarning ? 'warning' : ''}`}>
                           {validity.text}
                         </span>
-                        <span className="expiry-date" style={{ fontSize: '0.75rem' }}>
-                          Start: <strong>{formatDateDDMMYYYY(client.fromDate)}</strong> • Exp: <strong>{formatDateDDMMYYYY(client.expiryDate)}</strong>
-                        </span>
+                        <div className="validity-dates-stack">
+                          <span className="expiry-date-line">
+                            Start: <strong>{formatDateDDMMYYYY(client.fromDate)}</strong>
+                          </span>
+                          <span className="expiry-date-line">
+                            Exp: <strong>{formatDateDDMMYYYY(client.expiryDate)}</strong>
+                          </span>
+                        </div>
                       </div>
                     </td>
                     <td className="actions-cell">
