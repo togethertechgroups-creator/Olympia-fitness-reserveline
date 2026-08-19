@@ -3998,21 +3998,14 @@ app.get('/api/stats', async (req, res) => {
       const expDate = parseAnyDate(c.expiryDate);
       if (expDate) expDate.setHours(0, 0, 0, 0);
 
-      const ptExpDate = parseAnyDate(c.ptToDate);
-      if (ptExpDate) ptExpDate.setHours(0, 0, 0, 0);
-
-      const isExplicitInactive = st === 'inactive';
-      const isExplicitExpired = st === 'expired';
+      const isExplicitInactive = st === 'inactive' || st === 'expired';
       const isDateExpired = expDate ? (expDate < todayObj) : false;
 
       const g = (c.gender || '').toLowerCase().trim();
       const isFemale = g === 'female' || g === 'f';
 
-      if (isExplicitInactive) {
+      if (isExplicitInactive || isDateExpired) {
         inactiveCount++;
-        if (isFemale) inactiveFemaleCount++;
-        else inactiveMaleCount++;
-      } else if (isExplicitExpired || isDateExpired) {
         expiredCount++;
         if (isFemale) inactiveFemaleCount++;
         else inactiveMaleCount++;
@@ -4022,6 +4015,8 @@ app.get('/api/stats', async (req, res) => {
         else activeMaleCount++;
       }
 
+      const ptExpDate = parseAnyDate(c.ptToDate);
+      if (ptExpDate) ptExpDate.setHours(0, 0, 0, 0);
       if (c.ptCategory && c.ptCategory !== 'None' && ptExpDate && ptExpDate < todayObj) {
         expiredPTCount++;
       }
@@ -4877,8 +4872,21 @@ app.delete('/api/clients/:clientId/measurements/:id', async (req, res) => {
 function parseAnyDate(dateStr) {
   if (!dateStr) return null;
   if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
-  const str = String(dateStr).trim();
+  let str = String(dateStr).trim();
   if (!str) return null;
+  if (str.includes('T')) str = str.split('T')[0];
+  if (str.includes(' ')) str = str.split(' ')[0];
+
+  // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+  const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const d = new Date(year, month, day);
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
+  }
 
   // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
   const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
@@ -4886,20 +4894,15 @@ function parseAnyDate(dateStr) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10) - 1;
     const year = parseInt(dmyMatch[3], 10);
-    return new Date(year, month, day);
-  }
-
-  // YYYY-MM-DD or YYYY/MM/DD
-  const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
-  if (ymdMatch) {
-    const year = parseInt(ymdMatch[1], 10);
-    const month = parseInt(ymdMatch[2], 10) - 1;
-    const day = parseInt(ymdMatch[3], 10);
-    return new Date(year, month, day);
+    const d = new Date(year, month, day);
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
   }
 
   const d = new Date(str);
-  return isNaN(d.getTime()) ? null : d;
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
 }
 
 function formatMonthLabel(monthStr) {
@@ -5057,6 +5060,10 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+
+
+
 
 
 // ─── Middleware: SuperAdmin ONLY Access for Supplements ───────────────────────

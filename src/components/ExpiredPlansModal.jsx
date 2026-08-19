@@ -5,6 +5,25 @@ import './ExpiredPlansModal.css';
 const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) => {
   if (!isOpen) return null;
 
+  const handleSendWa = (client, e) => {
+    e.stopPropagation();
+    const rawPhone = String(client.phone || '').replace(/\D/g, '');
+    if (!rawPhone) {
+      alert(`No phone number for ${client.name}`);
+      return;
+    }
+    const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+    const isExpiring = client.isExpiringSoon || (client.daysLeft !== undefined && !client.isExpired);
+    let text = `Hello ${client.name},\n\n`;
+    if (isExpiring) {
+      text += `Your gym membership plan (${client.plan || 'Plan'}) is expiring in ${client.daysLeft} days. Please renew to keep training uninterrupted!\n`;
+    } else {
+      text += `Your gym membership plan (${client.plan || 'Plan'}) has expired. Please renew your membership to continue your workouts.\n`;
+    }
+    text += `\nThank you, Olympia Fitness! 💪🏋️‍♂️`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   const renderClientItem = (client, key) => {
     const isExpiring = client.isExpiringSoon || (client.daysLeft !== undefined && !client.isExpired);
     return (
@@ -22,7 +41,31 @@ const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) =>
             <span className="item-id">ID: {formatShortId(client.clientId || client.id)}</span>
           </div>
         </div>
-        <div className="item-right">
+        <div className="item-right" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            className="btn-wa-reminder-sm"
+            onClick={(e) => handleSendWa(client, e)}
+            title={`Send WhatsApp Reminder to ${client.name}`}
+            style={{
+              background: '#25d366',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '50%',
+              width: '28px',
+              height: '28px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              boxShadow: '0 2px 6px rgba(37, 211, 102, 0.4)',
+              flexShrink: 0
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
+            </svg>
+          </button>
           {isExpiring ? (
             <span className="expiring-tag">
               {client.daysLeft === 0 ? '⚠️ EXPIRES TODAY' : `⏳ ${client.daysLeft} DAYS LEFT`}

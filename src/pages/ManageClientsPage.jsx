@@ -64,7 +64,7 @@ const ManageClientsPage = () => {
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, name: '', clientId: '' });
   const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null, ptAssignments: [], otherServices: [], bills: [], loadingDetails: false, activeTab: 'overview' });
   const [invoicePreviewClient, setInvoicePreviewClient] = useState(null);
-  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, url: '', name: '' });
+  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' });
   const [paymentModal, setPaymentModal] = useState({ isOpen: false, client: null, amount: '', method: 'CASH', date: new Date().toISOString().split('T')[0] });
   const [editBillModal, setEditBillModal] = useState({
     isOpen: false,
@@ -202,6 +202,16 @@ const ManageClientsPage = () => {
     gstin: ''
   });
   const [isRenewing, setIsRenewing] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && viewImageModal.isOpen) {
+        setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' });
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewImageModal.isOpen]);
 
   useEffect(() => {
     fetchClients();
@@ -521,19 +531,57 @@ const ManageClientsPage = () => {
 
 
 
+  const handleSendWhatsAppReminder = (client) => {
+    const rawPhone = String(client.phone || '').replace(/\D/g, '');
+    if (!rawPhone) {
+      alert(`No phone number recorded for ${client.name}`);
+      return;
+    }
+    const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+    const validity = getValidityDisplay(client.expiryDate);
+    const { effectiveDue } = calcClientDueDetails(client);
+
+    let text = `Hello ${client.name},\n\n`;
+    if (effectiveDue > 0) {
+      text += `This is a friendly reminder from Olympia Fitness regarding your pending due amount of ₹${effectiveDue.toLocaleString()}.\n`;
+    } else if (validity.isExpired) {
+      text += `Your gym membership plan (${client.plan || 'Plan'}) has expired. Please renew your membership to continue your workout sessions uninterrupted.\n`;
+    } else {
+      text += `Your gym membership plan (${client.plan || 'Plan'}) is valid until ${formatDateDDMMYYYY(client.expiryDate)} (${validity.text}).\n`;
+    }
+    text += `\nThank you, Olympia Fitness! 💪🏋️‍♂️`;
+
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   const parseClientDate = (dateStr) => {
     if (!dateStr) return null;
+    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
     let str = String(dateStr).trim();
+    if (!str) return null;
     if (str.includes('T')) str = str.split('T')[0];
     if (str.includes(' ')) str = str.split(' ')[0];
 
-    // DD-MM-YYYY or DD/MM/YYYY -> YYYY-MM-DD
-    if (str.includes('-') && str.split('-')[0].length === 2) {
-      const parts = str.split('-');
-      if (parts.length === 3) str = `${parts[2]}-${parts[1]}-${parts[0]}`;
-    } else if (str.includes('/')) {
-      const parts = str.split('/');
-      if (parts.length === 3) str = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+    const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      const d = new Date(year, month, day);
+      d.setHours(0, 0, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const d = new Date(year, month, day);
+      d.setHours(0, 0, 0, 0);
+      return isNaN(d.getTime()) ? null : d;
     }
 
     const d = new Date(str);
@@ -604,8 +652,11 @@ const ManageClientsPage = () => {
 
       if (trainerFilter !== 'All' && client.trainerId !== trainerFilter) return false;
 
+      const st = (client.status || '').toLowerCase().trim();
       const expiry = parseClientDate(client.expiryDate);
-      const isExpired = expiry ? (expiry < today) : true;
+      const isExplicitInactive = st === 'inactive' || st === 'expired';
+      const isDateExpired = expiry ? (expiry < today) : false;
+      const isExpired = isExplicitInactive || isDateExpired;
 
       const diffDays = expiry ? Math.ceil((expiry - today) / (1000 * 60 * 60 * 24)) : -1;
       const isExpiringSoon = !isExpired && diffDays >= 0 && diffDays <= 5;
@@ -658,17 +709,15 @@ const ManageClientsPage = () => {
 
     for (let i = 0; i < clients.length; i++) {
       const c = clients[i];
-      if (c.status === 'inactive') {
+      const st = (c.status || '').toLowerCase().trim();
+      const expiry = parseClientDate(c.expiryDate);
+      const isExplicitInactive = st === 'inactive' || st === 'expired';
+      const isDateExpired = expiry ? (expiry < today) : false;
+
+      if (isExplicitInactive || isDateExpired) {
         expiredCount++;
-      } else if (c.status === 'active') {
-        activeCount++;
       } else {
-        const expiry = parseClientDate(c.expiryDate);
-        if (expiry && expiry < today) {
-          expiredCount++;
-        } else {
-          activeCount++;
-        }
+        activeCount++;
       }
     }
 
@@ -913,11 +962,24 @@ const ManageClientsPage = () => {
                       <div className="name-avatar-group">
                         <div 
                           className={`client-avatar-mini ${client.profileImage ? 'has-image' : ''}`}
-                          onClick={() => client.profileImage && setViewImageModal({ isOpen: true, url: client.profileImage, name: client.name })}
+                          onClick={() => client.profileImage && setViewImageModal({
+                            isOpen: true,
+                            imageUrl: client.profileImage,
+                            url: client.profileImage,
+                            title: client.name,
+                            name: client.name,
+                            subtitle: `ID: ${formatShortId(client.clientId || client.id)} • ${client.plan || 'General Membership'}`
+                          })}
                           title={client.profileImage ? "Click to view full photo" : client.name}
+                          style={{ position: 'relative' }}
                         >
                           {client.profileImage ? (
-                            <img src={client.profileImage} alt={client.name} />
+                            <>
+                              <img src={client.profileImage} alt={client.name} />
+                              <div className="avatar-hover-overlay">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                              </div>
+                            </>
                           ) : (
                             <span className="avatar-fallback">{client.name.charAt(0).toUpperCase()}</span>
                           )}
@@ -1031,6 +1093,16 @@ const ManageClientsPage = () => {
                     </td>
                     <td className="actions-cell">
                       <div className="actions-cell-wrapper">
+                        <button
+                          className="btn-action-whatsapp"
+                          onClick={() => handleSendWhatsAppReminder(client)}
+                          title={`Send WhatsApp Reminder to ${client.name}`}
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
+                          </svg>
+                        </button>
+
                         <button
                           className="btn-action-view"
                           onClick={() => handleViewClient(client)}
@@ -1605,9 +1677,26 @@ const ManageClientsPage = () => {
                     {/* Column 1: Profile Info */}
                     <div className="landscape-col profile-col">
                       <div className="landscape-avatar-container">
-                        <div className="view-modal-avatar-lg">
+                        <div 
+                          className={`view-modal-avatar-lg ${c.profileImage ? 'has-image' : ''}`}
+                          onClick={() => c.profileImage && setViewImageModal({
+                            isOpen: true,
+                            imageUrl: c.profileImage,
+                            url: c.profileImage,
+                            title: c.name,
+                            name: c.name,
+                            subtitle: `ID: ${formatShortId(c.clientId || c.id)} • ${c.plan || 'General Membership'}`
+                          })}
+                          style={{ cursor: c.profileImage ? 'pointer' : 'default', position: 'relative' }}
+                          title={c.profileImage ? "Click to view full photo" : ""}
+                        >
                           {c.profileImage ? (
-                            <img src={c.profileImage} alt={c.name} />
+                            <>
+                              <img src={c.profileImage} alt={c.name} />
+                              <div className="avatar-hover-overlay">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                              </div>
+                            </>
                           ) : (
                             <span>{c.name.charAt(0)}</span>
                           )}
@@ -1620,6 +1709,64 @@ const ManageClientsPage = () => {
                           <span className={`badge-status ${c.status === 'Active' ? 'active' : 'inactive'}`}>
                             {c.status}
                           </span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                          {c.profileImage && (
+                            <button
+                              type="button"
+                              className="btn-view-full-image"
+                              onClick={() => setViewImageModal({
+                                isOpen: true,
+                                imageUrl: c.profileImage,
+                                url: c.profileImage,
+                                title: c.name,
+                                name: c.name,
+                                subtitle: `ID: ${formatShortId(c.clientId || c.id)} • ${c.plan || 'General Membership'}`
+                              })}
+                              style={{
+                                marginTop: '8px',
+                                fontSize: '0.78rem',
+                                color: '#ea580c',
+                                background: 'rgba(234, 88, 12, 0.08)',
+                                border: '1px solid rgba(234, 88, 12, 0.3)',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                padding: '4px 10px',
+                                fontWeight: '700',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                              View Full Photo
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-whatsapp-reminder-lg"
+                            onClick={() => handleSendWhatsAppReminder(c)}
+                            style={{
+                              marginTop: '8px',
+                              fontSize: '0.78rem',
+                              color: '#15803d',
+                              background: '#dcfce7',
+                              border: '1px solid #86efac',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              padding: '4px 10px',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title={`Send WhatsApp Reminder to ${c.name}`}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
+                            </svg>
+                            WhatsApp Reminder
+                          </button>
                         </div>
                       </div>
                       <div className="profile-details">
@@ -2393,71 +2540,33 @@ const ManageClientsPage = () => {
       {/* Lightbox Profile Photo Modal */}
       {viewImageModal.isOpen && (
         <div 
-          className="image-lightbox-overlay" 
-          onClick={() => setViewImageModal({ isOpen: false, url: '', name: '' })}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(15, 23, 42, 0.85)',
-            backdropFilter: 'blur(8px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 12000,
-            padding: '2rem'
-          }}
+          className="image-lightbox-overlay"
+          onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' })}
         >
           <div 
             className="image-lightbox-card"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: 'relative',
-              maxWidth: '90vw',
-              maxHeight: '90vh',
-              background: '#0f172a',
-              borderRadius: '16px',
-              overflow: 'hidden',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center'
-            }}
+            onClick={e => e.stopPropagation()}
           >
-            <button 
-              type="button"
-              onClick={() => setViewImageModal({ isOpen: false, url: '', name: '' })}
-              style={{
-                position: 'absolute',
-                top: '12px',
-                right: '12px',
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                background: 'rgba(0,0,0,0.6)',
-                color: '#ffffff',
-                border: '1px solid rgba(255,255,255,0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                zIndex: 10
-              }}
-            >
-              ✕
-            </button>
-            <img 
-              src={viewImageModal.url} 
-              alt={viewImageModal.name}
-              style={{
-                maxWidth: '100%',
-                maxHeight: '75vh',
-                objectFit: 'contain',
-                display: 'block'
-              }} 
-            />
-            <div style={{ padding: '0.85rem 1.5rem', background: '#1e293b', width: '100%', textAlign: 'center', color: '#ffffff', fontWeight: '800' }}>
-              {viewImageModal.name} - Profile Picture
+            <div className="image-lightbox-header">
+              <div>
+                <h3>{viewImageModal.title || viewImageModal.name || 'Client Profile Photo'}</h3>
+                {viewImageModal.subtitle && <p>{viewImageModal.subtitle}</p>}
+              </div>
+              <button
+                type="button"
+                className="image-lightbox-close"
+                onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' })}
+                title="Close (Esc)"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="image-lightbox-body">
+              <img 
+                src={viewImageModal.imageUrl || viewImageModal.url} 
+                alt={viewImageModal.title || viewImageModal.name || 'Full Profile Photo'} 
+                className="image-lightbox-img"
+              />
             </div>
           </div>
         </div>
