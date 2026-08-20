@@ -52,6 +52,8 @@ const ManageClientsPage = () => {
   const [activeFilter, setActiveFilter] = useState('Active');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [idSortOrder, setIdSortOrder] = useState('asc'); // 'asc' | 'desc'
+  const [genderFilter, setGenderFilter] = useState('All'); // 'All' | 'Male' | 'Female'
   const [isAlertOpen, setIsAlertOpen] = useState(false);
   // Removed isPTAlertOpen state
 
@@ -652,6 +654,12 @@ const ManageClientsPage = () => {
 
       if (trainerFilter !== 'All' && client.trainerId !== trainerFilter) return false;
 
+      // Gender Filter
+      const g = (client.gender || '').toLowerCase().trim();
+      const isFemale = g === 'female' || g === 'f';
+      if (genderFilter === 'Male' && isFemale) return false;
+      if (genderFilter === 'Female' && !isFemale) return false;
+
       const st = (client.status || '').toLowerCase().trim();
       const expiry = parseClientDate(client.expiryDate);
       const isExplicitInactive = st === 'inactive' || st === 'expired';
@@ -671,35 +679,39 @@ const ManageClientsPage = () => {
       return true;
     });
 
-    if (activeFilter === 'Inactive') {
-      list.sort((a, b) => {
-        const dateA = parseClientDate(a.expiryDate);
-        const dateB = parseClientDate(b.expiryDate);
-        const timeA = dateA ? dateA.getTime() : 0;
-        const timeB = dateB ? dateB.getTime() : 0;
-        if (timeA !== timeB) {
-          return timeB - timeA; // Most recently expired plan first
-        }
-        return String(b.clientId || '').localeCompare(String(a.clientId || ''));
-      });
-    }
+    // ID Sorting (Ascending / Descending)
+    list.sort((a, b) => {
+      const idAStr = String(a.clientId || a.id || '');
+      const idBStr = String(b.clientId || b.id || '');
+      const numA = parseInt(idAStr.replace(/\D/g, ''), 10);
+      const numB = parseInt(idBStr.replace(/\D/g, ''), 10);
+
+      let cmp = 0;
+      if (!isNaN(numA) && !isNaN(numB)) {
+        cmp = numA - numB;
+      } else {
+        cmp = idAStr.localeCompare(idBStr, undefined, { numeric: true });
+      }
+
+      return idSortOrder === 'asc' ? cmp : -cmp;
+    });
 
     return list;
-  }, [clients, searchTerm, trainerFilter, activeFilter]);
+  }, [clients, searchTerm, trainerFilter, activeFilter, genderFilter, idSortOrder]);
 
   const dynamicGenderCounts = useMemo(() => {
     let male = 0;
     let female = 0;
-    for (let i = 0; i < filteredClients.length; i++) {
-      const g = (filteredClients[i].gender || '').toLowerCase().trim();
+    for (let i = 0; i < clients.length; i++) {
+      const g = (clients[i].gender || '').toLowerCase().trim();
       if (g === 'female' || g === 'f') {
         female++;
       } else {
         male++;
       }
     }
-    return { male, female, total: filteredClients.length };
-  }, [filteredClients]);
+    return { male, female, total: clients.length };
+  }, [clients]);
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -730,7 +742,7 @@ const ManageClientsPage = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, activeFilter, trainerFilter, itemsPerPage]);
+  }, [searchTerm, activeFilter, trainerFilter, genderFilter, idSortOrder, itemsPerPage]);
 
   const totalItems = filteredClients.length;
   const totalPages = itemsPerPage > 0 ? Math.max(1, Math.ceil(totalItems / itemsPerPage)) : 1;
@@ -843,7 +855,7 @@ const ManageClientsPage = () => {
         </div>
 
         <div className="stats-bar">
-          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('All')}>
+          <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => { setActiveFilter('All'); setGenderFilter('All'); }}>
             <span className="stat-label">Total Strength</span>
             <span className="stat-value">{stats.total}</span>
           </div>
@@ -851,12 +863,36 @@ const ManageClientsPage = () => {
             <span className="stat-label">🟢 Active Plans</span>
             <span className="stat-value green" style={{ color: '#16a34a' }}>{stats.active}</span>
           </div>
-          <div className="stat-item" title="Male clients in current filtered view">
-            <span className="stat-label">♂️ Total Male</span>
+          <div
+            className={`stat-item ${genderFilter === 'Male' ? 'active-gender-filter' : ''}`}
+            style={{
+              cursor: 'pointer',
+              border: genderFilter === 'Male' ? '2px solid #2563eb' : '1px solid transparent',
+              background: genderFilter === 'Male' ? '#eff6ff' : 'transparent',
+              borderRadius: '10px',
+              padding: '4px 8px',
+              transition: 'all 0.2s'
+            }}
+            onClick={() => setGenderFilter(prev => prev === 'Male' ? 'All' : 'Male')}
+            title="Click to filter by Male clients"
+          >
+            <span className="stat-label">♂️ Male {genderFilter === 'Male' && '(Filtered)'}</span>
             <span className="stat-value" style={{ color: '#2563eb' }}>{dynamicGenderCounts.male}</span>
           </div>
-          <div className="stat-item" title="Female clients in current filtered view">
-            <span className="stat-label">♀️ Total Female</span>
+          <div
+            className={`stat-item ${genderFilter === 'Female' ? 'active-gender-filter' : ''}`}
+            style={{
+              cursor: 'pointer',
+              border: genderFilter === 'Female' ? '2px solid #db2777' : '1px solid transparent',
+              background: genderFilter === 'Female' ? '#fdf2f8' : 'transparent',
+              borderRadius: '10px',
+              padding: '4px 8px',
+              transition: 'all 0.2s'
+            }}
+            onClick={() => setGenderFilter(prev => prev === 'Female' ? 'All' : 'Female')}
+            title="Click to filter by Female clients"
+          >
+            <span className="stat-label">♀️ Female {genderFilter === 'Female' && '(Filtered)'}</span>
             <span className="stat-value" style={{ color: '#db2777' }}>{dynamicGenderCounts.female}</span>
           </div>
           <div className="stat-item" style={{ cursor: 'pointer' }} onClick={() => setActiveFilter('Due Payment')}>
@@ -930,6 +966,16 @@ const ManageClientsPage = () => {
                 </button>
               );
             })}
+            {genderFilter !== 'All' && (
+              <button
+                className="filter-pill active"
+                onClick={() => setGenderFilter('All')}
+                style={{ background: '#f43f5e', borderColor: '#f43f5e' }}
+                title="Clear Gender Filter"
+              >
+                Clear Gender ({genderFilter}) ✕
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -939,7 +985,13 @@ const ManageClientsPage = () => {
           <table className="clients-table">
             <thead>
               <tr>
-                <th style={{ width: '5%' }}>ID ↑↓</th>
+                <th
+                  style={{ width: '6%', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => setIdSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                  title={`Click to sort by ID (${idSortOrder === 'asc' ? 'Ascending: 1 → 9. Click for Descending' : 'Descending: 9 → 1. Click for Ascending'})`}
+                >
+                  ID {idSortOrder === 'asc' ? '↑' : '↓'}
+                </th>
                 <th style={{ width: '20%' }}>Client Name</th>
                 <th style={{ width: '14%' }}>Phone Number</th>
                 <th style={{ width: '9%' }}>Program</th>
@@ -955,6 +1007,8 @@ const ManageClientsPage = () => {
                 <tr><td colSpan="7" style={{ textAlign: 'center', padding: '3rem' }}>No clients found.</td></tr>
               ) : paginatedClients.map(client => {
                 const validity = getValidityDisplay(client.expiryDate);
+                const g = (client.gender || '').toLowerCase().trim();
+                const isFemale = g === 'female' || g === 'f';
                 return (
                   <tr key={client.id}>
                     <td className="id-cell">{formatShortId(client.clientId || client.id)}</td>
@@ -985,7 +1039,27 @@ const ManageClientsPage = () => {
                           )}
                         </div>
                         <div className="name-renew-stack">
-                          <span className="client-name">{client.name}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span className="client-name">{client.name}</span>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.68rem',
+                                fontWeight: '800',
+                                padding: '1px 5px',
+                                borderRadius: '100px',
+                                background: isFemale ? '#fdf2f8' : '#eff6ff',
+                                color: isFemale ? '#db2777' : '#2563eb',
+                                border: `1px solid ${isFemale ? '#fbcfe8' : '#bfdbfe'}`,
+                                lineHeight: 1
+                              }}
+                              title={`Gender: ${isFemale ? 'Female' : 'Male'}`}
+                            >
+                              {isFemale ? '♀' : '♂'}
+                            </span>
+                          </div>
                           {validity.isExpired && (
                             <button
                               type="button"
