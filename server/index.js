@@ -1001,10 +1001,6 @@ const backfillPtAssignmentTransactions = async () => {
     console.error('Error backfilling PT assignment transactions:', err.message);
   }
 };
-  } catch (err) {
-    console.error('Error backfilling PT assignment transactions:', err.message);
-  }
-};
 
 const autoActivateAdvanceBookings = async () => {
   try {
