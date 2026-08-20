@@ -850,7 +850,8 @@ const autoExpireAssignments = async () => {
 
 const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedDate, expiryDate, discountAmount = 0, paidAmount = null, paymentMethod = 'UPI', gstin = null) => {
   try {
-    const client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(clientId, clientId);
+    const cStr = String(clientId || '');
+    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?').get(cStr, cStr);
     if (!client) return null;
 
     const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
@@ -883,7 +884,7 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
     `).run(
       billId,
       nextBillNo,
-      client.id || clientId,
+      client.clientId || client.id || clientId,
       client.name,
       invoiceDateStr,
       assignedDate || '',
@@ -907,7 +908,7 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
         VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
       `).run(
         txId,
-        client.id || clientId,
+        client.clientId || client.id || clientId,
         billId,
         `${client.name} - Personal Training (${packageName || 'PT Package'})`,
         payMethodVal,
@@ -932,7 +933,7 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
 const backfillPtAssignmentTransactions = async () => {
   try {
     const ptAssignments = await db.prepare(`
-      SELECT a.*, c.name as clientName, c.clientId as clientCode, c.dueAmount as clientDue, p.name as packageName
+      SELECT a.*, c.name as clientName, COALESCE(c.clientId, c.id, a.client_id) as clientCode, c.dueAmount as clientDue, p.name as packageName
       FROM pt_assignments a
       LEFT JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
       LEFT JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
@@ -945,13 +946,19 @@ const backfillPtAssignmentTransactions = async () => {
       const discAmt = parseFloat(assign.discount_amount || 0);
       const grossPrice = parseFloat(assign.package_price_snapshot || 0);
       const netPrice = Math.max(0, grossPrice - discAmt);
-      const assignDateStr = assign.assigned_date || toDateLabel(assign.created_at);
+      let assignDateStr = assign.assigned_date;
+      if (!assignDateStr && assign.created_at) {
+        assignDateStr = String(assign.created_at).split('T')[0].split(' ')[0];
+      }
+      if (!assignDateStr) {
+        assignDateStr = toDateLabel();
+      }
 
       let invoiceId = assign.invoice_id;
       let bill = null;
 
       if (invoiceId) {
-        bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(invoiceId);
+        bill = await db.prepare('SELECT * FROM bills WHERE CAST(id AS TEXT) = ?').get(String(invoiceId));
       }
 
       if (!bill) {
@@ -965,13 +972,13 @@ const backfillPtAssignmentTransactions = async () => {
           await db.prepare(`
             UPDATE bills
             SET planAmount = ?, paidAmount = ?, dueAmount = 0, totalPlanAmount = ?, remainingBalance = 0, paymentStatus = 'Paid', invoice_category = 'PT', discount_amount = ?
-            WHERE id = ?
-          `).run(netPrice, netPrice, netPrice, discAmt, invoiceId);
+            WHERE CAST(id AS TEXT) = ?
+          `).run(netPrice, netPrice, netPrice, discAmt, String(invoiceId));
         }
       }
 
       if (invoiceId && netPrice > 0) {
-        const existingTx = await db.prepare('SELECT id FROM transactions WHERE billId = ?').get(invoiceId);
+        const existingTx = await db.prepare('SELECT id FROM transactions WHERE CAST(billId AS TEXT) = ? OR CAST(id AS TEXT) = ?').get(String(invoiceId), String(invoiceId));
         if (!existingTx) {
           const txId = randomUUID();
           await db.prepare(`
@@ -979,17 +986,21 @@ const backfillPtAssignmentTransactions = async () => {
             VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
           `).run(
             txId,
-            assign.clientCode || assign.client_id,
-            invoiceId,
+            String(assign.clientCode || assign.client_id),
+            String(invoiceId),
             `${assign.clientName || 'Client'} - Personal Training (${assign.packageName || 'PT Package'})`,
             'UPI',
             netPrice,
-            assignDateStr
+            String(assignDateStr)
           );
           console.log(`✅ Backfilled PT transaction of ₹${netPrice} for assignment ${assign.id} (${assign.clientName})`);
         }
       }
     }
+  } catch (err) {
+    console.error('Error backfilling PT assignment transactions:', err.message);
+  }
+};
   } catch (err) {
     console.error('Error backfilling PT assignment transactions:', err.message);
   }
@@ -3896,6 +3907,16 @@ app.delete('/api/other-services/sales/:id', async (req, res) => {
     res.json({ success: true, message: 'Service sale record deleted successfully.' });
   } catch (err) {
     console.error('Error deleting other service sale:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/backfill-pt', async (req, res) => {
+  try {
+    await backfillPtAssignmentTransactions();
+    const txns = await db.prepare("SELECT * FROM transactions WHERE name LIKE '%PT%' OR name LIKE '%Personal Training%'").all();
+    res.json({ success: true, message: 'PT backfill completed successfully', ptTransactions: txns });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
