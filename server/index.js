@@ -979,7 +979,7 @@ const backfillPtAssignmentTransactions = async () => {
             VALUES (?, ?, ?, ?, ?, ?, ?)
           `).run(
             txId,
-            assign.client_id,
+            assign.clientCode || assign.client_id,
             invoiceId,
             `${assign.clientName || 'Client'} - Personal Training (${assign.packageName || 'PT Package'})`,
             'UPI',
@@ -1951,6 +1951,7 @@ app.delete('/api/pt-packages/:id', async (req, res) => {
 app.get('/api/pt-assignments', async (req, res) => {
   try {
     autoExpireAssignments();
+    await backfillPtAssignmentTransactions();
     const { client_id, trainer_id, status } = req.query;
     let query = `
       SELECT a.*, 
@@ -3255,6 +3256,7 @@ app.post('/api/restore', async (req, res) => {
 // GET all transactions
 app.get('/api/transactions', async (req, res) => {
   try {
+    await backfillPtAssignmentTransactions();
     const txns = await db.prepare('SELECT * FROM transactions ORDER BY timestamp DESC').all();
     res.json(txns);
   } catch (err) {
