@@ -903,8 +903,8 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
     if (paidAmountVal > 0) {
       const txId = randomUUID();
       await db.prepare(`
-        INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
       `).run(
         txId,
         client.id || clientId,
@@ -975,8 +975,8 @@ const backfillPtAssignmentTransactions = async () => {
         if (!existingTx) {
           const txId = randomUUID();
           await db.prepare(`
-            INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
           `).run(
             txId,
             assign.clientCode || assign.client_id,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getOtherServicesSales, getExpenses, getSupplementSales } from '../api';
+import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getPtAssignments, getOtherServicesSales, getExpenses, getSupplementSales } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -28,11 +28,12 @@ const TransactionsPage = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [txnData, clientsData, genBookings, ptBookings, otherServiceSales, expensesData, suppSales] = await Promise.all([
+      const [txnData, clientsData, genBookings, ptBookings, ptAssignmentsData, otherServiceSales, expensesData, suppSales] = await Promise.all([
         fetchTransactions(),
         getClients(),
         getGeneralBookings(),
         getPtAdvanceBookings(),
+        getPtAssignments().catch(() => []),
         getOtherServicesSales().catch(() => []),
         getExpenses().catch(() => []),
         getSupplementSales().catch(() => [])
@@ -83,6 +84,31 @@ const TransactionsPage = () => {
 
       const existingBillIds = new Set((txnData || []).map(t => t.billId).filter(Boolean));
       const existingTxnIds = new Set((txnData || []).map(t => String(t.id)).filter(Boolean));
+
+      const mappedPtAssignments = (ptAssignmentsData || [])
+        .filter(a => {
+          if (a.status === 'Cancelled') return false;
+          if (a.invoice_id && existingBillIds.has(a.invoice_id)) return false;
+          if (a.id && existingTxnIds.has(String(a.id))) return false;
+          return true;
+        })
+        .map(a => {
+          const grossPrice = parseFloat(a.package_price_snapshot) || 0;
+          const discountVal = parseFloat(a.discount_amount) || 0;
+          const netAmount = Math.max(0, grossPrice - discountVal);
+          return {
+            id: `pt-assign-${a.id}`,
+            clientId: a.clientCode || a.client_id,
+            name: `${a.clientName || clientsMapById[a.client_id]?.name || 'Unknown Client'} - Personal Training (${a.packageName || 'PT Package'})`,
+            method: 'UPI',
+            amount: netAmount,
+            grossAmount: grossPrice,
+            discountAmount: discountVal,
+            date: a.assigned_date ? a.assigned_date.split(' ')[0] : (a.created_at ? a.created_at.split(' ')[0] : ''),
+            status: 'CAPTURED',
+            timestamp: a.created_at || a.assigned_date || ''
+          };
+        });
 
       const mappedOtherServiceSales = (otherServiceSales || [])
         .filter(s => {
@@ -184,7 +210,7 @@ const TransactionsPage = () => {
         return isNaN(numId) ? 0 : numId;
       };
 
-      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
+      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedPtAssignments, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
       combinedTxns.sort((a, b) => {
         const timeA = parseTimeToMs(a);
         const timeB = parseTimeToMs(b);
