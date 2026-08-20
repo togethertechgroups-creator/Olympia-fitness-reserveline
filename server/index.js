@@ -3901,6 +3901,7 @@ app.delete('/api/other-services/sales/:id', async (req, res) => {
 // ─── DASHBOARD DATE-RANGE STATS Route ──────────────────────────────────────
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
+    await backfillPtAssignmentTransactions();
     const { startDate, endDate } = req.query;
 
     const startObj = parseAnyDate(startDate) || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -4026,6 +4027,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 // ─── STATS Route ──────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
+    await backfillPtAssignmentTransactions();
     const { month } = req.query;
     const targetMonth = month || new Date().toLocaleDateString('en-GB', { month: 'short' });
     const monthMapping = {
