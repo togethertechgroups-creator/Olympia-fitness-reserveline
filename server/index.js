@@ -3984,12 +3984,13 @@ app.get('/api/dashboard/stats', async (req, res) => {
     });
 
     // 6. PT Package Assignments in range (only if not already in transactions table)
-    const ptAssignmentsAll = await db.prepare("SELECT * FROM pt_assignments WHERE status != 'Cancelled'").all();
+    const ptAssignmentsAll = await db.prepare("SELECT * FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all();
     (ptAssignmentsAll || []).forEach(a => {
       if (a.invoice_id && txnBillIds.has(a.invoice_id)) return;
       const d = parseAnyDate(a.assigned_date || a.created_at);
-      if (d && d >= startObj && d <= endObj) {
-        const netPaid = Math.max(0, (a.package_price_snapshot || 0) - (a.discount_amount || 0));
+      const inRange = !d || (d >= startObj && d <= endObj);
+      if (inRange) {
+        const netPaid = Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0));
         rangeRevenue += netPaid;
       }
     });
@@ -4068,13 +4069,13 @@ app.get('/api/stats', async (req, res) => {
 
     const genBookingsAllStats = await db.prepare("SELECT * FROM general_package_bookings WHERE status != 'Cancelled'").all();
     const ptBookingsAllStats = await db.prepare("SELECT * FROM pt_advance_bookings WHERE status != 'Cancelled'").all();
-    const ptAssignmentsAllStats = await db.prepare("SELECT * FROM pt_assignments WHERE status != 'Cancelled'").all();
+    const ptAssignmentsAllStats = await db.prepare("SELECT * FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all();
 
     const totalGenBookingsRevenue = (genBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price || 0) - (b.discount_amount || 0)), 0);
     const totalPtBookingsRevenue = (ptBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0)), 0);
     const totalPtAssignmentsRevenue = (ptAssignmentsAllStats || [])
       .filter(a => !a.invoice_id || !txnBillIds.has(a.invoice_id))
-      .reduce((sum, a) => sum + Math.max(0, (a.package_price_snapshot || 0) - (a.discount_amount || 0)), 0);
+      .reduce((sum, a) => sum + Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0)), 0);
 
     const totalRevenueVal = allTxns.reduce((sum, t) => sum + (t.amount || 0), 0) + unloggedOtherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0) + totalGenBookingsRevenue + totalPtBookingsRevenue + totalPtAssignmentsRevenue;
 
@@ -4128,12 +4129,12 @@ app.get('/api/stats', async (req, res) => {
       .filter(a => !a.invoice_id || !txnBillIds.has(a.invoice_id))
       .filter(a => {
         const d = parseAnyDate(a.assigned_date || a.created_at);
-        if (!d) return false;
+        if (!d) return true;
         const mStr = String(d.getMonth() + 1).padStart(2, '0');
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
       })
-      .reduce((sum, a) => sum + Math.max(0, (a.package_price_snapshot || 0) - (a.discount_amount || 0)), 0);
+      .reduce((sum, a) => sum + Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0)), 0);
 
     const monthlyCollectionVal = allTxns
       .filter(t => {
