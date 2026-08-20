@@ -9,6 +9,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
   const [businessGstin, setBusinessGstin] = useState('');
   const defaultTitle = title ? `${title} & Bill Generated Successfully!` : 'Process Completed & Bill Generated Successfully!';
   const [toastMsg, setToastMsg] = useState(defaultTitle);
+  const [isSendingWa, setIsSendingWa] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -79,8 +80,6 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
       setIsDownloading(false);
     }
   };
-
-  const [isSendingWa, setIsSendingWa] = useState(false);
 
   const handleShareWhatsApp = () => {
     setIsSendingWa(true);
