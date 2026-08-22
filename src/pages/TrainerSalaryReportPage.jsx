@@ -331,10 +331,11 @@ const TrainerSalaryReportPage = () => {
           'Client Name': log.clientName,
           'Client Code': log.clientCode,
           'Package Name': log.packageName,
-          'Package Price (₹)': netPackagePrice,
+          'Package Price (₹)': Number(netPackagePrice.toFixed(2)),
           'Total Package Classes': log.total_classes_snapshot,
+          'Base Rate / Class (₹)': Number(baseRateClass.toFixed(2)),
           'Slab Applied': eff.is25DefaultMode ? '25% Low Rev Default' : (tr.customCommissionPercent !== null ? `Custom Rate: ${tr.customCommissionPercent}%` : (log.slab_applied || 'Standard')),
-          'Per-Class Payout (₹)': logPayout,
+          'Per-Class Payout (₹)': Number(logPayout.toFixed(2)),
           'Notes': log.notes || ''
         });
       });
@@ -469,12 +470,15 @@ const TrainerSalaryReportPage = () => {
     }
   };
 
-  const formatCurrency = (val) => {
+  const formatCurrency = (val, forceDecimals = false) => {
     if (val === undefined || val === null) return '₹0';
     const num = typeof val === 'number' ? val : parseFloat(val);
     if (isNaN(num)) return '₹0';
-    const rounded = Math.round(num);
-    return `₹${rounded.toLocaleString('en-IN')}`;
+    const hasDecimals = num % 1 !== 0;
+    return `₹${num.toLocaleString('en-IN', {
+      minimumFractionDigits: (hasDecimals || forceDecimals) ? 2 : 0,
+      maximumFractionDigits: 2
+    })}`;
   };
 
   // Grand total calculation across all trainers
