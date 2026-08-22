@@ -148,6 +148,60 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
 // ─── Database Setup (Turso Cloud DB / SQLite) ──────────────────────────────
 const db = require('./db.js');
 
+function parseAnyDate(dateStr) {
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+  let str = String(dateStr).trim();
+  if (!str) return null;
+  if (str.includes('T')) str = str.split('T')[0];
+  if (str.includes(' ')) str = str.split(' ')[0];
+
+  // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+  const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const d = new Date(year, month, day);
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const d = new Date(year, month, day);
+    d.setHours(0, 0, 0, 0);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toDateLabel(d = new Date()) {
+  if (!d) d = new Date();
+  if (typeof d === 'string') {
+    const parsed = parseAnyDate(d);
+    if (parsed) {
+      d = parsed;
+    } else {
+      return d;
+    }
+  } else if (!(d instanceof Date) || isNaN(d.getTime())) {
+    d = new Date();
+  }
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 // ─── Schema Initialization ───────────────────────────────────────────────────
 async function initDb() {
   try {
@@ -851,20 +905,26 @@ const autoExpireAssignments = async () => {
 const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedDate, expiryDate, discountAmount = 0, paidAmount = null, paymentMethod = 'UPI', gstin = null) => {
   try {
     const cStr = String(clientId || '');
-    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?').get(cStr, cStr);
-    if (!client) return null;
+    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ? OR TRIM(CAST(id AS TEXT)) = ? OR TRIM(CAST(clientId AS TEXT)) = ?').get(cStr, cStr, cStr.trim(), cStr.trim());
+    
+    const clientName = client?.name || 'Client';
+    const clientCode = client?.clientId || client?.id || clientId;
+    const gstinSnapshot = gstin ? String(gstin).trim().toUpperCase() : (client?.gstin || null);
 
-    const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
-    let nextBillNo = 'INV-0001';
-    if (billRow && billRow.billNo) {
-      const match = billRow.billNo.match(/INV-(\d{4})/);
+    // Safely determine next bill number without collision
+    const allBills = await db.prepare("SELECT billNo FROM bills WHERE billNo LIKE 'INV-%'").all();
+    let maxNum = 0;
+    for (const b of (allBills || [])) {
+      const match = b.billNo && b.billNo.match(/INV-(\d+)/);
       if (match) {
-        nextBillNo = `INV-${(parseInt(match[1], 10) + 1).toString().padStart(4, '0')}`;
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
       }
     }
+    const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
 
     const billId = randomUUID();
-    const invoiceDateStr = assignedDate ? (parseAnyDate(assignedDate) ? toDateLabel(assignedDate) : toDateLabel()) : toDateLabel();
+    const invoiceDateStr = toDateLabel(assignedDate || new Date());
 
     const discAmt = parseFloat(discountAmount) || 0;
     const grossPrice = parseFloat(priceSnapshot) || 0;
@@ -876,19 +936,17 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
     const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
     const payMethodVal = paymentMethod || 'UPI';
 
-    const gstinSnapshot = gstin ? String(gstin).trim().toUpperCase() : (client.gstin || null);
-
     await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, client_gstin_snapshot, discount_amount)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PT', ?, ?)
     `).run(
       billId,
       nextBillNo,
-      client.clientId || client.id || clientId,
-      client.name,
+      String(clientCode),
+      clientName,
       invoiceDateStr,
-      assignedDate || '',
-      expiryDate || '',
+      String(assignedDate || ''),
+      String(expiryDate || ''),
       discountedPrice,
       paidAmountVal,
       dueAmountVal,
@@ -908,16 +966,16 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
         VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
       `).run(
         txId,
-        client.clientId || client.id || clientId,
+        String(clientCode),
         billId,
-        `${client.name} - Personal Training (${packageName || 'PT Package'})`,
+        `${clientName} - Personal Training (${packageName || 'PT Package'})`,
         payMethodVal,
         paidAmountVal,
-        assignedDate || invoiceDateStr
+        invoiceDateStr
       );
     }
 
-    if (dueAmountVal > 0) {
+    if (client && dueAmountVal > 0) {
       const currentDue = client.dueAmount || 0;
       const newDue = currentDue + dueAmountVal;
       await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, 'Due', client.id || clientId);
@@ -935,9 +993,9 @@ const backfillPtAssignmentTransactions = async () => {
     const ptAssignments = await db.prepare(`
       SELECT a.*, c.name as clientName, COALESCE(c.clientId, c.id, a.client_id) as clientCode, c.dueAmount as clientDue, p.name as packageName
       FROM pt_assignments a
-      LEFT JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      LEFT JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR TRIM(CAST(a.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR TRIM(CAST(a.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
       LEFT JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
-      WHERE a.status != 'Cancelled'
+      WHERE LOWER(COALESCE(a.status, '')) != 'cancelled'
     `).all();
 
     if (!ptAssignments || ptAssignments.length === 0) return;
@@ -991,7 +1049,7 @@ const backfillPtAssignmentTransactions = async () => {
             `${assign.clientName || 'Client'} - Personal Training (${assign.packageName || 'PT Package'})`,
             'UPI',
             netPrice,
-            String(assignDateStr)
+            toDateLabel(assignDateStr)
           );
           console.log(`✅ Backfilled PT transaction of ₹${netPrice} for assignment ${assign.id} (${assign.clientName})`);
         }
@@ -1114,7 +1172,7 @@ const COMMISSION_MATRIX = {
 
 const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
   const row = await db.prepare(`
-      SELECT SUM(a.package_price_snapshot / a.total_classes_snapshot) as "baseRevenue"
+      SELECT SUM((a.package_price_snapshot - COALESCE(a.discount_amount, 0)) / a.total_classes_snapshot) as "baseRevenue"
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
       WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
@@ -1144,7 +1202,7 @@ const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
   if (!trainer) return currentSlab;
 
   const logs = await db.prepare(`
-      SELECT l.id, a.package_price_snapshot, a.total_classes_snapshot
+      SELECT l.id, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
       WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
@@ -1157,20 +1215,15 @@ const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
     `);
 
   for (const log of (logs || [])) {
-    const rate = calculatePerClassRate(log.package_price_snapshot, log.total_classes_snapshot, trainer, currentSlab);
+    const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
+    const rate = calculatePerClassRate(netPackagePrice, log.total_classes_snapshot, trainer, currentSlab);
     await updateStmt.run(rate, currentSlab, log.id);
   }
 
   return currentSlab;
 };
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
-const toDateLabel = (d = new Date()) => {
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}/${month}/${year}`;
-};
+
 
 const computeGstBreakdown = (price, ratePercent = 4.8) => {
   const totalAmount = parseFloat(price) || 0;
@@ -2111,7 +2164,7 @@ app.post('/api/pt-assignments', async (req, res) => {
     `).run(client_id, finalPackageId, trainer_id, priceSnapshot, discVal, totalClassesSnapshot, assignDate, expiryDate, invoiceId);
 
     const newAssignment = await db.prepare(`
-      SELECT a.*, c.name as clientName, t.name as trainerName, p.name as packageName, p.duration_days
+      SELECT a.*, c.name as clientName, c.clientId as clientCode, c.phone as clientPhone, c.gstin as clientGstin, t.name as trainerName, p.name as packageName, p.duration_days
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id
       JOIN trainers t ON a.trainer_id = t.id
@@ -2566,7 +2619,7 @@ app.post('/api/pt-class-log', async (req, res) => {
       throw e;
     }
 
-    const activeSlab = syncTrainerMonthlyClassLogs(loggingTrainerId, yearMonthStr);
+    const activeSlab = await syncTrainerMonthlyClassLogs(loggingTrainerId, yearMonthStr);
 
     const newCompletedCount = assignment.classes_completed + 1;
     const newStatus = newCompletedCount >= assignment.total_classes_snapshot ? 'Completed' : 'Active';
@@ -2612,7 +2665,7 @@ app.delete('/api/pt-class-log/:id', async (req, res) => {
       await db.prepare('UPDATE pt_assignments SET classes_completed = ?, status = ? WHERE id = ?').run(newCompleted, newStatus, assignment.id);
     }
 
-    syncTrainerMonthlyClassLogs(log.trainer_id, yearMonthStr);
+    await syncTrainerMonthlyClassLogs(log.trainer_id, yearMonthStr);
 
     res.json({ message: 'Class log deleted successfully.' });
   } catch (err) {
@@ -2631,7 +2684,7 @@ app.get('/api/pt-class-log/history', async (req, res) => {
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
              t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory,
-             a.package_price_snapshot, a.total_classes_snapshot, a.classes_completed,
+             a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot, a.classes_completed,
              a.trainer_id as assigned_trainer_id,
              at.name as assignedTrainerName, at.grade as assignedTrainerGrade
       FROM pt_class_log l
@@ -2734,7 +2787,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
         SELECT l.*,
                c.name as clientName, c.clientId as clientCode, c.expiryDate as clientExpiryDate,
                a.assigned_date, a.expiry_date,
-               p.name as packageName, a.package_price_snapshot, a.total_classes_snapshot,
+               p.name as packageName, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot,
                a.trainer_id as assigned_trainer_id,
                at.name as assignedTrainerName, at.grade as assignedTrainerGrade,
                t.name as conductingTrainerName, t.grade as conductingTrainerGrade
@@ -5062,41 +5115,7 @@ app.delete('/api/clients/:clientId/measurements/:id', async (req, res) => {
 
 // ─── DYNAMIC DASHBOARD STATS ROUTE ───────────────────────────────────────────
 
-function parseAnyDate(dateStr) {
-  if (!dateStr) return null;
-  if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
-  let str = String(dateStr).trim();
-  if (!str) return null;
-  if (str.includes('T')) str = str.split('T')[0];
-  if (str.includes(' ')) str = str.split(' ')[0];
 
-  // YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
-  const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
-  if (ymdMatch) {
-    const year = parseInt(ymdMatch[1], 10);
-    const month = parseInt(ymdMatch[2], 10) - 1;
-    const day = parseInt(ymdMatch[3], 10);
-    const d = new Date(year, month, day);
-    d.setHours(0, 0, 0, 0);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
-  if (dmyMatch) {
-    const day = parseInt(dmyMatch[1], 10);
-    const month = parseInt(dmyMatch[2], 10) - 1;
-    const year = parseInt(dmyMatch[3], 10);
-    const d = new Date(year, month, day);
-    d.setHours(0, 0, 0, 0);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  const d = new Date(str);
-  if (isNaN(d.getTime())) return null;
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
 
 function formatMonthLabel(monthStr) {
   if (!monthStr) return '';
@@ -6086,5 +6105,10 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
+app.initDb = initDb;
+app.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
+
 module.exports = app;
+module.exports.initDb = initDb;
+module.exports.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
 

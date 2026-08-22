@@ -104,6 +104,22 @@ export function parseUploadedExcel(wb, fileName = '') {
       status = 'active';
     }
 
+    const genderKey = Object.keys(r).find(k => /gender|sex/i.test(k));
+    let gender = 'Male';
+    if (genderKey && r[genderKey]) {
+      const gStr = String(r[genderKey]).toLowerCase().trim();
+      if (gStr === 'female' || gStr === 'f' || gStr === 'woman' || gStr === 'girl') {
+        gender = 'Female';
+      } else if (gStr === 'other') {
+        gender = 'Other';
+      } else {
+        gender = 'Male';
+      }
+    } else if (r.gender) {
+      const gStr = String(r.gender).toLowerCase().trim();
+      gender = (gStr === 'female' || gStr === 'f') ? 'Female' : (gStr === 'other' ? 'Other' : 'Male');
+    }
+
     return {
       id: r.id && String(r.id).length > 20 ? r.id : undefined,
       clientId: formattedClientId,
@@ -116,6 +132,7 @@ export function parseUploadedExcel(wb, fileName = '') {
       paidAmount: parseFloat(r.paidAmount || r.Paid || 0) || 0,
       dueAmount: parseFloat(r.dueAmount || r.Due || 0) || 0,
       status: status,
+      gender: gender,
       dateAdded: r.dateAdded || new Date().toISOString()
     };
   };

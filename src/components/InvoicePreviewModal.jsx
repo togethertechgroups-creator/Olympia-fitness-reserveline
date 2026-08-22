@@ -85,19 +85,22 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
     setIsSendingWa(true);
     setToastMsg('💬 Opening WhatsApp Share...');
     try {
-      const rawPhone = String(client.phone || '').replace(/\D/g, '');
+      const rawPhone = String(client.phone || client.mobile || '').replace(/\D/g, '');
       const phoneNum = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
       const planName = client.planName || client.plan || 'Membership';
       const paidAmt = Number(client.paidAmount !== undefined ? client.paidAmount : (client.amount || 0));
       const dueAmt = Number(client.dueAmount || 0);
+      const discAmt = Number(client.discount_amount || client.discount || 0);
       const totalAmt = Number(client.totalPlanAmount || client.amount || paidAmt + dueAmt);
 
       let text = `*OLYMPIA FITNESS A/C UNISEX*\n` +
         `*OFFICIAL INVOICE SUMMARY*\n\n` +
-        `👤 *Client Name:* ${client.name || 'Member'}\n` +
+        `👤 *Client Name:* ${client.name || client.clientName || 'Member'}\n` +
         (client.billNo ? `📄 *Invoice Bill No:* ${client.billNo}\n` : '') +
         `🏋️ *Membership Plan:* ${planName}\n` +
-        `💰 *Total Amount:* ₹${totalAmt.toLocaleString()}\n` +
+        (discAmt > 0 ? `🏷️ *Package MRP:* ₹${(paidAmt + dueAmt + discAmt).toLocaleString()}\n` +
+        `💸 *Discount Applied:* ₹${discAmt.toLocaleString()}\n` : '') +
+        `💰 *Final Total Amount:* ₹${totalAmt.toLocaleString()}\n` +
         `✅ *Paid Amount:* ₹${paidAmt.toLocaleString()}\n` +
         (dueAmt > 0 ? `⚠️ *Due Amount:* ₹${dueAmt.toLocaleString()}\n` : '') +
         (client.expiryDate ? `📅 *Valid Until:* ${client.expiryDate}\n` : '') +

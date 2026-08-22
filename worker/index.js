@@ -13,6 +13,22 @@ import { expressToFetch } from './express-adapter.js';
 
 const handler = expressToFetch(app);
 
+let dbInitPromise = null;
+const ensureDb = async (env) => {
+  if (env.DB) setD1Database(env.DB);
+  if (!dbInitPromise) {
+    dbInitPromise = (async () => {
+      try {
+        if (typeof app.initDb === 'function') await app.initDb();
+        if (typeof app.backfillPtAssignmentTransactions === 'function') await app.backfillPtAssignmentTransactions();
+      } catch (err) {
+        console.error('Worker ensureDb error:', err);
+      }
+    })();
+  }
+  await dbInitPromise;
+};
+
 export default {
   /**
    * @param {Request} request
@@ -21,8 +37,11 @@ export default {
    */
   async fetch(request, env, ctx) {
     try {
-      // ── Inject D1 database binding into db.js ──
-      if (env.DB) setD1Database(env.DB);
+      // ── Inject D1 database binding into db.js & ensure DB schema & PT backfill ──
+      if (env.DB) {
+        setD1Database(env.DB);
+        await ensureDb(env);
+      }
 
       // ── Copy secret env vars for WhatsApp ──
       if (env.WHATSAPP_TOKEN)               process.env.WHATSAPP_TOKEN               = env.WHATSAPP_TOKEN;

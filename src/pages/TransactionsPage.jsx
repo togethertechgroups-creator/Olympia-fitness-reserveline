@@ -7,13 +7,41 @@ import { formatShortId } from '../utils/formatShortId';
 import { parseUploadedExcel } from '../utils/excelParser';
 import './TransactionsPage.css';
 
+const normalizeDate = (dStr) => {
+  if (!dStr) return '';
+  let str = String(dStr).trim();
+  str = str.split('T')[0].split(' ')[0];
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+  if (str.includes('-')) {
+    const parts = str.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+  return str;
+};
+
 const TransactionsPage = () => {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
-  const [selectedDate, setSelectedDate] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const [clientsMap, setClientsMap] = useState({});
 
@@ -298,29 +326,28 @@ const TransactionsPage = () => {
   };
 
   const filteredTxns = transactions.filter(txn => {
+    const txnName = String(txn.name || '');
+    const txnClientId = String(txn.clientId || '');
+    const txnId = String(txn.id || '');
+    const txnMethod = String(txn.method || '');
+    const mappedId = String(clientsMap[txnName] || '');
+    const searchLower = searchTerm.toLowerCase();
+
     const matchesSearch = 
-      txn.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (txn.clientId && txn.clientId.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (clientsMap[txn.name] && clientsMap[txn.name].toLowerCase().includes(searchTerm.toLowerCase())) ||
-      txn.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      txn.method.toLowerCase().includes(searchTerm.toLowerCase());
+      txnName.toLowerCase().includes(searchLower) ||
+      txnClientId.toLowerCase().includes(searchLower) ||
+      mappedId.toLowerCase().includes(searchLower) ||
+      txnId.toLowerCase().includes(searchLower) ||
+      txnMethod.toLowerCase().includes(searchLower);
 
     if (!matchesSearch) return false;
 
-    // Date filtering
-    if (selectedDate) {
-      let dStr = txn.date;
-      if (dStr) {
-        // Handle DD/MM/YYYY
-        if (dStr.includes('/')) {
-          const parts = dStr.split('/');
-          if (parts.length === 3) dStr = `${parts[2]}-${parts[1]}-${parts[0]}`;
-        }
-        // Assuming selectedDate is YYYY-MM-DD and dStr is now YYYY-MM-DD or YYYY-MM-DDTHH:MM
-        if (!dStr.startsWith(selectedDate)) return false;
-      } else {
-        return false;
-      }
+    // Date filtering (From Date - To Date)
+    if (fromDate || toDate) {
+      const txnDateNorm = normalizeDate(txn.date);
+      if (!txnDateNorm) return false;
+      if (fromDate && txnDateNorm < fromDate) return false;
+      if (toDate && txnDateNorm > toDate) return false;
     }
 
     if (paymentMethodFilter === 'ALL') return true;
@@ -376,6 +403,12 @@ const TransactionsPage = () => {
 
   const handlePaymentFilterChange = (e) => {
     setPaymentMethodFilter(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleClearDates = () => {
+    setFromDate('');
+    setToDate('');
     setCurrentPage(1);
   };
 
@@ -450,14 +483,37 @@ const TransactionsPage = () => {
             <option value="BANK">Bank / Net Banking / Card</option>
           </select>
           
-          <div className="txn-date-filters" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <input 
-              type="date" 
-              value={selectedDate}
-              onChange={(e) => { setSelectedDate(e.target.value); setCurrentPage(1); }}
-              style={{ padding: '0.6rem', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.9rem', color: '#334155', outline: 'none' }}
-              title="Filter by Date"
-            />
+          <div className="txn-date-filters">
+            <div className="txn-date-input-group">
+              <label className="txn-date-label">From:</label>
+              <input 
+                type="date" 
+                className="txn-date-input"
+                value={fromDate}
+                onChange={(e) => { setFromDate(e.target.value); setCurrentPage(1); }}
+                title="From Date"
+              />
+            </div>
+            <div className="txn-date-input-group">
+              <label className="txn-date-label">To:</label>
+              <input 
+                type="date" 
+                className="txn-date-input"
+                value={toDate}
+                onChange={(e) => { setToDate(e.target.value); setCurrentPage(1); }}
+                title="To Date"
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <button 
+                type="button"
+                className="btn-clear-date" 
+                onClick={handleClearDates}
+                title="Clear Date Filter"
+              >
+                ✕ Clear
+              </button>
+            )}
           </div>
 
           <div className="txn-search-bar">

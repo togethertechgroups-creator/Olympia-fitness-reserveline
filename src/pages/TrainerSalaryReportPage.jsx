@@ -106,9 +106,27 @@ const TrainerSalaryReportPage = () => {
 
   const getTrainerEffectiveComm = (tr) => {
     if (!tr) return { commPercent: 0, commSalary: 0, is25DefaultMode: false };
+    const is25Default = Boolean(reportData?.isRevenueBelow3Lakhs && ptCommissionMode === 'default25');
+    if (is25Default) {
+      let comm25Salary = 0;
+      if (tr.classLogs && tr.classLogs.length > 0) {
+        comm25Salary = tr.classLogs.reduce((sum, log) => {
+          const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
+          const totalCls = parseInt(log.total_classes_snapshot || 0, 10) || 1;
+          return sum + ((netPackagePrice * 0.25) / totalCls);
+        }, 0);
+      } else if (tr.monthlyPtBaseRevenue) {
+        comm25Salary = tr.monthlyPtBaseRevenue * 0.25;
+      }
+      return {
+        commPercent: 25,
+        commSalary: comm25Salary,
+        is25DefaultMode: true
+      };
+    }
     return {
       commPercent: tr.commissionPercent || 0,
-      commSalary: tr.commissionSalary || tr.totalSalary || 0,
+      commSalary: tr.commissionSalary !== undefined ? tr.commissionSalary : (tr.totalSalary || 0),
       is25DefaultMode: false
     };
   };
@@ -301,8 +319,9 @@ const TrainerSalaryReportPage = () => {
     reportData.trainers.forEach(tr => {
       const eff = getTrainerEffectiveComm(tr);
       (tr.classLogs || []).forEach(log => {
-        const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
-        const logPayout = log.per_class_rate_snapshot;
+        const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
+        const baseRateClass = log.total_classes_snapshot > 0 ? (netPackagePrice / log.total_classes_snapshot) : 0;
+        const logPayout = eff.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
 
         detailRows.push({
           'Trainer Code': tr.trainerCode,
@@ -312,9 +331,9 @@ const TrainerSalaryReportPage = () => {
           'Client Name': log.clientName,
           'Client Code': log.clientCode,
           'Package Name': log.packageName,
-          'Package Price (₹)': log.package_price_snapshot,
+          'Package Price (₹)': netPackagePrice,
           'Total Package Classes': log.total_classes_snapshot,
-          'Slab Applied': log.slab_applied || 'Standard',
+          'Slab Applied': eff.is25DefaultMode ? '25% Low Rev Default' : (tr.customCommissionPercent !== null ? `Custom Rate: ${tr.customCommissionPercent}%` : (log.slab_applied || 'Standard')),
           'Per-Class Payout (₹)': logPayout,
           'Notes': log.notes || ''
         });
@@ -400,7 +419,8 @@ const TrainerSalaryReportPage = () => {
     if (!modalConfig.trainer) return;
     const tr = modalConfig.trainer;
     const form = adjForms[tr.trainerId] || {};
-    const commSalary = tr.commissionSalary || tr.totalSalary || 0;
+    const eff = getTrainerEffectiveComm(tr);
+    const commSalary = eff.commSalary;
     const bPay = parseFloat(form.basicPay) || 0;
     const bBonus = parseFloat(form.bonus) || 0;
     const incAmt = parseFloat(form.incentiveAmount) || 0;
@@ -735,9 +755,11 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                                   </thead>
                                   <tbody>
                                     {tr.classLogs.map(log => {
-                                      const baseRateClass = log.total_classes_snapshot > 0 ? (log.package_price_snapshot / log.total_classes_snapshot) : 0;
-                                      const logPayout = log.per_class_rate_snapshot;
+                                      const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
+                                      const baseRateClass = log.total_classes_snapshot > 0 ? (netPackagePrice / log.total_classes_snapshot) : 0;
+                                      const logPayout = effComm.is25DefaultMode ? (baseRateClass * 0.25) : log.per_class_rate_snapshot;
                                       const isSubstituted = log.assigned_trainer_id && String(log.trainer_id) !== String(log.assigned_trainer_id);
+                                      const hasDisc = parseFloat(log.discount_amount || 0) > 0;
                                       return (
                                         <tr key={log.id}>
                                           <td style={{ fontWeight: '700', color: '#1e293b' }}>{formatDateDDMMYYYY(log.class_date)}</td>
@@ -758,10 +780,17 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                                           <td style={{ fontSize: '0.8rem', fontWeight: '600', color: '#475569' }}>
                                             {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
                                           </td>
-                                          <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(log.package_price_snapshot)}</td>
+                                          <td style={{ fontWeight: '700', color: '#0f172a' }}>
+                                            {formatCurrency(netPackagePrice)}
+                                            {hasDisc && (
+                                              <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'normal' }}>
+                                                MRP: {formatCurrency(log.package_price_snapshot)} (-{formatCurrency(log.discount_amount)})
+                                              </div>
+                                            )}
+                                          </td>
                                           <td style={{ fontWeight: '700', color: '#0f172a', textAlign: 'center' }}>{log.total_classes_snapshot}</td>
                                           <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatCurrency(baseRateClass)}</td>
-                                          <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : (log.slab_applied || 'Standard')}</td>
+                                          <td style={{ fontSize: '0.82rem', fontWeight: '600', color: '#475569' }}>{effComm.is25DefaultMode ? 'Low Rev Default: 25%' : (hasCustomComm ? `Custom Rate: ${tr.customCommissionPercent}%` : (log.slab_applied || 'Standard'))}</td>
                                           <td style={{ fontWeight: '900', fontSize: '1rem', color: '#059669' }}>{formatCurrency(logPayout)}</td>
                                         </tr>
                                       );
@@ -949,7 +978,7 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                   </tr>
                   <tr>
                     <td><strong>Trainer Grade:</strong> {modalConfig.trainer.grade}</td>
-                    <td><strong>Commission Rate:</strong> {modalConfig.trainer.customCommissionPercent !== null ? `Custom ${modalConfig.trainer.customCommissionPercent}%` : `${modalConfig.trainer.commissionPercent}% (${modalConfig.trainer.slabApplied === 'Slab1' ? 'Slab 1' : 'Slab 2'})`}</td>
+                    <td><strong>Commission Rate:</strong> {getTrainerEffectiveComm(modalConfig.trainer).is25DefaultMode ? '25% (Low Rev Default)' : (modalConfig.trainer.customCommissionPercent !== null ? `Custom ${modalConfig.trainer.customCommissionPercent}%` : `${modalConfig.trainer.commissionPercent}% (${modalConfig.trainer.slabApplied === 'Slab1' ? 'Slab 1' : 'Slab 2'})`)}</td>
                   </tr>
                   <tr>
                     <td><strong>Classes Conducted:</strong> {modalConfig.trainer.classesConducted} Classes</td>
@@ -972,10 +1001,10 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                 <tr>
                   <td style={{ padding: '8px', border: '1px solid #cbd5e1' }}>PT Commission Salary</td>
                   <td style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
-                    {modalConfig.trainer.classesConducted} classes conducted @ {modalConfig.trainer.customCommissionPercent !== null ? `Custom ${modalConfig.trainer.customCommissionPercent}%` : (modalConfig.trainer.slabApplied === 'Slab1' ? 'Slab 1' : 'Slab 2')}
+                    {modalConfig.trainer.classesConducted} classes conducted @ {getTrainerEffectiveComm(modalConfig.trainer).is25DefaultMode ? '25% (Low Rev Default)' : (modalConfig.trainer.customCommissionPercent !== null ? `Custom ${modalConfig.trainer.customCommissionPercent}%` : (modalConfig.trainer.slabApplied === 'Slab1' ? 'Slab 1' : 'Slab 2'))}
                   </td>
                   <td style={{ padding: '8px', border: '1px solid #cbd5e1', textAlign: 'right', fontWeight: 'bold' }}>
-                    {formatCurrency(modalConfig.trainer.commissionSalary || modalConfig.trainer.totalSalary)}
+                    {formatCurrency(getTrainerEffectiveComm(modalConfig.trainer).commSalary)}
                   </td>
                 </tr>
                 <tr>
@@ -1089,8 +1118,17 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                         <td style={{ padding: '6px', border: '1px solid #e2e8f0', color: '#64748b' }}>
                           {formatDateDDMMYYYY(log.assigned_date || log.class_date)} → {formatDateDDMMYYYY(log.expiry_date || log.clientExpiryDate)}
                         </td>
-                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right' }}>{formatCurrency(log.package_price_snapshot)}</td>
-                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>{formatCurrency(log.per_class_rate_snapshot)}</td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right' }}>
+                          {formatCurrency(Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0)))}
+                        </td>
+                        <td style={{ padding: '6px', border: '1px solid #e2e8f0', textAlign: 'right', fontWeight: 'bold' }}>
+                          {(() => {
+                            const eff = getTrainerEffectiveComm(modalConfig.trainer);
+                            const netPrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
+                            const baseRate = log.total_classes_snapshot > 0 ? (netPrice / log.total_classes_snapshot) : 0;
+                            return formatCurrency(eff.is25DefaultMode ? (baseRate * 0.25) : log.per_class_rate_snapshot);
+                          })()}
+                        </td>
                       </tr>
                     ))
                   )}

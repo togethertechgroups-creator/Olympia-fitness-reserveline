@@ -635,12 +635,12 @@ const ManageClientsPage = () => {
     return null;
   };
 
-  const filteredClients = useMemo(() => {
+  const baseFilteredClients = useMemo(() => {
     const searchLower = searchTerm.trim().toLowerCase();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const list = clients.filter(client => {
+    return clients.filter(client => {
       if (searchLower) {
         const matchesSearch =
           (client.name && client.name.toLowerCase().includes(searchLower)) ||
@@ -653,12 +653,6 @@ const ManageClientsPage = () => {
       }
 
       if (trainerFilter !== 'All' && client.trainerId !== trainerFilter) return false;
-
-      // Gender Filter
-      const g = (client.gender || '').toLowerCase().trim();
-      const isFemale = g === 'female' || g === 'f';
-      if (genderFilter === 'Male' && isFemale) return false;
-      if (genderFilter === 'Female' && !isFemale) return false;
 
       const st = (client.status || '').toLowerCase().trim();
       const expiry = parseClientDate(client.expiryDate);
@@ -676,6 +670,31 @@ const ManageClientsPage = () => {
       if (activeFilter === 'Reminder') return isExpiringSoon;
       if (activeFilter === 'Due Payment') return effectiveDue > 0;
 
+      return true;
+    });
+  }, [clients, searchTerm, trainerFilter, activeFilter]);
+
+  const dynamicGenderCounts = useMemo(() => {
+    let male = 0;
+    let female = 0;
+    for (let i = 0; i < baseFilteredClients.length; i++) {
+      const g = (baseFilteredClients[i].gender || '').toLowerCase().trim();
+      if (g === 'female' || g === 'f') {
+        female++;
+      } else {
+        male++;
+      }
+    }
+    return { male, female, total: baseFilteredClients.length };
+  }, [baseFilteredClients]);
+
+  const filteredClients = useMemo(() => {
+    const list = baseFilteredClients.filter(client => {
+      // Gender Filter
+      const g = (client.gender || '').toLowerCase().trim();
+      const isFemale = g === 'female' || g === 'f';
+      if (genderFilter === 'Male' && isFemale) return false;
+      if (genderFilter === 'Female' && !isFemale) return false;
       return true;
     });
 
@@ -697,21 +716,7 @@ const ManageClientsPage = () => {
     });
 
     return list;
-  }, [clients, searchTerm, trainerFilter, activeFilter, genderFilter, idSortOrder]);
-
-  const dynamicGenderCounts = useMemo(() => {
-    let male = 0;
-    let female = 0;
-    for (let i = 0; i < clients.length; i++) {
-      const g = (clients[i].gender || '').toLowerCase().trim();
-      if (g === 'female' || g === 'f') {
-        female++;
-      } else {
-        male++;
-      }
-    }
-    return { male, female, total: clients.length };
-  }, [clients]);
+  }, [baseFilteredClients, genderFilter, idSortOrder]);
 
   const stats = useMemo(() => {
     const today = new Date();
@@ -1376,8 +1381,68 @@ const ManageClientsPage = () => {
         const historicPlans = (() => {
           const history = [];
           const bills = viewClientModal.bills || [];
+          const ptAssignments = viewClientModal.ptAssignments || [];
+          const processedBillIds = new Set();
+          const processedPtIds = new Set();
 
+          // 1. Process PT assignments, merging with linked bills
+          ptAssignments.forEach(pt => {
+            const grossPrice = Number(pt.package_price_snapshot || 0);
+            const discAmt = Number(pt.discount_amount || 0);
+            const netPrice = Math.max(0, grossPrice - discAmt);
+
+            // Match with bill
+            const linkedBill = bills.find(b =>
+              (pt.invoice_id && (String(b.id) === String(pt.invoice_id) || String(b.billNo) === String(pt.invoice_id))) ||
+              (b.invoice_category === 'PT' && (
+                (b.joinDate === pt.assigned_date || b.expiryDate === pt.expiry_date) ||
+                (pt.packageName && (b.planName || '').toLowerCase().includes(pt.packageName.toLowerCase()))
+              ))
+            );
+
+            if (linkedBill) {
+              processedBillIds.add(linkedBill.id);
+            }
+            processedPtIds.add(pt.id);
+
+            const finalAmount = linkedBill ? Number(linkedBill.totalPlanAmount || linkedBill.planAmount || netPrice) : netPrice;
+            const finalPaid = linkedBill ? Number(linkedBill.paidAmount || finalAmount) : finalAmount;
+            const finalDue = linkedBill ? Number(linkedBill.dueAmount || 0) : 0;
+            const finalStatus = pt.status === 'Active' ? 'Active' : (linkedBill?.paymentStatus || pt.status || 'Paid');
+
+            history.push({
+              id: `pt-${pt.id}`,
+              type: 'Personal Training',
+              planName: pt.packageName || linkedBill?.planName || 'PT Package',
+              billNo: linkedBill?.billNo || (pt.invoice_id ? `INV-${pt.invoice_id}` : null),
+              trainerName: pt.trainerName || 'Assigned',
+              classesCompleted: pt.classes_completed || 0,
+              totalClasses: pt.total_classes_snapshot || 0,
+              startDate: pt.assigned_date || linkedBill?.joinDate || linkedBill?.invoiceDate,
+              expiryDate: pt.expiry_date || linkedBill?.expiryDate,
+              amount: finalAmount,
+              paidAmount: finalPaid,
+              dueAmount: finalDue,
+              paymentStatus: finalStatus,
+              date: pt.assigned_date || linkedBill?.invoiceDate || linkedBill?.joinDate,
+              billObj: linkedBill || null,
+              ptObj: pt
+            });
+          });
+
+          // 2. Process remaining bills (General membership, other services, or unmatched PT bills)
           bills.forEach(b => {
+            if (processedBillIds.has(b.id)) return;
+
+            const isPt = b.invoice_category === 'PT' || (b.planName && b.planName.toLowerCase().includes('pt package'));
+            if (isPt) {
+              const alreadyHandled = history.some(item =>
+                item.type === 'Personal Training' &&
+                (item.billNo === b.billNo || (item.startDate === (b.joinDate || b.invoiceDate) && item.expiryDate === b.expiryDate))
+              );
+              if (alreadyHandled) return;
+            }
+
             history.push({
               id: `bill-${b.id}`,
               type: b.invoice_category === 'PT' ? 'Personal Training' : (b.invoice_category === 'OtherService' ? 'Other Service' : 'General Membership'),
@@ -1392,27 +1457,6 @@ const ManageClientsPage = () => {
               date: b.invoiceDate || b.joinDate || b.timestamp,
               billObj: b
             });
-          });
-
-          ptAssignments.forEach(pt => {
-            const exists = history.some(item => item.planName === pt.packageName && (item.startDate === pt.assigned_date || item.expiryDate === pt.expiry_date));
-            if (!exists) {
-              history.push({
-                id: `pt-${pt.id}`,
-                type: 'Personal Training',
-                planName: pt.packageName || 'PT Package',
-                trainerName: pt.trainerName || 'Assigned',
-                classesCompleted: pt.classes_completed || 0,
-                totalClasses: pt.total_classes_snapshot || 0,
-                startDate: pt.assigned_date,
-                expiryDate: pt.expiry_date,
-                amount: Number(pt.package_price_snapshot || 0),
-                paidAmount: Number(pt.package_price_snapshot || 0),
-                dueAmount: 0,
-                paymentStatus: pt.status || 'Active',
-                date: pt.assigned_date
-              });
-            }
           });
 
           clientGenBookings.forEach(b => {

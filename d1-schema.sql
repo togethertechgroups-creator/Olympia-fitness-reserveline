@@ -313,6 +313,7 @@ CREATE TABLE IF NOT EXISTS pt_assignments (
   pt_package_id           INTEGER NOT NULL REFERENCES pt_packages(id),
   trainer_id              TEXT NOT NULL REFERENCES trainers(id),
   package_price_snapshot  REAL NOT NULL,
+  discount_amount         REAL DEFAULT 0,
   total_classes_snapshot  INTEGER NOT NULL,
   classes_completed       INTEGER DEFAULT 0,
   status                  TEXT CHECK(status IN ('Active','Completed','Cancelled','Expired')) DEFAULT 'Active',

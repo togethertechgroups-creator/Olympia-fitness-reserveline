@@ -591,7 +591,14 @@ const PTClassLogPage = () => {
                       </div>
                       {isSuperAdmin && (
                         <div className="detail-row" style={{ color: '#10b981', fontWeight: '700' }}>
-                          <span><strong>Price:</strong> {formatCurrency(selectedAssignment.package_price_snapshot)}</span>
+                          <span>
+                            <strong>Price:</strong> {formatCurrency(Math.max(0, parseFloat(selectedAssignment.package_price_snapshot || 0) - parseFloat(selectedAssignment.discount_amount || selectedAssignment.billDiscount || selectedAssignment.advDiscount || 0)))}
+                            {Number(selectedAssignment.discount_amount || selectedAssignment.billDiscount || selectedAssignment.advDiscount) > 0 && (
+                              <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: '6px', fontWeight: '500' }}>
+                                (MRP: {formatCurrency(selectedAssignment.package_price_snapshot)}, Disc: {formatCurrency(selectedAssignment.discount_amount || selectedAssignment.billDiscount || selectedAssignment.advDiscount)})
+                              </span>
+                            )}
+                          </span>
                         </div>
                       )}
                     </div>

@@ -9,8 +9,9 @@ import './PTAssignmentPage.css';
 const PTAssignmentPage = () => {
   const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const preselectedClientId = searchParams.get('clientId');
+  const handledPreselectedRef = React.useRef(null);
 
   const [isDirty, setIsDirty] = useState(false);
   const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
@@ -245,7 +246,8 @@ const PTAssignmentPage = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (preselectedClientId && clients.length > 0) {
+    if (preselectedClientId && clients.length > 0 && handledPreselectedRef.current !== preselectedClientId) {
+      handledPreselectedRef.current = preselectedClientId;
       const selClient = clients.find(c => String(c.id) === String(preselectedClientId));
       if (selClient) {
         if (!isClientActive(selClient)) {
@@ -443,7 +445,13 @@ const PTAssignmentPage = () => {
       const result = await addPtAssignment(payload);
       setIsDirty(false);
       setIsModalOpen(false);
-      loadAllData();
+
+      // Clear ?clientId= from URL query params so reloading data or rerenders won't reopen the modal
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('clientId');
+        return next;
+      }, { replace: true });
       
       const selPackage = packages.find(p => p.id === formData.pt_package_id);
       
@@ -455,10 +463,14 @@ const PTAssignmentPage = () => {
         packageName: result?.packageName || (formData.is_custom ? formData.custom_name : selPackage?.name) || 'PT Package',
         trainerName: result?.trainerName || selectedTrainer?.name || '',
         package_price_snapshot: result?.package_price_snapshot || (formData.is_custom ? parseFloat(formData.custom_price) : selPackage?.price) || 0,
+        discount_amount: result?.discount_amount !== undefined ? parseFloat(result.discount_amount) : parseFloat(formData.discount_amount || 0),
         assigned_date: formData.assigned_date,
         expiry_date: result?.expiry_date || '',
-        billNo: result?.billNo || `INV-PT-${result?.id || Date.now()}`
+        billNo: result?.billNo || `INV-PT-${result?.id || Date.now()}`,
+        gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null
       });
+
+      loadAllData();
     } catch (error) {
       if (error.message && error.message.includes('already has an active PT package')) {
         const match = error.message.match(/until\s+([0-9\-]+)/);
@@ -527,19 +539,26 @@ const PTAssignmentPage = () => {
   };
 
   const handleGeneratePtInvoice = (item) => {
+    const grossPrice = parseFloat(item.package_price_snapshot || item.price || 0);
+    const disc = parseFloat(item.discount_amount || item.billDiscount || item.advDiscount || 0);
+    const netPrice = Math.max(0, grossPrice - disc);
+
     setInvoiceClient({
       name: item.clientName,
-      phone: item.clientPhone || '',
-      clientId: item.clientCode || '',
+      phone: item.clientPhone || item.mobile || '',
+      clientId: item.clientCode || item.client_id || '',
       plan: `PT Package — ${item.packageName} (${item.trainerName || 'Assigned Trainer'})`,
-      amount: item.package_price_snapshot || 0,
-      paidAmount: item.package_price_snapshot || 0,
+      amount: netPrice,
+      paidAmount: netPrice,
+      totalPlanAmount: netPrice,
       dueAmount: 0,
       paymentStatus: 'Paid',
-      paymentMethod: 'CASH',
+      paymentMethod: item.paymentMethod || 'CASH',
       fromDate: item.assigned_date,
       expiryDate: item.expiry_date || 'N/A',
-      billNo: item.billNo || `INV-PT-${item.id}`
+      billNo: item.billNo || `INV-PT-${item.id}`,
+      discount_amount: disc,
+      client_gstin_snapshot: item.gstin || item.client_gstin_snapshot || null
     });
   };
 

@@ -39,7 +39,7 @@ export const generateInvoice = (client, businessGstin) => {
 
   const rawPlanLabel = client.planName || client.plan || 'Gym Membership';
   const itemTitle = isDuePayment
-    ? `Due Payment Settlement — ${rawPlanLabel}${dueNumber > 0 ? ` (#Due ${dueNumber})` : ''}`
+    ? `Due Payment Settlement — ${rawPlanLabel}${client.dueNumber > 0 ? ` (#Due ${client.dueNumber})` : ''}`
     : rawPlanLabel;
 
   const numberToWords = (num) => {
