@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient, updateBill, deleteBill, deleteOtherServiceSale } from '../api';
+import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient, updateBill, deleteBill, deleteOtherServiceSale, sendWhatsAppText } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import ExpiredPlansModal from '../components/ExpiredPlansModal';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
@@ -26,19 +26,17 @@ const calcExpiryDateStr = (startDate, durationDays) => {
 };
 
 const calcClientDueDetails = (client) => {
-  const actualTotal = Number(client.amount || 0);
-  const isPaidStatus = (client.paymentStatus || '').toLowerCase() === 'paid' || client.dueAmount === 0 || client.dueAmount === '0';
-  
+  const baseTotal = Number(client.amount || 0);
   let effectiveDue = 0;
-  if (!isPaidStatus) {
-    if (client.dueAmount !== undefined && client.dueAmount !== null) {
-      effectiveDue = Math.max(0, Number(client.dueAmount));
-    } else {
-      const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : actualTotal;
-      effectiveDue = Math.max(0, actualTotal - pd);
-    }
+
+  if (client.dueAmount !== undefined && client.dueAmount !== null) {
+    effectiveDue = Math.max(0, Number(client.dueAmount));
+  } else if ((client.paymentStatus || '').toLowerCase() !== 'paid') {
+    const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : baseTotal;
+    effectiveDue = Math.max(0, baseTotal - pd);
   }
 
+  const actualTotal = Math.max(baseTotal, (Number(client.paidAmount || 0) + effectiveDue));
   const actualPaid = Math.max(0, actualTotal - effectiveDue);
   return { actualTotal, actualPaid, effectiveDue };
 };
@@ -81,7 +79,15 @@ const ManageClientsPage = () => {
     discount_amount: '',
     isSaving: false
   });
+  const [toast, setToast] = useState(null); // { message: '', type: 'success' | 'error' | 'info' }
   const fileInputRef = useRef(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => (prev?.message === message ? null : prev));
+    }, 4500);
+  };
 
   const handleViewClient = async (client) => {
     setViewClientModal({ isOpen: true, client, ptAssignments: [], otherServices: [], bills: [], loadingDetails: true, activeTab: 'overview' });
@@ -165,10 +171,16 @@ const ManageClientsPage = () => {
         syncClient: true
       });
       alert('Invoice updated successfully.');
+      const currClient = viewClientModal.client;
       setEditBillModal({ isOpen: false, bill: null, isSaving: false });
       await fetchClients();
-      if (viewClientModal.client) {
-        handleViewClient(viewClientModal.client);
+      if (currClient) {
+        try {
+          const refreshedClient = await getClientById(currClient.id);
+          await handleViewClient(refreshedClient || currClient);
+        } catch (_) {
+          await handleViewClient(currClient);
+        }
       }
     } catch (err) {
       alert(err.message || 'Failed to update invoice');
@@ -181,9 +193,15 @@ const ManageClientsPage = () => {
     try {
       await deleteBill(billId);
       alert('Invoice deleted successfully.');
+      const currClient = viewClientModal.client;
       await fetchClients();
-      if (viewClientModal.client) {
-        handleViewClient(viewClientModal.client);
+      if (currClient) {
+        try {
+          const refreshedClient = await getClientById(currClient.id);
+          await handleViewClient(refreshedClient || currClient);
+        } catch (_) {
+          await handleViewClient(currClient);
+        }
       }
     } catch (err) {
       alert(err.message || 'Failed to delete invoice');
@@ -216,10 +234,14 @@ const ManageClientsPage = () => {
   }, [viewImageModal.isOpen]);
 
   useEffect(() => {
-    fetchClients();
-    fetchTrainers();
-    fetchSettings();
+    Promise.all([
+      fetchClients(),
+      fetchTrainers(),
+      fetchSettings()
+    ]);
+  }, []);
 
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     const statusParam = params.get('status');
     if (statusParam === 'Active') {
@@ -246,18 +268,82 @@ const ManageClientsPage = () => {
     }
   };
 
+  const getTariffKeys = () => {
+    return Array.from(new Set([
+      ...Object.keys(settings).filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet')).map(k => k.replace('_Strengthening', '')),
+      'MONTHLY', 'QUARTERLY', 'HALF YEAR', '1 YEAR', '2 YEARS', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual'
+    ])).filter(planBase => !(settings[`${planBase}_hidden`] === 1 || settings[`${planBase}_hidden`] === '1'));
+  };
+
+  const getTariffPrice = (plan) => {
+    if (!plan) return 0;
+    const candidates = [
+      `${plan}_Strengthening`,
+      `${plan.toUpperCase()}_Strengthening`,
+      `${plan.replace('-', ' ').toUpperCase()}_Strengthening`,
+      plan,
+      plan.toUpperCase()
+    ];
+    for (const key of candidates) {
+      if (settings[key] !== undefined && parseFloat(settings[key]) > 0) {
+        return parseFloat(settings[key]);
+      }
+    }
+    return 0;
+  };
+
+  const getTariffDuration = (plan) => {
+    if (!plan) return 30;
+    const candidates = [
+      `${plan}_duration`,
+      `${plan.toUpperCase()}_duration`,
+      `${plan.replace('-', ' ').toUpperCase()}_duration`
+    ];
+    for (const key of candidates) {
+      if (settings[key] !== undefined && parseInt(settings[key], 10) > 0) {
+        return parseInt(settings[key], 10);
+      }
+    }
+    const pUpper = plan.toUpperCase();
+    if (pUpper.includes('QUARTER')) return 91;
+    if (pUpper.includes('HALF') || pUpper.includes('6 MONTH') || pUpper.includes('SEMI')) return 183;
+    if (pUpper.includes('1 YEAR') || pUpper.includes('ANNUAL') || pUpper.includes('12 MONTH')) return 364;
+    if (pUpper.includes('2 YEAR')) return 730;
+    return 30;
+  };
+
   const handleOpenRenewModal = (client) => {
-    const initialPlan = client.plan || 'Monthly';
-    const initialDuration = getDurationDays(initialPlan);
-    const initialPrice = settings[`${initialPlan}_Strengthening`] || client.amount || 0;
+    const today = new Date().toISOString().split('T')[0];
+    let startDate = today;
+    if (client.expiryDate) {
+      const expStr = client.expiryDate.split('T')[0];
+      if (expStr >= today) {
+        const d = new Date(expStr);
+        if (!isNaN(d.getTime())) {
+          d.setDate(d.getDate() + 1);
+          startDate = d.toISOString().split('T')[0];
+        }
+      }
+    }
+
+    const initialPlan = client.plan || 'MONTHLY';
+    const initialPrice = getTariffPrice(initialPlan) || parseFloat(client.amount) || 0;
+    const initialDuration = getTariffDuration(initialPlan);
+
+    const sDate = new Date(startDate);
+    sDate.setDate(sDate.getDate() + parseInt(initialDuration, 10));
+    const computedEndDate = sDate.toISOString().split('T')[0];
+
     setRenewModal({
       isOpen: true,
       client: client,
       plan: initialPlan,
       price: initialPrice,
+      discount_amount: '',
       paidAmount: initialPrice,
       paymentMethod: 'CASH',
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: startDate,
+      endDate: computedEndDate,
       durationDays: initialDuration,
       hasGst: !!client.gstin,
       gstin: client.gstin || ''
@@ -265,15 +351,52 @@ const ManageClientsPage = () => {
   };
 
   const handleRenewPlanChange = (newPlan) => {
-    const duration = getDurationDays(newPlan);
-    const price = settings[`${newPlan}_Strengthening`] || 0;
+    const duration = getTariffDuration(newPlan);
+    const price = getTariffPrice(newPlan);
+    const startStr = renewModal.startDate || new Date().toISOString().split('T')[0];
+    const sDate = new Date(startStr);
+    sDate.setDate(sDate.getDate() + parseInt(duration, 10));
+    const endDateStr = sDate.toISOString().split('T')[0];
+
+    const disc = parseFloat(renewModal.discount_amount) || 0;
+    const net = Math.max(0, price - disc);
+
     setRenewModal(prev => ({
       ...prev,
       plan: newPlan,
       durationDays: duration,
       price: price,
-      paidAmount: price
+      endDate: endDateStr,
+      paidAmount: net
     }));
+  };
+
+  const handleRenewStartDateChange = (startDateStr) => {
+    let endDateStr = renewModal.endDate;
+    if (renewModal.plan) {
+      const duration = getTariffDuration(renewModal.plan);
+      const sDate = new Date(startDateStr);
+      sDate.setDate(sDate.getDate() + parseInt(duration, 10));
+      endDateStr = sDate.toISOString().split('T')[0];
+    }
+    setRenewModal(prev => ({
+      ...prev,
+      startDate: startDateStr,
+      endDate: endDateStr
+    }));
+  };
+
+  const handleRenewPriceOrDiscountChange = (field, value) => {
+    setRenewModal(prev => {
+      const updated = { ...prev, [field]: value };
+      const gross = parseFloat(updated.price) || 0;
+      const disc = parseFloat(updated.discount_amount) || 0;
+      const net = Math.max(0, gross - disc);
+      if (field === 'price' || field === 'discount_amount') {
+        updated.paidAmount = net;
+      }
+      return updated;
+    });
   };
 
   const handleRenewSubmit = async (e) => {
@@ -284,20 +407,24 @@ const ManageClientsPage = () => {
     }
     setIsRenewing(true);
     try {
+      const grossPrice = parseFloat(renewModal.price) || 0;
+      const disc = parseFloat(renewModal.discount_amount || 0);
+      const net = Math.max(0, grossPrice - disc);
       const payload = {
         planName: renewModal.plan,
-        price: parseFloat(renewModal.price) || 0,
+        price: grossPrice,
+        discount_amount: disc,
         durationDays: renewModal.durationDays,
         hasGst: renewModal.hasGst,
         gstin: renewModal.gstin,
-        paidAmount: renewModal.paidAmount !== '' ? parseFloat(renewModal.paidAmount) : parseFloat(renewModal.price),
+        paidAmount: renewModal.paidAmount !== '' ? parseFloat(renewModal.paidAmount) : net,
         paymentMethod: renewModal.paymentMethod,
         startDate: renewModal.startDate
       };
 
       const response = await renewExpiredClient(renewModal.client.id, payload);
 
-      setRenewModal({ isOpen: false, client: null, plan: '', price: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', durationDays: 30, hasGst: false, gstin: '' });
+      setRenewModal({ isOpen: false, client: null, plan: '', price: '', discount_amount: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', endDate: '', durationDays: 30, hasGst: false, gstin: '' });
       await fetchClients();
 
       if (response.bill) {
@@ -533,10 +660,10 @@ const ManageClientsPage = () => {
 
 
 
-  const handleSendWhatsAppReminder = (client) => {
+  const handleSendWhatsAppReminder = async (client) => {
     const rawPhone = String(client.phone || '').replace(/\D/g, '');
     if (!rawPhone) {
-      alert(`No phone number recorded for ${client.name}`);
+      showToast(`No phone number recorded for ${client.name}`, 'error');
       return;
     }
     const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
@@ -553,7 +680,14 @@ const ManageClientsPage = () => {
     }
     text += `\nThank you, Olympia Fitness! 💪🏋️‍♂️`;
 
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+    showToast(`Sending WhatsApp reminder to ${client.name}...`, 'info');
+    try {
+      await sendWhatsAppText(phone, text, client.name, client.id || client.clientId, effectiveDue > 0 ? 'payment_reminder' : (validity.isExpired ? 'expired' : 'reminder'));
+      showToast(`✅ WhatsApp reminder sent successfully to ${client.name} (${phone})!`, 'success');
+    } catch (err) {
+      console.error('Failed to send WhatsApp reminder:', err);
+      showToast(`❌ ${err.message || 'Failed to send WhatsApp message'}`, 'error');
+    }
   };
 
   const parseClientDate = (dateStr) => {
@@ -853,6 +987,27 @@ const ManageClientsPage = () => {
 
   return (
     <div className="manage-clients-container">
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 99999,
+          background: toast.type === 'error' ? 'linear-gradient(135deg, #dc2626, #ef4444)' : (toast.type === 'info' ? 'linear-gradient(135deg, #2563eb, #3b82f6)' : 'linear-gradient(135deg, #059669, #10b981)'),
+          color: '#ffffff',
+          padding: '0.85rem 1.4rem',
+          borderRadius: '12px',
+          fontWeight: '700',
+          fontSize: '0.95rem',
+          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem'
+        }}>
+          <span>{toast.message}</span>
+          <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1.1rem', fontWeight: 'bold', marginLeft: '0.5rem' }}>✕</button>
+        </div>
+      )}
       <header className="manage-header-section reveal">
         <div className="title-group">
           <h1><span>CLIENT</span> LIST</h1>
@@ -1760,26 +1915,73 @@ const ManageClientsPage = () => {
                                 </td>
 
                                 <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      padding: '0.4rem 0.85rem',
-                                      fontSize: '0.78rem',
-                                      background: '#e0f2fe',
-                                      color: '#0284c7',
-                                      border: '1px solid #bae6fd',
-                                      borderRadius: '6px',
-                                      cursor: 'pointer',
-                                      fontWeight: '800',
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}
-                                    onClick={() => handleOpenPdf(item)}
-                                  >
-                                    📄 Bill PDF
-                                  </button>
+                                  <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                                    <button
+                                      type="button"
+                                      style={{
+                                        padding: '0.35rem 0.7rem',
+                                        fontSize: '0.76rem',
+                                        background: '#e0f2fe',
+                                        color: '#0284c7',
+                                        border: '1px solid #bae6fd',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                      }}
+                                      onClick={() => handleOpenPdf(item)}
+                                      title="View Invoice PDF"
+                                    >
+                                      📄 PDF
+                                    </button>
+                                    {item.billObj && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          style={{
+                                            padding: '0.35rem 0.7rem',
+                                            fontSize: '0.76rem',
+                                            background: '#fef3c7',
+                                            color: '#d97706',
+                                            border: '1px solid #fde68a',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontWeight: '800',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                          }}
+                                          onClick={() => handleOpenEditBill(item.billObj)}
+                                          title="Edit Invoice Details"
+                                        >
+                                          ✏️ Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          style={{
+                                            padding: '0.35rem 0.7rem',
+                                            fontSize: '0.76rem',
+                                            background: '#fee2e2',
+                                            color: '#dc2626',
+                                            border: '1px solid #fecaca',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer',
+                                            fontWeight: '800',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                          }}
+                                          onClick={() => handleDeleteBill(item.billObj.id)}
+                                          title="Delete Invoice"
+                                        >
+                                          🗑️ Delete
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -2274,7 +2476,7 @@ const ManageClientsPage = () => {
 
       {/* Edit Invoice Modal */}
       {editBillModal.isOpen && editBillModal.bill && (
-        <div className="alert-modal-overlay">
+        <div className="alert-modal-overlay" style={{ zIndex: 100005 }}>
           <div className="payment-modal-card reveal" style={{ maxWidth: '520px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <h3 style={{ margin: 0 }}>Edit Invoice — {editBillModal.bill.billNo || 'Invoice'}</h3>
@@ -2423,22 +2625,22 @@ const ManageClientsPage = () => {
       {/* Renew Plan Modal */}
       {renewModal.isOpen && renewModal.client && (
         <div className="alert-modal-overlay">
-          <div className="renew-modal-card reveal">
+          <div className="renew-modal-card reveal" style={{ maxWidth: '540px' }}>
             <div className="renew-modal-header">
               <div className="renew-header-title">
                 <h3>Renew Membership Plan</h3>
                 <p className="renew-subtitle">Select a plan to reactivate <strong>{renewModal.client.name}</strong> ({formatShortId(renewModal.client.clientId)})</p>
               </div>
-              <button className="btn-close-modal" onClick={() => setRenewModal({ isOpen: false, client: null, plan: '', price: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', durationDays: 30, hasGst: false, gstin: '' })}>
+              <button className="btn-close-modal" onClick={() => setRenewModal({ isOpen: false, client: null, plan: '', price: '', discount_amount: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', endDate: '', durationDays: 30, hasGst: false, gstin: '' })}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
               </button>
             </div>
 
             <form onSubmit={handleRenewSubmit} className="renew-modal-form">
               <div className="renew-form-grid">
-                {/* Plan Selection */}
+                {/* SELECT MEMBERSHIP TARIFF */}
                 <div className="renew-form-group full-width">
-                  <label className="renew-form-label">Choose Plan *</label>
+                  <label className="renew-form-label">SELECT MEMBERSHIP TARIFF *</label>
                   <select
                     className="renew-form-input"
                     value={renewModal.plan}
@@ -2446,71 +2648,84 @@ const ManageClientsPage = () => {
                     required
                   >
                     <option value="">-- Choose Membership Plan --</option>
-                    {['Monthly', 'Quarterly', 'Half-Yearly', 'Annual'].map(planBase => (
-                      <option key={planBase} value={planBase}>
-                        {planBase === 'Half-Yearly' ? 'Semi-Annual (6 Months)' : `${planBase} ${planBase === 'Monthly' ? '(1 Month)' : planBase === 'Quarterly' ? '(3 Months)' : '(1 Year)'}`} - ₹{(settings[`${planBase}_Strengthening`] || 0).toLocaleString()}
-                      </option>
-                    ))}
+                    {getTariffKeys().map(planBase => {
+                      const p = getTariffPrice(planBase);
+                      return (
+                        <option key={planBase} value={planBase}>
+                          {planBase.toUpperCase()} (₹{p.toLocaleString('en-IN')})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
-                {/* Start Date */}
+                {/* BOOKING START DATE */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">Start Date *</label>
+                  <label className="renew-form-label">BOOKING START DATE *</label>
                   <input
                     type="date"
                     className="renew-form-input"
                     value={renewModal.startDate}
-                    onChange={(e) => setRenewModal({ ...renewModal, startDate: e.target.value })}
+                    onChange={(e) => handleRenewStartDateChange(e.target.value)}
                     required
                   />
                 </div>
 
-                {/* New Expiry Date (calculated) */}
+                {/* COMPUTED END DATE */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">New Expiry Date</label>
+                  <label className="renew-form-label">COMPUTED END DATE (DD-MM-YYYY)</label>
                   <input
                     type="text"
                     className="renew-form-input readonly"
-                    value={formatDateDDMMYYYY(calcExpiryDateStr(renewModal.startDate, renewModal.durationDays))}
+                    value={renewModal.endDate ? formatDateDDMMYYYY(renewModal.endDate) : ''}
                     readOnly
+                    style={{ background: '#f8fafc', fontWeight: '700', color: '#0f172a' }}
                   />
                 </div>
 
-                {/* Total Plan Price */}
+                {/* PLAN PRICE */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">Plan Price (₹) *</label>
+                  <label className="renew-form-label">PLAN PRICE (₹) *</label>
                   <input
                     type="number"
                     className="renew-form-input"
                     value={renewModal.price}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setRenewModal(prev => ({ ...prev, price: val, paidAmount: val }));
-                    }}
+                    onChange={(e) => handleRenewPriceOrDiscountChange('price', e.target.value)}
                     required
                   />
                 </div>
 
-                {/* Amount Paid */}
+                {/* DISCOUNT AMOUNT */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">Paid Amount (₹) *</label>
+                  <label className="renew-form-label">DISCOUNT AMOUNT (₹)</label>
+                  <input
+                    type="number"
+                    className="renew-form-input"
+                    placeholder="Optional discount (₹)"
+                    value={renewModal.discount_amount}
+                    onChange={(e) => handleRenewPriceOrDiscountChange('discount_amount', e.target.value)}
+                  />
+                </div>
+
+                {/* PAID AMOUNT */}
+                <div className="renew-form-group">
+                  <label className="renew-form-label">PAID AMOUNT (₹) *</label>
                   <input
                     type="number"
                     className="renew-form-input"
                     value={renewModal.paidAmount}
-                    onChange={(e) => setRenewModal({ ...renewModal, paidAmount: e.target.value })}
+                    onChange={(e) => setRenewModal(prev => ({ ...prev, paidAmount: e.target.value }))}
                     required
                   />
                 </div>
 
-                {/* Payment Method */}
+                {/* PAYMENT MODE */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">Payment Method</label>
+                  <label className="renew-form-label">PAYMENT MODE</label>
                   <select
                     className="renew-form-input"
                     value={renewModal.paymentMethod}
-                    onChange={(e) => setRenewModal({ ...renewModal, paymentMethod: e.target.value })}
+                    onChange={(e) => setRenewModal(prev => ({ ...prev, paymentMethod: e.target.value }))}
                   >
                     <option value="CASH">CASH</option>
                     <option value="UPI">UPI</option>
@@ -2519,21 +2734,38 @@ const ManageClientsPage = () => {
                   </select>
                 </div>
 
-                {/* Remaining Due */}
-                <div className="renew-form-group">
-                  <label className="renew-form-label">Due Amount (₹)</label>
-                  <input
-                    type="text"
-                    className="renew-form-input readonly"
-                    style={{ color: (parseFloat(renewModal.price || 0) - parseFloat(renewModal.paidAmount || 0)) > 0 ? '#ea580c' : '#16a34a', fontWeight: '700' }}
-                    value={`₹ ${Math.max(0, (parseFloat(renewModal.price || 0) - parseFloat(renewModal.paidAmount || 0))).toLocaleString()}`}
-                    readOnly
-                  />
+                {/* Due Amount Summary Breakdown Card */}
+                <div className="renew-form-group full-width">
+                  {(() => {
+                    const gross = parseFloat(renewModal.price) || 0;
+                    const disc = parseFloat(renewModal.discount_amount) || 0;
+                    const net = Math.max(0, gross - disc);
+                    const paid = renewModal.paidAmount !== '' ? (parseFloat(renewModal.paidAmount) || 0) : net;
+                    const due = Math.max(0, net - paid);
+                    return (
+                      <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.88rem' }}>
+                          <span style={{ color: '#64748b', fontWeight: '600' }}>TOTAL PAYABLE:</span>
+                          <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '0.88rem' }}>
+                          <span style={{ color: '#64748b', fontWeight: '600' }}>PAID NOW:</span>
+                          <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '6px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                          <span style={{ color: '#0f172a', fontWeight: '700' }}>DUE BALANCE:</span>
+                          <strong style={{ color: due > 0 ? '#ea580c' : '#16a34a' }}>
+                            ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Due)' : '(Full Paid)'}
+                          </strong>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* GST Section */}
                 <div className="renew-form-group full-width gst-section">
-                  <label className="renew-form-label">B2B GST Invoice?</label>
+                  <label className="renew-form-label">B2B GST INVOICE?</label>
                   <div className="gst-toggle-group">
                     <label className="gst-radio-label">
                       <input
@@ -2561,7 +2793,7 @@ const ManageClientsPage = () => {
                       placeholder="Enter 15-Digit GSTIN"
                       maxLength={15}
                       value={renewModal.gstin}
-                      onChange={(e) => setRenewModal({ ...renewModal, gstin: e.target.value.toUpperCase() })}
+                      onChange={(e) => setRenewModal(prev => ({ ...prev, gstin: e.target.value.toUpperCase() }))}
                     />
                   )}
                 </div>
@@ -2571,7 +2803,7 @@ const ManageClientsPage = () => {
                 <button
                   type="button"
                   className="btn-renew-cancel"
-                  onClick={() => setRenewModal({ isOpen: false, client: null, plan: '', price: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', durationDays: 30, hasGst: false, gstin: '' })}
+                  onClick={() => setRenewModal({ isOpen: false, client: null, plan: '', price: '', discount_amount: '', paidAmount: '', paymentMethod: 'CASH', startDate: '', endDate: '', durationDays: 30, hasGst: false, gstin: '' })}
                 >
                   Cancel
                 </button>
@@ -2580,7 +2812,7 @@ const ManageClientsPage = () => {
                   className="btn-renew-submit"
                   disabled={isRenewing}
                 >
-                  {isRenewing ? 'Processing Renewal...' : 'Proceed & Renew'}
+                  {isRenewing ? 'Processing Renewal...' : 'PROCEED & RENEW'}
                 </button>
               </div>
             </form>

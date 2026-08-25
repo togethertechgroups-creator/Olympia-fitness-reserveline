@@ -14,19 +14,21 @@ import { expressToFetch } from './express-adapter.js';
 const handler = expressToFetch(app);
 
 let dbInitPromise = null;
-const ensureDb = async (env) => {
+const ensureDb = (env, ctx) => {
   if (env.DB) setD1Database(env.DB);
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
       try {
-        if (typeof app.initDb === 'function') await app.initDb();
-        if (typeof app.backfillPtAssignmentTransactions === 'function') await app.backfillPtAssignmentTransactions();
+        if (typeof app.autoActivateAdvanceBookings === 'function') await app.autoActivateAdvanceBookings();
+        if (typeof app.autoExpireAssignments === 'function') await app.autoExpireAssignments();
       } catch (err) {
-        console.error('Worker ensureDb error:', err);
+        console.error('Worker background task error:', err);
       }
     })();
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(dbInitPromise);
+    }
   }
-  await dbInitPromise;
 };
 
 export default {
@@ -39,11 +41,11 @@ export default {
     try {
       // ── Inject D1 database binding into db.js & ensure DB schema & PT backfill ──
       if (env.DB) {
-        setD1Database(env.DB);
-        await ensureDb(env);
+        ensureDb(env, ctx);
       }
 
       // ── Copy secret env vars for WhatsApp ──
+      if (env.WHATSAPP_KEY)                 process.env.WHATSAPP_KEY                 = env.WHATSAPP_KEY;
       if (env.WHATSAPP_TOKEN)               process.env.WHATSAPP_TOKEN               = env.WHATSAPP_TOKEN;
       if (env.WHATSAPP_PHONE_NUMBER_ID)     process.env.WHATSAPP_PHONE_NUMBER_ID     = env.WHATSAPP_PHONE_NUMBER_ID;
       if (env.WHATSAPP_BUSINESS_ACCOUNT_ID) process.env.WHATSAPP_BUSINESS_ACCOUNT_ID = env.WHATSAPP_BUSINESS_ACCOUNT_ID;

@@ -104,12 +104,7 @@ export const generateInvoice = (client, businessGstin) => {
   </div>
   ` : '';
 
-  const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Tax Invoice - ${billNo}</title>
-  <style>
+  const invoiceStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -120,11 +115,14 @@ export const generateInvoice = (client, businessGstin) => {
     }
     .page {
       width: 794px;
-      min-height: 1123px;
+      max-width: 794px;
+      min-height: 1120px;
       margin: 0 auto;
       background: #fff;
-      border: 1.5px solid #888;
+      border: 1px solid #888;
       position: relative;
+      box-sizing: border-box;
+      overflow: hidden;
     }
 
     /* ── TOP BANNER ─────────────────────────────── */
@@ -160,21 +158,27 @@ export const generateInvoice = (client, businessGstin) => {
     }
     .logo-wrap {
       flex-shrink: 0;
-      width: 95px;
-      height: 95px;
+      width: 90px;
+      height: 90px;
+      max-width: 90px;
+      max-height: 90px;
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden;
     }
     .logo-wrap img {
-      width: 100%;
-      height: 100%;
+      width: 90px !important;
+      height: 90px !important;
+      max-width: 90px !important;
+      max-height: 90px !important;
       object-fit: contain;
+      display: block;
       border: none;
     }
     .logo-placeholder {
-      width: 95px;
-      height: 95px;
+      width: 90px;
+      height: 90px;
       border-radius: 50%;
       border: 2px solid #cc0000;
       display: flex;
@@ -248,174 +252,157 @@ export const generateInvoice = (client, businessGstin) => {
     .bill-to-name {
       font-size: 13px;
       font-weight: 700;
+      color: #000;
       margin-bottom: 2px;
     }
     .bill-to-detail {
       font-size: 10px;
-      color: #444;
-      line-height: 1.6;
+      color: #333;
+      line-height: 1.5;
     }
 
     /* ── ITEMS TABLE ────────────────────────────── */
     .items-table {
       width: 100%;
       border-collapse: collapse;
-      border-bottom: 1px solid #ccc;
+      font-size: 10.5px;
     }
     .items-table th {
-      background: #222;
-      color: #fff;
-      font-size: 9.5px;
+      background: #f0f0f0;
+      border-top: 1px solid #ccc;
+      border-bottom: 1px solid #ccc;
+      padding: 5px 8px;
       font-weight: 700;
-      padding: 6px 8px;
+      font-size: 10px;
+      color: #333;
       text-align: left;
-      letter-spacing: 0.3px;
-      border-right: 1px solid #555;
     }
-    .items-table th:last-child { border-right: none; }
-    .items-table th.center, .items-table td.center { text-align: center; }
-    .items-table th.right, .items-table td.right { text-align: right; }
+    .items-table th.right { text-align: right; }
+    .items-table th.center { text-align: center; }
     .items-table td {
-      padding: 7px 8px;
-      font-size: 10.5px;
+      padding: 6px 8px;
       border-bottom: 1px solid #e8e8e8;
-      border-right: 1px solid #e8e8e8;
-      vertical-align: middle;
+      vertical-align: top;
+      color: #222;
     }
-    .items-table td:last-child { border-right: none; }
-    .items-table .subtotal-row td {
-      font-weight: 700;
-      background: #f8f8f8;
-      border-top: 1.5px solid #ccc;
-      font-size: 10.5px;
-    }
-    .tax-small {
-      font-size: 9px;
-      color: #666;
-      display: block;
+    .items-table td.right { text-align: right; }
+    .items-table td.center { text-align: center; }
+    .tax-small { font-size: 9px; color: #666; }
+    .subtotal-row td {
+      border-top: 1px solid #ccc;
+      border-bottom: 1px solid #ccc;
+      font-size: 10px;
+      background: #fafafa;
+      padding: 4px 8px;
     }
 
-    /* ── BOTTOM SECTION ─────────────────────────── */
+    /* ── BOTTOM SECTION (2 COLS) ────────────────── */
     .bottom-section {
       display: flex;
-      border-top: 1px solid #ccc;
+      border-bottom: 1px solid #ccc;
+      min-height: 190px;
     }
     .bottom-left {
-      flex: 1;
-      padding: 12px 16px;
+      width: 48%;
       border-right: 1px solid #ccc;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
     }
-    .bottom-right {
-      width: 300px;
-      padding: 12px 16px;
-    }
-
     .section-title {
-      font-size: 10.5px;
+      font-size: 9.5px;
       font-weight: 700;
-      margin-bottom: 6px;
-      border-bottom: 1px solid #ddd;
-      padding-bottom: 3px;
+      color: #555;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 4px;
     }
     .bank-row {
       font-size: 10px;
-      line-height: 1.8;
       color: #333;
-    }
-    .bank-row strong { color: #000; }
-
-    /* QR section */
-    .qr-section {
-      margin-top: 12px;
-    }
-    .qr-placeholder {
-      width: 80px;
-      height: 80px;
-      border: 1.5px solid #999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 8px;
-      color: #999;
-      margin: 6px 0;
-      background: #f9f9f9;
+      line-height: 1.6;
     }
     .upi-logos {
       display: flex;
       gap: 6px;
       align-items: center;
-      flex-wrap: wrap;
       margin-top: 4px;
     }
     .upi-badge {
-      background: #e9f0ff;
-      color: #1a56db;
       font-size: 8px;
       font-weight: 700;
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 3px;
-      border: 1px solid #1a56db;
+      background: #5f259f;
+      color: #fff;
     }
-    .upi-badge.gpay { background: #fff; border-color: #4285f4; color: #4285f4; }
-    .upi-badge.paytm { background: #002970; color: #00b9f1; }
-    .upi-badge.upi { background: #fff; border-color: #888; color: #555; font-style: italic; }
+    .upi-badge.gpay { background: #4285f4; }
+    .upi-badge.paytm { background: #002e6e; }
+    .upi-badge.upi { background: #000; }
 
-    /* Amount summary */
+    .bottom-right {
+      width: 52%;
+      padding: 8px 14px;
+    }
     .summary-row {
       display: flex;
       justify-content: space-between;
       font-size: 10px;
-      padding: 2px 0;
       color: #333;
+      padding: 2.5px 0;
     }
     .summary-row.total {
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 900;
+      color: #cc0000;
+      border-top: 1px solid #ccc;
+      border-bottom: 1px solid #ccc;
       padding: 5px 0;
-      border-top: 1.5px solid #333;
-      margin-top: 4px;
+      margin: 4px 0;
     }
     .summary-row.received {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #111;
       padding: 3px 0;
     }
     .words-amount {
-      font-size: 10px;
-      font-weight: 700;
-      margin-top: 4px;
+      font-size: 9.5px;
+      color: #444;
+      margin-top: 6px;
       padding-top: 4px;
-      border-top: 1px solid #ddd;
-      color: #222;
+      border-top: 1px dashed #ddd;
+      font-style: italic;
     }
     .words-label {
+      font-style: normal;
+      font-weight: 700;
       font-size: 9px;
-      color: #666;
-      font-weight: 400;
+      color: #777;
     }
 
     /* ── TERMS & SIGNATORY ──────────────────────── */
     .terms-signatory {
       display: flex;
-      border-top: 1px solid #ccc;
-      min-height: 80px;
+      align-items: stretch;
+      min-height: 90px;
     }
     .terms-box {
-      flex: 1;
-      padding: 10px 16px;
+      width: 55%;
+      padding: 10px 14px;
       border-right: 1px solid #ccc;
     }
     .signatory-box {
-      width: 220px;
-      padding: 10px 16px;
+      width: 45%;
+      padding: 10px 14px;
       display: flex;
       flex-direction: column;
+      justify-content: space-between;
       align-items: center;
-      justify-content: flex-end;
     }
     .sign-area {
-      width: 140px;
-      height: 50px;
-      border: 1px solid #aaa;
-      margin-bottom: 6px;
+      height: 48px;
     }
     .auth-label {
       font-size: 8.5px;
@@ -437,10 +424,22 @@ export const generateInvoice = (client, businessGstin) => {
       body { background: white; }
       .page { width: 100%; border: none; }
     }
+  `;
+
+  const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tax Invoice - ${billNo}</title>
+  <style>
+    ${invoiceStyles}
   </style>
 </head>
 <body>
 <div class="page">
+  <style>
+    ${invoiceStyles}
+  </style>
 
   <!-- TOP BANNER -->
   <div class="top-banner">
@@ -452,7 +451,7 @@ export const generateInvoice = (client, businessGstin) => {
   <!-- COMPANY HEADER -->
   <div class="company-header">
     <div class="logo-wrap">
-      <img src="${logoImg}" alt="Olympia Logo" onerror="this.outerHTML='<div class=\\'logo-placeholder\\'>OF</div>'">
+      <img src="${logoImg}" width="90" height="90" style="width:90px!important;height:90px!important;max-width:90px!important;max-height:90px!important;object-fit:contain;display:block;" alt="Olympia Logo" onerror="this.outerHTML='<div class=\\'logo-placeholder\\'>OF</div>'">
     </div>
     <div class="company-info">
       <div class="company-name">OLYMPIA FITNESS A/C UNISEX</div>
@@ -544,7 +543,7 @@ export const generateInvoice = (client, businessGstin) => {
               <span class="upi-badge upi">UPI</span>
             </div>
           </div>
-          <img src="${qrImage}" alt="Payment QR" style="width:90px;height:90px;object-fit:contain;border:1px solid #ccc;">
+          <img src="${qrImage}" width="85" height="85" style="width:85px!important;height:85px!important;max-width:85px!important;max-height:85px!important;object-fit:contain;display:block;border:1px solid #ccc;" alt="Payment QR">
         </div>
       </div>
     </div>

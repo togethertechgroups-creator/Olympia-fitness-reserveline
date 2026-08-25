@@ -20,6 +20,7 @@ const TrainerManagementPage = () => {
   const [formData, setFormData] = useState({
     trainerId: '',
     name: '',
+    phone: '',
     specialization: '',
     experience: '',
     status: 'Active',
@@ -136,6 +137,7 @@ const TrainerManagementPage = () => {
       setCurrentTrainer(trainer);
       setFormData({
         ...trainer,
+        phone: trainer.phone || '',
         grade: trainer.grade || '',
         custom_commission_percent: trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined ? trainer.custom_commission_percent : '',
         profileImage: trainer.profileImage || ''
@@ -148,6 +150,7 @@ const TrainerManagementPage = () => {
         setFormData({
           trainerId: id,
           name: '',
+          phone: '',
           specialization: '',
           experience: '',
           status: 'Active',
@@ -159,6 +162,7 @@ const TrainerManagementPage = () => {
         setFormData({
           trainerId: 'TRN001',
           name: '',
+          phone: '',
           specialization: '',
           experience: '',
           status: 'Active',
@@ -331,6 +335,12 @@ const TrainerManagementPage = () => {
                   <div style={{ flex: 1 }}>
                     <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: '800' }}>{trainer.name}</h3>
                     <p className="specialization" style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>{trainer.specialization || 'General Trainer'}</p>
+                    {trainer.phone && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '3px', fontSize: '0.78rem', color: '#0284c7', fontWeight: '600' }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        <span>{trainer.phone}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -512,6 +522,17 @@ const TrainerManagementPage = () => {
                   <label>Experience (Years)</label>
                   <input type="text" name="experience" value={formData.experience} onChange={handleInputChange} placeholder="e.g. 5" />
                 </div>
+              </div>
+
+              <div className="trainer-form-group">
+                <label>Phone Number</label>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handleInputChange}
+                  placeholder="e.g. 9876543210 (Mobile / WhatsApp)"
+                />
               </div>
 
               <div className="trainer-form-group">

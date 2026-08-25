@@ -392,10 +392,19 @@ const TrainerSalaryReportPage = () => {
       html2canvas: { scale: 4, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
-    const pdfWorker = html2pdf().set(opt).from(element);
-    const pdfBase64 = await pdfWorker.outputPdf('datauristring');
-    const base64Data = pdfBase64.split(',')[1] || pdfBase64;
-    return base64Data;
+    const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+    if (pdfBlob && pdfBlob.size > 0) {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const res = reader.result;
+          resolve(typeof res === 'string' && res.includes(',') ? res.split(',')[1] : res);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(pdfBlob);
+      });
+    }
+    return null;
   };
 
   const handleDownloadPDF = async () => {
@@ -462,11 +471,16 @@ const TrainerSalaryReportPage = () => {
       setModalConfig(prev => ({
         ...prev,
         sendingWa: false,
-        waSuccess: `Payslip sent successfully to ${modalConfig.waPhone} via WhatsApp!`
+        waSuccess: `✅ Payslip sent successfully to ${modalConfig.waPhone} via WhatsApp!`,
+        waError: ''
       }));
     } catch (err) {
-      alert(err.message || 'Failed to send WhatsApp message.');
-      setModalConfig(prev => ({ ...prev, sendingWa: false }));
+      setModalConfig(prev => ({
+        ...prev,
+        sendingWa: false,
+        waError: `❌ ${err.message || 'Failed to send WhatsApp message.'}`,
+        waSuccess: ''
+      }));
     }
   };
 
@@ -888,10 +902,24 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
               </>
             ) : (
               <>
-                <div style={{ background: 'linear-gradient(135deg, #059669, #10b981)', color: '#ffffff', padding: '0.85rem 1.25rem', borderRadius: '12px', fontWeight: '800', fontSize: '0.98rem', display: 'flex', alignItems: 'center', gap: '0.75rem', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)', marginBottom: '1rem' }}>
-                  <span style={{ width: '26px', height: '26px', background: 'rgba(255, 255, 255, 0.25)', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '0.9rem', flexShrink: 0 }}>✓</span>
+                <div style={{
+                  background: modalConfig.waError ? 'linear-gradient(135deg, #dc2626, #ef4444)' : 'linear-gradient(135deg, #059669, #10b981)',
+                  color: '#ffffff',
+                  padding: '0.85rem 1.25rem',
+                  borderRadius: '12px',
+                  fontWeight: '800',
+                  fontSize: '0.98rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.75rem',
+                  boxShadow: modalConfig.waError ? '0 4px 14px rgba(239, 68, 68, 0.3)' : '0 4px 14px rgba(16, 185, 129, 0.3)',
+                  marginBottom: '1rem'
+                }}>
+                  <span style={{ width: '26px', height: '26px', background: 'rgba(255, 255, 255, 0.25)', borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '0.9rem', flexShrink: 0 }}>
+                    {modalConfig.waError ? '!' : '✓'}
+                  </span>
                   <div>
-                    <div>{modalConfig.waSuccess ? modalConfig.waSuccess : 'Payslip Generated Successfully!'}</div>
+                    <div>{modalConfig.waError ? modalConfig.waError : (modalConfig.waSuccess ? modalConfig.waSuccess : 'Payslip Generated Successfully!')}</div>
                     <div style={{ fontSize: '0.78rem', opacity: 0.9, fontWeight: '500' }}>Trainer: {modalConfig.trainer.trainerName} ({selectedMonth})</div>
                   </div>
                 </div>

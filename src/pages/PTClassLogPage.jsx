@@ -20,6 +20,7 @@ const PTClassLogPage = () => {
   const [subView, setSubView] = useState('calendar'); // 'calendar' | 'table'
 
   const [todayLogs, setTodayLogs] = useState([]);
+  const [allAssignments, setAllAssignments] = useState([]);
   const [activeAssignments, setActiveAssignments] = useState([]);
   const [trainers, setTrainers] = useState([]);
   const [clients, setClients] = useState([]);
@@ -56,6 +57,67 @@ const PTClassLogPage = () => {
   const [filterTrainerId, setFilterTrainerId] = useState('');
   const [historyLogs, setHistoryLogs] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Extract unique PT clients from PT assignments and clients marked with personalTraining
+  const ptClients = React.useMemo(() => {
+    const map = new Map();
+
+    (allAssignments || []).forEach(a => {
+      const cid = String(a.client_id || a.clientId || a.clientCode || '');
+      if (!cid) return;
+      if (!map.has(cid)) {
+        const matched = (clients || []).find(c => String(c.id) === cid || String(c.clientId) === cid);
+        map.set(cid, {
+          id: matched?.id || a.client_id,
+          clientId: matched?.clientId || a.clientCode || a.clientId || a.client_id,
+          name: matched?.name || a.clientName || 'Client',
+          trainer_ids: a.trainer_id ? [String(a.trainer_id)] : []
+        });
+      } else {
+        const existing = map.get(cid);
+        if (a.trainer_id && !existing.trainer_ids.includes(String(a.trainer_id))) {
+          existing.trainer_ids.push(String(a.trainer_id));
+        }
+      }
+    });
+
+    (clients || []).forEach(c => {
+      if (c.personalTraining || (c.plan && c.plan.toLowerCase().includes('pt'))) {
+        const cid = String(c.id || c.clientId || '');
+        if (cid && !map.has(cid)) {
+          map.set(cid, {
+            id: c.id,
+            clientId: c.clientId || c.id,
+            name: c.name || 'Client',
+            trainer_ids: c.trainerId ? [String(c.trainerId)] : []
+          });
+        } else if (cid && map.has(cid)) {
+          const existing = map.get(cid);
+          if (c.trainerId && !existing.trainer_ids.includes(String(c.trainerId))) {
+            existing.trainer_ids.push(String(c.trainerId));
+          }
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [allAssignments, clients]);
+
+  // Calendar Client Filter options (filtered by selected trainer if any)
+  const availableCalendarClients = React.useMemo(() => {
+    if (!filterTrainerId) return ptClients;
+    return ptClients.filter(c => c.trainer_ids.includes(String(filterTrainerId)));
+  }, [ptClients, filterTrainerId]);
+
+  const handleCalendarTrainerFilterChange = (trainerId) => {
+    setFilterTrainerId(trainerId);
+    if (trainerId && filterClientId) {
+      const selClient = ptClients.find(c => String(c.id) === String(filterClientId) || String(c.clientId) === String(filterClientId));
+      if (selClient && !selClient.trainer_ids.includes(String(trainerId))) {
+        setFilterClientId('');
+      }
+    }
+  };
 
   // Modal for Day Details
   const [dayModal, setDayModal] = useState({ isOpen: false, dateStr: '', logs: [] });
@@ -135,16 +197,18 @@ const PTClassLogPage = () => {
     try {
       const [logsRes, assignRes, trainerRes, clientRes] = await Promise.all([
         getPtClassLogsToday(),
-        getPtAssignments({ status: 'Active' }),
+        getPtAssignments(),
         getTrainers(),
         getClients()
       ]);
-      setTodayLogs(logsRes);
-      // Exclude expired/completed/cancelled assignments
-      const activeOnly = (assignRes || []).filter(a => a.status === 'Active');
+      setTodayLogs(logsRes || []);
+      const allAssign = assignRes || [];
+      setAllAssignments(allAssign);
+      // Exclude expired/completed/cancelled assignments for daily logging form
+      const activeOnly = allAssign.filter(a => a.status === 'Active');
       setActiveAssignments(activeOnly);
-      setTrainers(trainerRes);
-      setClients(clientRes);
+      setTrainers(trainerRes || []);
+      setClients(clientRes || []);
     } catch (error) {
       console.error('Failed to load PT Class Log data', error);
     } finally {
@@ -818,9 +882,9 @@ const PTClassLogPage = () => {
               <label>Filter Trainer</label>
               <select
                 value={filterTrainerId}
-                onChange={e => setFilterTrainerId(e.target.value)}
+                onChange={e => handleCalendarTrainerFilterChange(e.target.value)}
               >
-                <option value="">All Trainers</option>
+                <option value="">All Trainers ({trainers.length})</option>
                 {trainers.map(t => (
                   <option key={t.id} value={t.id}>{t.name} (Grade {t.grade || 'N/A'})</option>
                 ))}
@@ -828,14 +892,16 @@ const PTClassLogPage = () => {
             </div>
 
             <div className="calendar-filter-item">
-              <label>Filter Client</label>
+              <label>Filter PT Client</label>
               <select
                 value={filterClientId}
                 onChange={e => setFilterClientId(e.target.value)}
               >
-                <option value="">All Clients</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({formatShortId(c.clientId || c.id)})</option>
+                <option value="">
+                  {filterTrainerId ? `-- All Assigned PT Clients (${availableCalendarClients.length}) --` : `-- All PT Clients (${availableCalendarClients.length}) --`}
+                </option>
+                {availableCalendarClients.map(c => (
+                  <option key={c.id || c.clientId} value={c.id || c.clientId}>{c.name} ({formatShortId(c.clientId || c.id)})</option>
                 ))}
               </select>
             </div>

@@ -162,6 +162,22 @@
   justify-content: space-between;
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
   animation: slideDownBanner 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s ease;
+}
+
+.invoice-success-banner.banner-error {
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.invoice-success-banner.banner-info {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+.invoice-success-banner.banner-warning {
+  background: linear-gradient(135deg, #d97706, #f59e0b);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
 }
 
 @keyframes slideDownBanner {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
-import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale, updateOtherServiceSale } from '../api';
+import { getOtherServicesSales, getOtherServices, sellOtherService, getClients, deleteOtherServiceSale, updateOtherServiceSale, payOtherServiceDue } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import './OtherServicesPage.css';
@@ -32,6 +32,77 @@ const OtherServicesPage = () => {
     payment_method: 'UPI'
   });
   const [isSubmittingSell, setIsSubmittingSell] = useState(false);
+
+  // Pay Due Modal State
+  const [payDueModal, setPayDueModal] = useState({
+    isOpen: false,
+    sale: null,
+    amount: '',
+    payment_method: 'UPI',
+    payment_date: new Date().toISOString().split('T')[0],
+    submitting: false
+  });
+
+  const handleOpenPayDueModal = (item) => {
+    const due = parseFloat(item.dueAmount || 0);
+    setPayDueModal({
+      isOpen: true,
+      sale: item,
+      amount: due,
+      payment_method: 'UPI',
+      payment_date: new Date().toISOString().split('T')[0],
+      submitting: false
+    });
+  };
+
+  const handleConfirmPayDue = async (e) => {
+    e.preventDefault();
+    if (!payDueModal.sale) return;
+    const amountVal = parseFloat(payDueModal.amount);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      alert('Please enter a valid payment amount.');
+      return;
+    }
+
+    setPayDueModal(prev => ({ ...prev, submitting: true }));
+    try {
+      const res = await payOtherServiceDue(payDueModal.sale.id, {
+        paidAmount: amountVal,
+        paymentMethod: payDueModal.payment_method,
+        paymentDate: payDueModal.payment_date
+      });
+
+      setPayDueModal({ isOpen: false, sale: null, amount: '', payment_method: 'UPI', payment_date: '', submitting: false });
+      await loadData();
+
+      if (res?.sale) {
+        const item = res.sale;
+        const finalPrice = parseFloat(item.price_snapshot || 0);
+        const billObj = {
+          name: item.clientName,
+          phone: item.clientPhone,
+          clientId: item.clientCode,
+          plan: item.serviceName,
+          amount: finalPrice,
+          totalPlanAmount: finalPrice,
+          paidAmount: item.paidAmount,
+          dueAmount: item.dueAmount,
+          remainingBalance: item.dueAmount,
+          paymentStatus: item.paymentStatus,
+          paymentMethod: payDueModal.payment_method,
+          fromDate: item.sale_date,
+          expiryDate: item.expiryDate,
+          billNo: item.billNo || 'INV-0000',
+          invoice_category: 'OtherService',
+          discount_amount: item.discount_amount || 0
+        };
+        setInvoiceModal({ isOpen: true, data: billObj });
+      }
+    } catch (err) {
+      alert('Failed to record payment: ' + (err.message || 'Unknown error'));
+      setPayDueModal(prev => ({ ...prev, submitting: false }));
+    }
+  };
 
   // Edit Sale Modal State
   const [editSaleModal, setEditSaleModal] = useState({
@@ -395,14 +466,14 @@ const OtherServicesPage = () => {
           <table className="os-clients-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Client Name</th>
-                <th>Service Taken</th>
-                <th>Sale Date</th>
-                <th>Validity</th>
-                <th>Price / Status</th>
-                <th>Invoice #</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
+                <th style={{ width: '8%' }}>ID</th>
+                <th style={{ width: '20%' }}>Client Name</th>
+                <th style={{ width: '14%' }}>Service Taken</th>
+                <th style={{ width: '11%' }}>Sale Date</th>
+                <th style={{ width: '13%' }}>Validity</th>
+                <th style={{ width: '15%' }}>Price / Status</th>
+                <th style={{ width: '9%' }}>Invoice #</th>
+                <th style={{ textAlign: 'right', width: '10%' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -465,18 +536,35 @@ const OtherServicesPage = () => {
                     </td>
                     <td className="col-price">
                       <div className="price-val">{formatCurrency(item.price_snapshot)}</div>
-                      {parseFloat(item.discount_amount || 0) > 0 && (
-                        <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700', marginTop: '1px' }}>
-                          (₹{(Number(item.original_price || item.price_snapshot || 0) + Number(item.discount_amount || 0)).toLocaleString()} - ₹{Number(item.discount_amount).toLocaleString()} disc)
+                      {parseFloat(item.dueAmount || 0) > 0 ? (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fff7ed', border: '1px solid #fed7aa', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#c2410c', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                          <span>Due: {formatCurrency(item.dueAmount)}</span>
+                          <span style={{ color: '#fdba74' }}>•</span>
+                          <span style={{ color: '#15803d' }}>Paid: {formatCurrency(item.paidAmount)}</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#dcfce7', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#15803d', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                          ✓ Paid in Full {parseFloat(item.discount_amount || 0) > 0 ? `(₹${Number(item.discount_amount).toLocaleString()} off)` : ''}
                         </div>
                       )}
-                      <span className={`status-pill ${item.paymentStatus === 'Due' ? 'due' : 'paid'}`}>
-                        {item.paymentStatus || 'Paid'}
-                      </span>
                     </td>
                     <td className="col-invoice">{item.billNo || 'INV-0000'}</td>
                     <td className="col-actions">
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                        {parseFloat(item.dueAmount || 0) > 0 && (
+                          <button
+                            className="btn-pay-due-other-service"
+                            onClick={() => handleOpenPayDueModal(item)}
+                            title={`Clear Due (₹${parseFloat(item.dueAmount).toLocaleString()})`}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                              <line x1="1" y1="10" x2="23" y2="10"></line>
+                            </svg>
+                            Pay Due
+                          </button>
+                        )}
+
                         {isExpired && (
                           <button
                             className="btn-action-renew-service"
@@ -642,29 +730,59 @@ const OtherServicesPage = () => {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Payment Method *</label>
-                <select
-                  value={sellFormData.payment_method}
-                  onChange={(e) => setSellFormData({ ...sellFormData, payment_method: e.target.value })}
-                  required
-                >
-                  <option value="UPI">UPI</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Card">Card</option>
-                  <option value="Net Banking">Net Banking</option>
-                </select>
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Payment Method *</label>
+                  <select
+                    value={sellFormData.payment_method}
+                    onChange={(e) => setSellFormData({ ...sellFormData, payment_method: e.target.value })}
+                    required
+                  >
+                    <option value="UPI">UPI</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Net Banking">Net Banking</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Sale Date *</label>
+                  <input
+                    type="date"
+                    value={sellFormData.sale_date}
+                    onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label>Sale Date *</label>
-                <input
-                  type="date"
-                  value={sellFormData.sale_date}
-                  onChange={(e) => setSellFormData({ ...sellFormData, sale_date: e.target.value })}
-                  required
-                />
-              </div>
+              {/* Due Amount Summary Breakdown */}
+              {(() => {
+                const foundSvc = services.find(s => String(s.id) === String(sellFormData.service_id));
+                const gross = foundSvc ? parseFloat(foundSvc.price || 0) : 0;
+                const disc = parseFloat(sellFormData.discount_amount) || 0;
+                const net = Math.max(0, gross - disc);
+                const paid = sellFormData.paid_amount !== '' && sellFormData.paid_amount !== undefined ? parseFloat(sellFormData.paid_amount) || 0 : net;
+                const due = Math.max(0, net - paid);
+                return (
+                  <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>TOTAL PAYABLE:</span>
+                      <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>PAID NOW:</span>
+                      <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                      <span style={{ fontWeight: '700', color: due > 0 ? '#ea580c' : '#64748b' }}>DUE BALANCE:</span>
+                      <strong style={{ color: due > 0 ? '#ea580c' : '#10b981', fontSize: '1.05rem' }}>
+                        ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Partial Payment)' : '(Full Paid)'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="os-modal-actions">
                 <button type="button" className="btn-modal-cancel" onClick={() => setIsSellModalOpen(false)} disabled={isSubmittingSell}>
@@ -823,6 +941,109 @@ const OtherServicesPage = () => {
                 </button>
                 <button type="submit" className="btn-modal-confirm" disabled={editSaleModal.isSubmitting}>
                   {editSaleModal.isSubmitting ? 'Saving Changes...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Due Modal for Other Services */}
+      {payDueModal.isOpen && (
+        <div className="os-modal-overlay" style={{ zIndex: 10500 }}>
+          <div className="os-modal-card" style={{ maxWidth: '440px' }}>
+            <div className="os-modal-header" style={{ background: '#fff7ed', borderBottom: '1px solid #fed7aa' }}>
+              <div>
+                <h3 style={{ color: '#c2410c', margin: 0, fontSize: '1.15rem' }}>
+                  💳 Collect Due Payment
+                </h3>
+                <p style={{ color: '#ea580c', margin: '3px 0 0 0', fontSize: '0.82rem', fontWeight: 600 }}>
+                  {payDueModal.sale?.clientName} • {payDueModal.sale?.serviceName}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-modal-close"
+                onClick={() => setPayDueModal({ ...payDueModal, isOpen: false })}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmPayDue} className="os-modal-form" style={{ padding: '1.25rem' }}>
+              <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Current Pending Due:</span>
+                <strong style={{ fontSize: '1.1rem', color: '#ea580c' }}>₹{parseFloat(payDueModal.sale?.dueAmount || 0).toLocaleString()}</strong>
+              </div>
+
+              <div className="form-group">
+                <label>Amount Paying Now (₹) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={parseFloat(payDueModal.sale?.dueAmount || 0)}
+                  value={payDueModal.amount}
+                  onChange={e => setPayDueModal({ ...payDueModal, amount: e.target.value })}
+                  required
+                  style={{ fontSize: '1.05rem', fontWeight: '800' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method *</label>
+                <select
+                  value={payDueModal.payment_method}
+                  onChange={e => setPayDueModal({ ...payDueModal, payment_method: e.target.value })}
+                >
+                  <option value="UPI">UPI</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                  <option value="Net Banking">Net Banking</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Payment Date *</label>
+                <input
+                  type="date"
+                  value={payDueModal.payment_date}
+                  onChange={e => setPayDueModal({ ...payDueModal, payment_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              {(() => {
+                const curDue = parseFloat(payDueModal.sale?.dueAmount || 0);
+                const payAmt = parseFloat(payDueModal.amount) || 0;
+                const remDue = Math.max(0, curDue - payAmt);
+                return (
+                  <div style={{ background: remDue <= 0 ? '#f0fdf4' : '#fff7ed', padding: '0.65rem 0.85rem', borderRadius: '8px', border: `1px solid ${remDue <= 0 ? '#bbf7d0' : '#fed7aa'}`, fontSize: '0.82rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Remaining Due After Payment:</span>
+                      <strong style={{ color: remDue <= 0 ? '#16a34a' : '#ea580c' }}>
+                        ₹{remDue.toLocaleString()} {remDue <= 0 ? '(Fully Cleared ✓)' : '(Partial Balance)'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="os-modal-actions" style={{ marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn-modal-cancel"
+                  onClick={() => setPayDueModal({ ...payDueModal, isOpen: false })}
+                  disabled={payDueModal.submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-modal-confirm"
+                  disabled={payDueModal.submitting}
+                  style={{ background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)' }}
+                >
+                  {payDueModal.submitting ? 'Recording...' : 'Record Payment & Generate Invoice'}
                 </button>
               </div>
             </form>

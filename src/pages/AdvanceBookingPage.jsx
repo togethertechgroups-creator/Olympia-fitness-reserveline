@@ -9,10 +9,12 @@ import {
   getGeneralBookings,
   addGeneralBooking,
   cancelGeneralBooking,
+  payGeneralBookingDue,
   getPtAdvanceBookings,
   addPtAdvanceBooking,
   cancelPtAdvanceBooking,
   activatePtAdvanceBooking,
+  payPtAdvanceBookingDue,
   addClient,
   getNextClientId
 } from '../api';
@@ -102,6 +104,7 @@ const AdvanceBookingPage = () => {
     plan_type: '',
     price: '',
     discount_amount: '',
+    paid_amount: '',
     booking_start_date: new Date().toISOString().split('T')[0],
     booking_end_date: '',
     payment_method: 'CASH'
@@ -113,12 +116,80 @@ const AdvanceBookingPage = () => {
     pt_package_id: '',
     trainer_id: '',
     discount_amount: '',
+    paid_amount: '',
     booking_start_date: new Date().toISOString().split('T')[0],
     payment_method: 'CASH'
   });
 
+  // Pay Due Modal State for Advance Bookings
+  const [payDueModal, setPayDueModal] = useState({
+    isOpen: false,
+    type: 'gen', // 'gen' | 'pt'
+    booking: null,
+    amount: '',
+    payment_method: 'CASH',
+    payment_date: new Date().toISOString().split('T')[0],
+    submitting: false
+  });
+
   const [actionError, setActionError] = useState('');
   const [actionSuccess, setActionSuccess] = useState('');
+
+  const handleOpenPayDueModal = (booking, type = 'gen') => {
+    const due = parseFloat(booking.due_amount || 0);
+    setPayDueModal({
+      isOpen: true,
+      type,
+      booking,
+      amount: due,
+      payment_method: 'CASH',
+      payment_date: new Date().toISOString().split('T')[0],
+      submitting: false
+    });
+  };
+
+  const handleConfirmPayDue = async (e) => {
+    e.preventDefault();
+    if (!payDueModal.booking) return;
+    const amountVal = parseFloat(payDueModal.amount);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      setActionError('Please enter a valid payment amount.');
+      return;
+    }
+
+    setPayDueModal(prev => ({ ...prev, submitting: true }));
+    setActionError('');
+    setActionSuccess('');
+
+    try {
+      let res;
+      if (payDueModal.type === 'gen') {
+        res = await payGeneralBookingDue(payDueModal.booking.id, {
+          paidAmount: amountVal,
+          paymentMethod: payDueModal.payment_method,
+          paymentDate: payDueModal.payment_date
+        });
+      } else {
+        res = await payPtAdvanceBookingDue(payDueModal.booking.id, {
+          paidAmount: amountVal,
+          paymentMethod: payDueModal.payment_method,
+          paymentDate: payDueModal.payment_date
+        });
+      }
+
+      setPayDueModal({ isOpen: false, type: 'gen', booking: null, amount: '', payment_method: 'CASH', payment_date: '', submitting: false });
+      setActionSuccess('Due payment recorded successfully!');
+      await loadData();
+
+      if (res?.booking) {
+        if (payDueModal.type === 'gen') handleGenerateGeneralInvoice(res.booking);
+        else handleGeneratePtInvoice(res.booking);
+      }
+    } catch (err) {
+      setActionError(err.message || 'Failed to record due payment.');
+      setPayDueModal(prev => ({ ...prev, submitting: false }));
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -160,6 +231,21 @@ const AdvanceBookingPage = () => {
     return () => document.removeEventListener('click', handleLinkClick, true);
   }, [isDirty]);
 
+  const handledParamsRef = React.useRef(null);
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setIsDirty(false);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('clientId');
+      next.delete('trainerId');
+      next.delete('packageId');
+      next.delete('startDate');
+      return next;
+    }, { replace: true });
+  };
+
   useEffect(() => {
     const pClient = searchParams.get('clientId');
     const pTrainer = searchParams.get('trainerId');
@@ -171,11 +257,12 @@ const AdvanceBookingPage = () => {
       setActiveTab('pt');
     }
 
-    if (pClient || pTrainer || pPackage || pStart) {
+    const key = `${pClient || ''}_${pTrainer || ''}_${pPackage || ''}_${pStart || ''}`;
+    if ((pClient || pTrainer || pPackage || pStart) && handledParamsRef.current !== key) {
+      handledParamsRef.current = key;
       const selClient = clients.find(c => c.id === pClient);
       let calculatedStart = pStart;
-      const todayStr = new Date().toISOString().split('T')[0];
-      if (!calculatedStart && selClient && selClient.expiryDate && selClient.expiryDate >= todayStr) {
+      if (!calculatedStart && selClient && selClient.expiryDate) {
         calculatedStart = calculateNextDayDate(selClient.expiryDate);
       }
 
@@ -233,25 +320,57 @@ const AdvanceBookingPage = () => {
     ) || null;
   };
 
+  const parseClientExpiryDate = (dateStr) => {
+    if (!dateStr) return null;
+    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
+    let str = String(dateStr).trim();
+    if (!str) return null;
+    if (str.includes('T')) str = str.split('T')[0];
+    if (str.includes(' ')) str = str.split(' ')[0];
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      const d = new Date(year, month, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const d = new Date(year, month, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   const calculateNextDayDate = (dateStr) => {
     if (!dateStr) return new Date().toISOString().split('T')[0];
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
-      d.setDate(d.getDate() + 1);
-      return d.toISOString().split('T')[0];
-    } catch (e) {
-      return new Date().toISOString().split('T')[0];
+    const parsed = parseClientExpiryDate(dateStr);
+    if (parsed) {
+      parsed.setDate(parsed.getDate() + 1);
+      const yyyy = parsed.getFullYear();
+      const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+      const dd = String(parsed.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
     }
+    return new Date().toISOString().split('T')[0];
   };
 
   const handleGenClientChange = (cId) => {
     setIsDirty(true);
     const selClient = clients.find(c => c.id === cId);
     let defaultStart = new Date().toISOString().split('T')[0];
-    const todayStr = defaultStart;
 
-    if (selClient && selClient.expiryDate && selClient.expiryDate >= todayStr) {
+    if (selClient && selClient.expiryDate) {
       defaultStart = calculateNextDayDate(selClient.expiryDate);
     }
 
@@ -341,38 +460,54 @@ const AdvanceBookingPage = () => {
 
   const handleGenerateGeneralInvoice = (booking) => {
     const finalPrice = parseFloat(booking.price || 0) - parseFloat(booking.discount_amount || 0);
+    const paid = booking.paid_amount !== undefined && booking.paid_amount !== null && booking.paid_amount !== ''
+      ? parseFloat(booking.paid_amount)
+      : finalPrice;
+    const due = Math.max(0, finalPrice - paid);
+    const payStatus = due <= 0 ? 'Paid (Advance Scheduled)' : (paid > 0 ? 'Partial (Advance Scheduled)' : 'Due (Advance Scheduled)');
+
     setInvoiceClient({
       name: booking.clientName,
       phone: booking.clientPhone,
       clientId: booking.clientCode,
       plan: `Advance Booking — ${booking.plan_type}`,
       amount: finalPrice,
-      paidAmount: finalPrice,
-      dueAmount: 0,
-      paymentStatus: 'Paid (Advance Scheduled)',
-      paymentMethod: 'CASH',
+      totalPlanAmount: finalPrice,
+      paidAmount: paid,
+      dueAmount: due,
+      remainingBalance: due,
+      paymentStatus: payStatus,
+      paymentMethod: booking.payment_method || 'CASH',
       fromDate: booking.booking_start_date,
       expiryDate: booking.booking_end_date,
-      billNo: `ADV-GEN-${booking.id}`,
+      billNo: booking.billNo || `ADV-GEN-${booking.id}`,
       discount_amount: booking.discount_amount
     });
   };
 
   const handleGeneratePtInvoice = (booking) => {
     const finalPrice = parseFloat(booking.price_snapshot || 0) - parseFloat(booking.discount_amount || 0);
+    const paid = booking.paid_amount !== undefined && booking.paid_amount !== null && booking.paid_amount !== ''
+      ? parseFloat(booking.paid_amount)
+      : finalPrice;
+    const due = Math.max(0, finalPrice - paid);
+    const payStatus = due <= 0 ? 'Paid (Advance Scheduled)' : (paid > 0 ? 'Partial (Advance Scheduled)' : 'Due (Advance Scheduled)');
+
     setInvoiceClient({
       name: booking.clientName,
       phone: booking.clientPhone,
       clientId: booking.clientCode,
       plan: `Advance PT Booking — ${booking.packageName} (${booking.trainerName})`,
       amount: finalPrice,
-      paidAmount: finalPrice,
-      dueAmount: 0,
-      paymentStatus: 'Paid (Advance Scheduled)',
-      paymentMethod: 'CASH',
+      totalPlanAmount: finalPrice,
+      paidAmount: paid,
+      dueAmount: due,
+      remainingBalance: due,
+      paymentStatus: payStatus,
+      paymentMethod: booking.payment_method || 'CASH',
       fromDate: booking.booking_start_date,
       expiryDate: booking.booking_start_date,
-      billNo: `ADV-PT-${booking.id}`,
+      billNo: booking.billNo || `ADV-PT-${booking.id}`,
       discount_amount: booking.discount_amount
     });
   };
@@ -387,28 +522,35 @@ const AdvanceBookingPage = () => {
 
     try {
       const targetClientId = await getOrCreateClientId('gen');
-      const client = clients.find(c => c.id === targetClientId);
-      const today = new Date().toISOString().split('T')[0];
-
-
+      const rawPrice = parseFloat(genForm.price || 0);
+      const rawDisc = parseFloat(genForm.discount_amount || 0);
+      const netTotal = Math.max(0, rawPrice - rawDisc);
+      const finalPaid = genForm.paid_amount !== '' ? parseFloat(genForm.paid_amount) : netTotal;
 
       const createdBooking = await addGeneralBooking({
         client_id: targetClientId,
         plan_type: genForm.plan_type,
-        price: parseFloat(genForm.price || 0),
-        discount_amount: parseFloat(genForm.discount_amount || 0),
+        price: rawPrice,
+        discount_amount: rawDisc,
+        paid_amount: finalPaid,
         payment_method: genForm.payment_method,
         booking_start_date: genForm.booking_start_date,
         booking_end_date: genForm.booking_end_date
       });
       setIsDirty(false);
       setActionSuccess('General Package Advance Booking created successfully!');
-      setTimeout(() => {
-        setIsModalOpen(false);
-        if (createdBooking) {
-          handleGenerateGeneralInvoice(createdBooking);
-        }
-      }, 1000);
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('clientId');
+        next.delete('trainerId');
+        next.delete('packageId');
+        next.delete('startDate');
+        return next;
+      }, { replace: true });
+      setIsModalOpen(false);
+      if (createdBooking) {
+        handleGenerateGeneralInvoice(createdBooking);
+      }
       loadData();
     } catch (err) {
       setActionError(err.message || 'Failed to save General Package Advance Booking.');
@@ -426,23 +568,35 @@ const AdvanceBookingPage = () => {
 
     try {
       const targetClientId = await getOrCreateClientId('pt');
+      const selPkg = ptPackages.find(p => String(p.id) === String(ptForm.pt_package_id));
+      const rawPrice = selPkg ? parseFloat(selPkg.price || 0) : 0;
+      const rawDisc = parseFloat(ptForm.discount_amount || 0);
+      const netTotal = Math.max(0, rawPrice - rawDisc);
+      const finalPaid = ptForm.paid_amount !== '' ? parseFloat(ptForm.paid_amount) : netTotal;
 
       const createdBooking = await addPtAdvanceBooking({
         client_id: targetClientId,
         pt_package_id: ptForm.pt_package_id,
         trainer_id: ptForm.trainer_id,
-        discount_amount: parseFloat(ptForm.discount_amount || 0),
+        discount_amount: rawDisc,
+        paid_amount: finalPaid,
         payment_method: ptForm.payment_method,
         booking_start_date: ptForm.booking_start_date
       });
       setIsDirty(false);
       setActionSuccess('PT Package Advance Booking created successfully!');
-      setTimeout(() => {
-        setIsModalOpen(false);
-        if (createdBooking) {
-          handleGeneratePtInvoice(createdBooking);
-        }
-      }, 1000);
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('clientId');
+        next.delete('trainerId');
+        next.delete('packageId');
+        next.delete('startDate');
+        return next;
+      }, { replace: true });
+      setIsModalOpen(false);
+      if (createdBooking) {
+        handleGeneratePtInvoice(createdBooking);
+      }
       loadData();
     } catch (err) {
       setActionError(err.message || 'Failed to save PT Package Advance Booking.');
@@ -590,13 +744,13 @@ const AdvanceBookingPage = () => {
               <table className="adv-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '24%' }}>Client Info</th>
-                    <th style={{ width: '16%' }}>Current Plan Expiry</th>
-                    <th style={{ width: '18%' }}>Booked Tariff</th>
-                    <th style={{ width: '14%' }}>Price</th>
+                    <th style={{ width: '22%' }}>Client Info</th>
+                    <th style={{ width: '13%' }}>Current Plan Expiry</th>
+                    <th style={{ width: '12%' }}>Booked Tariff</th>
+                    <th style={{ width: '15%' }}>Price</th>
                     <th style={{ width: '14%' }}>Booked Validity</th>
-                    <th style={{ width: '14%' }}>Status</th>
-                    <th style={{ textAlign: 'right', width: '12%' }}>Actions</th>
+                    <th style={{ width: '10%' }}>Status</th>
+                    <th style={{ textAlign: 'right', width: '14%' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -617,7 +771,20 @@ const AdvanceBookingPage = () => {
                         <span className="expiry-date-pill">{b.currentPlanExpiry ? formatDateDDMMYYYY(b.currentPlanExpiry) : 'No Active Plan'}</span>
                       </td>
                       <td><span className="plan-badge">{b.plan_type}</span></td>
-                      <td className="price-val">{formatCurrency((parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0)))}</td>
+                      <td>
+                        <div className="price-val">{formatCurrency((parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0)))}</div>
+                        {parseFloat(b.due_amount || 0) > 0 ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fff7ed', border: '1px solid #fed7aa', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#c2410c', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                            <span>Due: {formatCurrency(b.due_amount)}</span>
+                            <span style={{ color: '#fdba74' }}>•</span>
+                            <span style={{ color: '#15803d' }}>Paid: {formatCurrency(b.paid_amount)}</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#dcfce7', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#15803d', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                            ✓ Paid in Full
+                          </div>
+                        )}
+                      </td>
                       <td>
                         <div className="validity-dates">
                           <span>{formatDateDDMMYYYY(b.booking_start_date)}</span>
@@ -634,6 +801,19 @@ const AdvanceBookingPage = () => {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="action-buttons-group">
+                          {parseFloat(b.due_amount || 0) > 0 && (
+                            <button
+                              className="btn-pay-due-booking"
+                              onClick={() => handleOpenPayDueModal(b, 'gen')}
+                              title={`Clear Due (₹${parseFloat(b.due_amount).toLocaleString()})`}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                                <line x1="1" y1="10" x2="23" y2="10"></line>
+                              </svg>
+                              Pay Due
+                            </button>
+                          )}
                           <button className="btn-invoice-booking" onClick={() => handleGenerateGeneralInvoice(b)} title="View Invoice">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             Invoice
@@ -667,12 +847,12 @@ const AdvanceBookingPage = () => {
                 <thead>
                   <tr>
                     <th style={{ width: '22%' }}>Client Info</th>
-                    <th style={{ width: '20%' }}>Booked PT Package</th>
-                    <th style={{ width: '16%' }}>Assigned Trainer</th>
-                    <th style={{ width: '16%' }}>Price / Classes</th>
-                    <th style={{ width: '12%' }}>Start Date</th>
-                    <th style={{ width: '14%' }}>Status</th>
-                    <th style={{ textAlign: 'right', width: '20%' }}>Actions</th>
+                    <th style={{ width: '15%' }}>Booked PT Package</th>
+                    <th style={{ width: '13%' }}>Assigned Trainer</th>
+                    <th style={{ width: '15%' }}>Price / Classes</th>
+                    <th style={{ width: '11%' }}>Start Date</th>
+                    <th style={{ width: '10%' }}>Status</th>
+                    <th style={{ textAlign: 'right', width: '14%' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -699,6 +879,17 @@ const AdvanceBookingPage = () => {
                       <td>
                         <div className="price-val">{formatCurrency((parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0)))}</div>
                         <div className="classes-count">{b.total_classes_snapshot} Classes</div>
+                        {parseFloat(b.due_amount || 0) > 0 ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fff7ed', border: '1px solid #fed7aa', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#c2410c', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                            <span>Due: {formatCurrency(b.due_amount)}</span>
+                            <span style={{ color: '#fdba74' }}>•</span>
+                            <span style={{ color: '#15803d' }}>Paid: {formatCurrency(b.paid_amount)}</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#dcfce7', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '6px', fontSize: '0.73rem', color: '#15803d', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                            ✓ Paid in Full
+                          </div>
+                        )}
                       </td>
                       <td className="start-date-cell">{formatDateDDMMYYYY(b.booking_start_date)}</td>
                       <td>
@@ -711,6 +902,19 @@ const AdvanceBookingPage = () => {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div className="action-buttons-group">
+                          {parseFloat(b.due_amount || 0) > 0 && (
+                            <button
+                              className="btn-pay-due-booking"
+                              onClick={() => handleOpenPayDueModal(b, 'pt')}
+                              title={`Clear Due (₹${parseFloat(b.due_amount).toLocaleString()})`}
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                                <line x1="1" y1="10" x2="23" y2="10"></line>
+                              </svg>
+                              Pay Due
+                            </button>
+                          )}
                           <button className="btn-invoice-booking" onClick={() => handleGeneratePtInvoice(b)} title="View Invoice">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                             Invoice
@@ -748,7 +952,7 @@ const AdvanceBookingPage = () => {
                                 }
                               >
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L3 14h7v8l10-12h-7z"/></svg>
-                                {isDisabled ? 'Locked (Plan Running)' : 'Activate Now'}
+                                {isDisabled ? 'Locked' : 'Activate'}
                               </button>
                             );
                           })()}
@@ -775,7 +979,7 @@ const AdvanceBookingPage = () => {
           <div className="adv-modal-card">
             <div className="adv-modal-header">
               <h3>Create Advance Booking</h3>
-              <button className="btn-close-x" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>✕</button>
+              <button className="btn-close-x" onClick={handleCloseModal}>✕</button>
             </div>
 
             {actionError && <div className="modal-alert error">⚠️ {actionError}</div>}
@@ -893,30 +1097,58 @@ const AdvanceBookingPage = () => {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Payment Mode</label>
-                  <select
-                    value={genForm.payment_method}
-                    onChange={e => { setGenForm({ ...genForm, payment_method: e.target.value }); setIsDirty(true); }}
-                  >
-                    <option value="CASH">CASH</option>
-                    <option value="UPI">UPI</option>
-                    <option value="BANK">BANK / CARD</option>
-                  </select>
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Paid Amount (₹)</label>
+                    <input
+                      type="number"
+                      placeholder={Math.max(0, (parseFloat(genForm.price) || 0) - (parseFloat(genForm.discount_amount) || 0))}
+                      value={genForm.paid_amount}
+                      onChange={e => { setGenForm({ ...genForm, paid_amount: e.target.value }); setIsDirty(true); }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Payment Mode</label>
+                    <select
+                      value={genForm.payment_method}
+                      onChange={e => { setGenForm({ ...genForm, payment_method: e.target.value }); setIsDirty(true); }}
+                    >
+                      <option value="CASH">CASH</option>
+                      <option value="UPI">UPI</option>
+                      <option value="BANK">BANK / CARD</option>
+                    </select>
+                  </div>
                 </div>
 
-                {parseFloat(genForm.discount_amount || 0) > 0 && (
-                  <div style={{ background: '#f0fdf4', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #bbf7d0', fontSize: '0.82rem', marginBottom: '1rem' }}>
-                    <span>Original Price: <strong>₹{(parseFloat(genForm.price) || 0).toLocaleString()}</strong></span>
-                    <span style={{ margin: '0 8px', color: '#16a34a' }}>-</span>
-                    <span>Discount: <strong>₹{(parseFloat(genForm.discount_amount) || 0).toLocaleString()}</strong></span>
-                    <span style={{ margin: '0 8px' }}>=</span>
-                    <span style={{ color: '#16a34a', fontWeight: '800' }}>Final Payable: ₹{Math.max(0, (parseFloat(genForm.price) || 0) - (parseFloat(genForm.discount_amount) || 0)).toLocaleString()}</span>
-                  </div>
-                )}
+                {/* Due Amount Summary Breakdown */}
+                {(() => {
+                  const gross = parseFloat(genForm.price) || 0;
+                  const disc = parseFloat(genForm.discount_amount) || 0;
+                  const net = Math.max(0, gross - disc);
+                  const paid = genForm.paid_amount !== '' ? parseFloat(genForm.paid_amount) || 0 : net;
+                  const due = Math.max(0, net - paid);
+                  return (
+                    <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#64748b' }}>TOTAL PAYABLE:</span>
+                        <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#64748b' }}>PAID NOW:</span>
+                        <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                        <span style={{ fontWeight: '700', color: due > 0 ? '#ea580c' : '#64748b' }}>DUE BALANCE:</span>
+                        <strong style={{ color: due > 0 ? '#ea580c' : '#10b981', fontSize: '1.05rem' }}>
+                          ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Partial Payment)' : '(Full Paid)'}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="adv-modal-footer">
-                  <button type="button" className="btn-modal-cancel" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>Cancel</button>
+                  <button type="button" className="btn-modal-cancel" onClick={handleCloseModal}>Cancel</button>
                   <button type="submit" className="btn-modal-submit">Save General Booking</button>
                 </div>
               </form>
@@ -978,45 +1210,192 @@ const AdvanceBookingPage = () => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label>Discount Amount (₹)</label>
-                  <input
-                    type="number"
-                    placeholder="Optional discount (₹)"
-                    value={ptForm.discount_amount}
-                    onChange={e => { setPtForm({ ...ptForm, discount_amount: e.target.value }); setIsDirty(true); }}
-                  />
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Discount Amount (₹)</label>
+                    <input
+                      type="number"
+                      placeholder="Optional discount (₹)"
+                      value={ptForm.discount_amount}
+                      onChange={e => { setPtForm({ ...ptForm, discount_amount: e.target.value }); setIsDirty(true); }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Paid Amount (₹)</label>
+                    <input
+                      type="number"
+                      placeholder={(() => {
+                        const sel = ptPackages.find(p => String(p.id) === String(ptForm.pt_package_id));
+                        const gross = sel ? parseFloat(sel.price || 0) : 0;
+                        const disc = parseFloat(ptForm.discount_amount) || 0;
+                        return Math.max(0, gross - disc);
+                      })()}
+                      value={ptForm.paid_amount}
+                      onChange={e => { setPtForm({ ...ptForm, paid_amount: e.target.value }); setIsDirty(true); }}
+                    />
+                  </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Payment Mode</label>
-                  <select
-                    value={ptForm.payment_method}
-                    onChange={e => { setPtForm({ ...ptForm, payment_method: e.target.value }); setIsDirty(true); }}
-                  >
-                    <option value="CASH">CASH</option>
-                    <option value="UPI">UPI</option>
-                    <option value="BANK">BANK / CARD</option>
-                  </select>
+                <div className="form-row-2">
+                  <div className="form-group">
+                    <label>Payment Mode</label>
+                    <select
+                      value={ptForm.payment_method}
+                      onChange={e => { setPtForm({ ...ptForm, payment_method: e.target.value }); setIsDirty(true); }}
+                    >
+                      <option value="CASH">CASH</option>
+                      <option value="UPI">UPI</option>
+                      <option value="BANK">BANK / CARD</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Booking Start Date</label>
+                    <input
+                      type="date"
+                      value={ptForm.booking_start_date}
+                      onChange={e => { setPtForm({ ...ptForm, booking_start_date: e.target.value }); setIsDirty(true); }}
+                      required
+                    />
+                  </div>
                 </div>
 
-                <div className="form-group">
-                  <label>Booking Start Date</label>
-                  <input
-                    type="date"
-                    value={ptForm.booking_start_date}
-                    onChange={e => { setPtForm({ ...ptForm, booking_start_date: e.target.value }); setIsDirty(true); }}
-                    required
-                  />
-                  <small style={{ color: '#64748b' }}>Scheduled start date for this advance PT package</small>
-                </div>
+                {/* Due Amount Summary Breakdown */}
+                {(() => {
+                  const sel = ptPackages.find(p => String(p.id) === String(ptForm.pt_package_id));
+                  const gross = sel ? parseFloat(sel.price || 0) : 0;
+                  const disc = parseFloat(ptForm.discount_amount) || 0;
+                  const net = Math.max(0, gross - disc);
+                  const paid = ptForm.paid_amount !== '' ? parseFloat(ptForm.paid_amount) || 0 : net;
+                  const due = Math.max(0, net - paid);
+                  return (
+                    <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#64748b' }}>TOTAL PAYABLE:</span>
+                        <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                        <span style={{ color: '#64748b' }}>PAID NOW:</span>
+                        <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                        <span style={{ fontWeight: '700', color: due > 0 ? '#ea580c' : '#64748b' }}>DUE BALANCE:</span>
+                        <strong style={{ color: due > 0 ? '#ea580c' : '#10b981', fontSize: '1.05rem' }}>
+                          ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Partial Payment)' : '(Full Paid)'}
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="adv-modal-footer">
-                  <button type="button" className="btn-modal-cancel" onClick={() => { setIsModalOpen(false); setIsDirty(false); }}>Cancel</button>
+                  <button type="button" className="btn-modal-cancel" onClick={handleCloseModal}>Cancel</button>
                   <button type="submit" className="btn-modal-submit">Save PT Advance Booking</button>
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Pay Due Modal for Advance Bookings */}
+      {payDueModal.isOpen && (
+        <div className="adv-modal-overlay" style={{ zIndex: 10500 }}>
+          <div className="adv-modal-card" style={{ maxWidth: '440px' }}>
+            <div className="adv-modal-header" style={{ borderBottom: '1px solid #fed7aa', background: '#fff7ed' }}>
+              <div>
+                <h3 style={{ color: '#c2410c', margin: 0, fontSize: '1.15rem' }}>
+                  💳 Collect Due Payment
+                </h3>
+                <p style={{ color: '#ea580c', margin: '3px 0 0 0', fontSize: '0.82rem', fontWeight: 600 }}>
+                  {payDueModal.booking?.clientName} • {payDueModal.type === 'gen' ? payDueModal.booking?.plan_type : payDueModal.booking?.packageName}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-modal-close"
+                onClick={() => setPayDueModal({ ...payDueModal, isOpen: false })}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmPayDue} className="adv-form" style={{ padding: '1.25rem' }}>
+              <div style={{ background: '#f8fafc', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Current Pending Due:</span>
+                <strong style={{ fontSize: '1.1rem', color: '#ea580c' }}>₹{parseFloat(payDueModal.booking?.due_amount || 0).toLocaleString()}</strong>
+              </div>
+
+              <div className="form-group">
+                <label>Amount Paying Now (₹) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={parseFloat(payDueModal.booking?.due_amount || 0)}
+                  value={payDueModal.amount}
+                  onChange={e => setPayDueModal({ ...payDueModal, amount: e.target.value })}
+                  required
+                  style={{ fontSize: '1.05rem', fontWeight: '800' }}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Payment Method *</label>
+                <select
+                  value={payDueModal.payment_method}
+                  onChange={e => setPayDueModal({ ...payDueModal, payment_method: e.target.value })}
+                >
+                  <option value="CASH">CASH</option>
+                  <option value="UPI">UPI</option>
+                  <option value="BANK">BANK / CARD</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Payment Date *</label>
+                <input
+                  type="date"
+                  value={payDueModal.payment_date}
+                  onChange={e => setPayDueModal({ ...payDueModal, payment_date: e.target.value })}
+                  required
+                />
+              </div>
+
+              {(() => {
+                const curDue = parseFloat(payDueModal.booking?.due_amount || 0);
+                const payAmt = parseFloat(payDueModal.amount) || 0;
+                const remDue = Math.max(0, curDue - payAmt);
+                return (
+                  <div style={{ background: remDue <= 0 ? '#f0fdf4' : '#fff7ed', padding: '0.65rem 0.85rem', borderRadius: '8px', border: `1px solid ${remDue <= 0 ? '#bbf7d0' : '#fed7aa'}`, fontSize: '0.82rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748b' }}>Remaining Due After Payment:</span>
+                      <strong style={{ color: remDue <= 0 ? '#16a34a' : '#ea580c' }}>
+                        ₹{remDue.toLocaleString()} {remDue <= 0 ? '(Fully Cleared ✓)' : '(Partial Balance)'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="adv-modal-footer" style={{ marginTop: '1rem' }}>
+                <button
+                  type="button"
+                  className="btn-modal-cancel"
+                  onClick={() => setPayDueModal({ ...payDueModal, isOpen: false })}
+                  disabled={payDueModal.submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-modal-submit"
+                  disabled={payDueModal.submitting}
+                  style={{ background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)' }}
+                >
+                  {payDueModal.submitting ? 'Recording...' : 'Record Payment & Generate Invoice'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

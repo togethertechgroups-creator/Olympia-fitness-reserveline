@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { generateInvoice } from '../utils/generateInvoice';
-import { getGstSettings } from '../api';
+import { getGstSettings, sendInvoiceWhatsApp } from '../api';
 import './InvoicePreviewModal.css';
 
 const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
@@ -9,10 +9,12 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
   const [businessGstin, setBusinessGstin] = useState('');
   const defaultTitle = title ? `${title} & Bill Generated Successfully!` : 'Process Completed & Bill Generated Successfully!';
   const [toastMsg, setToastMsg] = useState(defaultTitle);
+  const [toastType, setToastType] = useState('success'); // 'success' | 'error' | 'info'
   const [isSendingWa, setIsSendingWa] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
+      setToastType('success');
       setToastMsg(title ? `🎉 ${title} & Bill Generated Successfully!` : '🎉 Process Completed & Bill Generated Successfully!');
       getGstSettings()
         .then(data => setBusinessGstin(data?.business_gstin || ''))
@@ -25,6 +27,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
   const htmlContent = generateInvoice(client, businessGstin);
 
   const handlePrint = () => {
+    setToastType('info');
     setToastMsg('🖨️ Bill / Invoice Sent to Printer Successfully!');
     if (iframeRef.current) {
       iframeRef.current.contentWindow.print();
@@ -33,11 +36,13 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
 
   const handleDownloadPDF = async () => {
     setIsDownloading(true);
-    setToastMsg('Generating PDF Invoice...');
+    setToastType('info');
+    setToastMsg('Generating High-Definition PDF Invoice...');
     try {
       const iframeDoc = iframeRef.current?.contentDocument;
       if (!iframeDoc) {
-        alert('Invoice content is loading. Please try again in a moment.');
+        setToastType('error');
+        setToastMsg('❌ Invoice content is loading. Please try again.');
         setIsDownloading(false);
         return;
       }
@@ -49,44 +54,102 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         console.warn('html2pdf import failed, falling back to print', e);
       }
 
-      const filename = `Invoice_${client.billNo || client.clientId || '0000'}.pdf`;
+      const rawBillNo = client.billNo || client.clientId || 'Invoice';
+      const filename = `Invoice_${String(rawBillNo).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
 
       if (html2pdfModule) {
+        const element = iframeDoc.querySelector('.page') || iframeDoc.body;
         const opt = {
-          margin: 0,
+          margin: [0, 0, 0, 0],
           filename,
-          image: { type: 'jpeg', quality: 1 },
-          html2canvas: { scale: 2, useCORS: true, windowWidth: 794, letterRendering: true },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          image: { type: 'jpeg', quality: 1.0 },
+          html2canvas: {
+            scale: 3,
+            useCORS: true,
+            allowTaint: true,
+            scrollY: 0,
+            scrollX: 0,
+            windowWidth: 794,
+            width: 794,
+            letterRendering: true,
+            logging: false
+          },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
-        const pdfBlob = await html2pdfModule().set(opt).from(iframeDoc.documentElement).output('blob');
-        const url = URL.createObjectURL(pdfBlob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1500);
-        setToastMsg('📥 Invoice PDF Downloaded Successfully!');
+        await html2pdfModule().set(opt).from(element).save();
+        setToastType('success');
+        setToastMsg('📥 High-Quality Invoice PDF Downloaded Successfully!');
       } else {
         iframeRef.current.contentWindow.print();
+        setToastType('info');
         setToastMsg('🖨️ Bill / Invoice Sent to Printer Successfully!');
       }
     } catch (err) {
       console.error('Failed to download PDF:', err);
+      setToastType('error');
+      setToastMsg('❌ Failed to download PDF invoice');
       iframeRef.current?.contentWindow?.print();
     } finally {
       setIsDownloading(false);
     }
   };
 
-  const handleShareWhatsApp = () => {
+  const handleShareWhatsApp = async () => {
     setIsSendingWa(true);
-    setToastMsg('💬 Opening WhatsApp Share...');
+    setToastType('info');
+    setToastMsg('💬 Generating HD PDF & Sending to WhatsApp...');
     try {
       const rawPhone = String(client.phone || client.mobile || '').replace(/\D/g, '');
       const phoneNum = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+      if (!phoneNum) {
+        setToastType('error');
+        setToastMsg('❌ No phone number found for this client');
+        return;
+      }
+
+      // Generate clean valid PDF base64
+      let pdfBase64 = null;
+      try {
+        const iframeDoc = iframeRef.current?.contentDocument;
+        if (iframeDoc) {
+          const html2pdfModule = (await import('html2pdf.js')).default;
+          const element = iframeDoc.querySelector('.page') || iframeDoc.body;
+          const opt = {
+            margin: [0, 0, 0, 0],
+            filename: `Invoice_${String(client.billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
+            image: { type: 'jpeg', quality: 1.0 },
+            html2canvas: {
+              scale: 3,
+              useCORS: true,
+              allowTaint: true,
+              scrollY: 0,
+              scrollX: 0,
+              windowWidth: 794,
+              width: 794,
+              letterRendering: true,
+              logging: false
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          };
+          const pdfBlob = await html2pdfModule().set(opt).from(element).output('blob');
+          if (pdfBlob && pdfBlob.size > 0) {
+            pdfBase64 = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const res = reader.result;
+                resolve(typeof res === 'string' && res.includes(',') ? res.split(',')[1] : res);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(pdfBlob);
+            });
+          }
+        }
+      } catch (pdfErr) {
+        console.warn('PDF generation notice:', pdfErr);
+      }
+
       const planName = client.planName || client.plan || 'Membership';
       const paidAmt = Number(client.paidAmount !== undefined ? client.paidAmount : (client.amount || 0));
       const dueAmt = Number(client.dueAmount || 0);
@@ -106,14 +169,15 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         (client.expiryDate ? `📅 *Valid Until:* ${client.expiryDate}\n` : '') +
         `\nThank you for training with Olympia Fitness! 💪🏋️‍♂️`;
 
-      if (phoneNum) {
-        window.open(`https://wa.me/${phoneNum}?text=${encodeURIComponent(text)}`, '_blank');
-      } else {
-        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-      }
-      setToastMsg('💬 Invoice Shared to WhatsApp Successfully!');
+      // Send PDF invoice via Backend Metamerged WhatsApp API
+      await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text);
+
+      setToastType('success');
+      setToastMsg(`✅ Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`);
     } catch (err) {
-      console.error('Failed to share WhatsApp:', err);
+      console.error('Failed to send WhatsApp:', err);
+      setToastType('error');
+      setToastMsg(`❌ ${err.message || 'Failed to send WhatsApp message'}`);
     } finally {
       setIsSendingWa(false);
     }
@@ -123,10 +187,10 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
     <div className="invoice-modal-overlay">
       <div className="invoice-modal-content">
 
-        {/* Bill Generated Success Popup Banner */}
-        <div className="invoice-success-banner">
+        {/* Bill Generated Success / Error Popup Banner */}
+        <div className={`invoice-success-banner ${toastType === 'error' ? 'banner-error' : (toastType === 'info' ? 'banner-info' : '')}`}>
           <div className="success-banner-left">
-            <span className="success-check-badge">✓</span>
+            <span className="success-check-badge">{toastType === 'error' ? '!' : '✓'}</span>
             <div>
               <strong className="success-title">{toastMsg}</strong>
               <span className="success-sub">
@@ -134,7 +198,9 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
               </span>
             </div>
           </div>
-          <span className="ready-badge">READY TO PRINT / DOWNLOAD</span>
+          <span className="ready-badge">
+            {toastType === 'error' ? 'ATTENTION' : 'READY TO PRINT / DOWNLOAD'}
+          </span>
         </div>
 
         <div className="invoice-modal-header">

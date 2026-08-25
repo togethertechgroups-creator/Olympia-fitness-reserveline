@@ -238,7 +238,19 @@ const TransactionsPage = () => {
         return isNaN(numId) ? 0 : numId;
       };
 
-      const combinedTxns = [...txnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedPtAssignments, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
+      const mappedTxnData = (txnData || []).map(t => {
+        const disc = parseFloat(t.discount_amount || t.discountAmount || 0);
+        const amt = parseFloat(t.amount || 0);
+        const gross = t.grossAmount !== undefined && t.grossAmount !== null ? parseFloat(t.grossAmount) : (amt + disc);
+        return {
+          ...t,
+          amount: amt,
+          grossAmount: gross,
+          discountAmount: disc
+        };
+      });
+
+      const combinedTxns = [...mappedTxnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedPtAssignments, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
       combinedTxns.sort((a, b) => {
         const timeA = parseTimeToMs(a);
         const timeB = parseTimeToMs(b);

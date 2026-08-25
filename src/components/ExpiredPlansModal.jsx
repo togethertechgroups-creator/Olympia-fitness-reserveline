@@ -1,15 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { formatShortId } from '../utils/formatShortId';
+import { sendWhatsAppText } from '../api';
 import './ExpiredPlansModal.css';
 
 const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) => {
+  const [toast, setToast] = useState(null);
+
   if (!isOpen) return null;
 
-  const handleSendWa = (client, e) => {
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => prev?.message === message ? null : prev);
+    }, 4500);
+  };
+
+  const handleSendWa = async (client, e) => {
     e.stopPropagation();
     const rawPhone = String(client.phone || '').replace(/\D/g, '');
     if (!rawPhone) {
-      alert(`No phone number for ${client.name}`);
+      showToast(`No phone number for ${client.name}`, 'error');
       return;
     }
     const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
@@ -21,7 +31,15 @@ const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) =>
       text += `Your gym membership plan (${client.plan || 'Plan'}) has expired. Please renew your membership to continue your workouts.\n`;
     }
     text += `\nThank you, Olympia Fitness! 💪🏋️‍♂️`;
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+
+    showToast(`Sending reminder to ${client.name}...`, 'info');
+    try {
+      await sendWhatsAppText(phone, text, client.name, client.id || client.clientId, isExpiring ? 'expiring_soon' : 'expired');
+      showToast(`✅ WhatsApp reminder sent to ${client.name} (${phone})!`, 'success');
+    } catch (err) {
+      console.error('Failed to send WhatsApp message:', err);
+      showToast(`❌ ${err.message || 'Failed to send WhatsApp message'}`, 'error');
+    }
   };
 
   const renderClientItem = (client, key) => {
@@ -85,6 +103,24 @@ const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) =>
       <div className="modal-backdrop" onClick={onClose}></div>
       
       <div className="modal-card premium-glass">
+        {toast && (
+          <div style={{
+            background: toast.type === 'error' ? 'linear-gradient(135deg, #dc2626, #ef4444)' : (toast.type === 'info' ? 'linear-gradient(135deg, #2563eb, #3b82f6)' : 'linear-gradient(135deg, #059669, #10b981)'),
+            color: '#ffffff',
+            padding: '0.75rem 1.25rem',
+            borderRadius: '10px',
+            fontWeight: '700',
+            fontSize: '0.9rem',
+            marginBottom: '1rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+          }}>
+            <span>{toast.message}</span>
+            <button onClick={() => setToast(null)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '1rem', fontWeight: 'bold' }}>✕</button>
+          </div>
+        )}
         <button className="btn-modal-close" onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
         </button>

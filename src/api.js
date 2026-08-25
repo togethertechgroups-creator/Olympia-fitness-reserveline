@@ -28,9 +28,25 @@ const handleResponse = async (response) => {
   return data || {};
 };
 
-export const getClients = async () => {
+let _clientsCache = null;
+let _clientsCacheTime = 0;
+const CLIENTS_CACHE_TTL = 30000; // 30s cache
+
+export const invalidateClientsCache = () => {
+  _clientsCache = null;
+  _clientsCacheTime = 0;
+};
+
+export const getClients = async (forceRefresh = false) => {
+  const now = Date.now();
+  if (!forceRefresh && _clientsCache && (now - _clientsCacheTime < CLIENTS_CACHE_TTL)) {
+    return _clientsCache;
+  }
   const response = await fetch(`${BASE_URL}/clients`);
-  return handleResponse(response);
+  const data = await handleResponse(response);
+  _clientsCache = data;
+  _clientsCacheTime = Date.now();
+  return data;
 };
 
 export const getNextClientId = async () => {
@@ -44,6 +60,7 @@ export const checkClientId = async (clientId) => {
 };
 
 export const deleteClient = async (id) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/clients/${id}`, {
     method: 'DELETE'
   });
@@ -56,6 +73,7 @@ export const getClientById = async (id) => {
 };
 
 export const updateClient = async (id, clientData) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/clients/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -65,6 +83,7 @@ export const updateClient = async (id, clientData) => {
 };
 
 export const addClient = async (clientData) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/clients`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,6 +107,7 @@ export const getBills = async () => {
 };
 
 export const addClientPayment = async (id, paymentData) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/clients/${id}/payment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -316,11 +336,20 @@ export const addFollowUp = async (InquiryId, followUpData) => {
   return handleResponse(response);
 };
 
-export const sendInvoiceWhatsApp = async (phone, name, billNo, pdfBase64) => {
+export const sendInvoiceWhatsApp = async (phone, name, billNo, pdfBase64, documentUrl, message) => {
   const response = await fetch(`${BASE_URL}/whatsapp/send-invoice`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone, name, billNo, pdfBase64 }),
+    body: JSON.stringify({ phone, name, billNo, pdfBase64, documentUrl, message }),
+  });
+  return handleResponse(response);
+};
+
+export const sendWhatsAppText = async (phone, message, clientName = '', clientId = '', type = 'general') => {
+  const response = await fetch(`${BASE_URL}/whatsapp/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, message, clientName, clientId, type }),
   });
   return handleResponse(response);
 };
@@ -741,6 +770,14 @@ export const cancelGeneralBooking = async (id) => {
   return handleResponse(response);
 };
 
+export const activateGeneralBooking = async (id) => {
+  const response = await fetch(`${BASE_URL}/general-bookings/${id}/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return handleResponse(response);
+};
+
 export const getPtAdvanceBookings = async () => {
   const response = await fetch(`${BASE_URL}/pt-advance-bookings`);
   return handleResponse(response);
@@ -771,9 +808,28 @@ export const activatePtAdvanceBooking = async (id) => {
   return handleResponse(response);
 };
 
+export const payGeneralBookingDue = async (id, paymentData) => {
+  const response = await fetch(`${BASE_URL}/general-bookings/${id}/payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paymentData),
+  });
+  return handleResponse(response);
+};
+
+export const payPtAdvanceBookingDue = async (id, paymentData) => {
+  const response = await fetch(`${BASE_URL}/pt-advance-bookings/${id}/payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paymentData),
+  });
+  return handleResponse(response);
+};
+
 // ─── EXPIRED CLIENT RENEWAL API ──────────────────────────────────────────────
 
 export const renewExpiredClient = async (clientId, planData) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/clients/${clientId}/renew-expired`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -864,6 +920,15 @@ export const deleteOtherServiceSale = async (id) => {
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
     method: 'DELETE',
     headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
+  });
+  return handleResponse(response);
+};
+
+export const payOtherServiceDue = async (id, paymentData) => {
+  const response = await fetch(`${BASE_URL}/other-services/sales/${id}/payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paymentData),
   });
   return handleResponse(response);
 };

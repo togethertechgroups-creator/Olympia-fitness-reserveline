@@ -1078,35 +1078,76 @@ select.payment-form-input {
   background: #ffffff;
   border-radius: 20px;
   width: 95%;
-  max-width: 580px;
-  padding: 1.75rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  max-width: 560px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
   box-sizing: border-box;
   text-align: left;
 }
 
 .renew-modal-header {
+  padding: 1.25rem 1.75rem;
+  background: #0f172a !important;
+  color: #ffffff !important;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  border-bottom: 1px solid #f1f5f9;
-  padding-bottom: 1rem;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px 20px 0 0;
 }
 
 .renew-header-title h3 {
-  margin: 0 0 0.25rem 0;
-  font-size: 1.25rem;
+  margin: 0 0 0.3rem 0;
+  font-size: 1.3rem;
   font-weight: 800;
-  color: #0f172a;
+  color: #ffffff !important;
+  font-family: var(--font-display, sans-serif);
+  letter-spacing: -0.01em;
 }
 
 .renew-subtitle {
   margin: 0;
   font-size: 0.85rem;
-  color: #64748b;
+  color: #cbd5e1 !important;
+}
+
+.renew-subtitle strong {
+  color: #f8fafc !important;
+}
+
+.renew-modal-card .btn-close-modal {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.renew-modal-card .btn-close-modal svg {
+  stroke: #ffffff !important;
+}
+
+.renew-modal-card .btn-close-modal:hover {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  color: #ffffff !important;
+  transform: rotate(90deg) scale(1.05);
+}
+
+.renew-modal-form {
+  padding: 1.5rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .renew-form-grid {

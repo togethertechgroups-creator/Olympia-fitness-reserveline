@@ -349,12 +349,21 @@
   color: #94a3b8;
   margin-top: 0.25rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .price-val {
   font-weight: 900;
   font-size: 1.05rem;
   color: #0f172a;
+}
+
+.col-date,
+.col-validity,
+.col-price,
+.col-invoice,
+.col-actions {
+  white-space: nowrap;
 }
 
 .status-pill {
@@ -399,6 +408,27 @@
 }
 
 .btn-action-renew-service:hover {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+}
+
+.btn-pay-due-other-service {
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fdba74;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-pay-due-other-service:hover {
   background: #ea580c;
   color: #ffffff;
   border-color: #ea580c;

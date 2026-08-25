@@ -24,8 +24,11 @@ const PTAssignmentPage = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientModalSearch, setClientModalSearch] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [filterTrainer, setFilterTrainer] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState('Active');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [invoiceClient, setInvoiceClient] = useState(null);
   const [gstError, setGstError] = useState('');
 
@@ -504,19 +507,69 @@ const PTAssignmentPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
+  const normalizeDateToISO = (dStr) => {
+    if (!dStr) return '';
+    const str = String(dStr).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+      return str.substring(0, 10);
+    }
+    const match = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+    if (match) {
+      const day = match[1].padStart(2, '0');
+      const month = match[2].padStart(2, '0');
+      const year = match[3];
+      return `${year}-${month}-${day}`;
+    }
+    return '';
+  };
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterTrainer, filterStatus]);
+  }, [filterTrainer, filterStatus, searchQuery, fromDate, toDate]);
 
   const filteredAssignments = assignments.filter(a => {
-    if (filterTrainer && a.trainer_id !== filterTrainer) return false;
+    // 1. Filter Trainer
+    if (filterTrainer && String(a.trainer_id) !== String(filterTrainer)) return false;
+
+    // 2. Filter Status (Active, Inactive, Completed)
     if (filterStatus) {
-      if (filterStatus === 'Inactive') {
-        if (a.status !== 'Expired' && a.status !== 'Cancelled') return false;
-      } else if (a.status !== filterStatus) {
-        return false;
+      const today = new Date().toISOString().split('T')[0];
+      const st = (a.status || '').trim().toLowerCase();
+      const isDateExpired = a.expiry_date && a.expiry_date < today;
+      const isClassesCompleted = a.total_classes_snapshot > 0 && a.classes_completed >= a.total_classes_snapshot;
+
+      if (filterStatus === 'Active') {
+        if (st !== 'active' || isDateExpired || isClassesCompleted) return false;
+      } else if (filterStatus === 'Inactive') {
+        const isInactive = st === 'inactive' || st === 'expired' || st === 'cancelled' || isDateExpired;
+        if (!isInactive) return false;
+      } else if (filterStatus === 'Completed') {
+        if (st !== 'completed' && !isClassesCompleted) return false;
       }
     }
+
+    // 3. Date Range Filter (From Date and To Date based on Assigned Date)
+    if (fromDate || toDate) {
+      const assignDateISO = normalizeDateToISO(a.assigned_date || a.created_at);
+      if (assignDateISO) {
+        if (fromDate && assignDateISO < fromDate) return false;
+        if (toDate && assignDateISO > toDate) return false;
+      }
+    }
+
+    // 4. Search Query
+    if (searchQuery && searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      const cName = (a.clientName || '').toLowerCase();
+      const cCode = (a.clientCode || a.client_id || '').toString().toLowerCase();
+      const cPhone = (a.clientPhone || a.mobile || '').toString().toLowerCase();
+      const tName = (a.trainerName || '').toLowerCase();
+      const pName = (a.packageName || '').toLowerCase();
+
+      const matches = cName.includes(q) || cCode.includes(q) || cPhone.includes(q) || tName.includes(q) || pName.includes(q);
+      if (!matches) return false;
+    }
+
     return true;
   });
 
@@ -587,7 +640,47 @@ const PTAssignmentPage = () => {
 
       {/* Filter Bar */}
       <div className="assign-filters-bar">
-        <div className="assign-filter-group">
+        <div className="assign-filter-group" style={{ flex: '1 1 240px', minWidth: '220px' }}>
+          <label>Search Client / Trainer / Package</label>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '38px' }}>
+            <svg
+              style={{ position: 'absolute', left: '10px', color: '#94a3b8', pointerEvents: 'none' }}
+              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by client name, code, phone, trainer..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ paddingLeft: '2.1rem', width: '100%', boxSizing: 'border-box', height: '100%' }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  padding: '2px 6px'
+                }}
+                title="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="assign-filter-group" style={{ minWidth: '170px' }}>
           <label>Filter Trainer</label>
           <select value={filterTrainer} onChange={e => setFilterTrainer(e.target.value)}>
             <option value="">All Trainers</option>
@@ -597,17 +690,50 @@ const PTAssignmentPage = () => {
           </select>
         </div>
 
-        <div className="assign-filter-group">
+        <div className="assign-filter-group" style={{ minWidth: '150px' }}>
           <label>Filter Status</label>
           <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
             <option value="">All Statuses</option>
             <option value="Active">Active</option>
-            <option value="Inactive">Inactive (Expired/Cancelled)</option>
+            <option value="Inactive">Inactive</option>
             <option value="Completed">Completed</option>
-            <option value="Cancelled">Cancelled</option>
-            <option value="Expired">Expired</option>
           </select>
         </div>
+
+        <div className="assign-filter-group" style={{ minWidth: '140px' }}>
+          <label>From Date</label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={e => setFromDate(e.target.value)}
+          />
+        </div>
+
+        <div className="assign-filter-group" style={{ minWidth: '140px' }}>
+          <label>To Date</label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={e => setToDate(e.target.value)}
+          />
+        </div>
+
+        {(fromDate || toDate || filterStatus !== 'Active' || filterTrainer || searchQuery) && (
+          <button
+            type="button"
+            className="btn-clear-filters"
+            onClick={() => {
+              setFromDate('');
+              setToDate('');
+              setFilterStatus('Active');
+              setFilterTrainer('');
+              setSearchQuery('');
+            }}
+            title="Reset all filters"
+          >
+            ✕ Reset
+          </button>
+        )}
       </div>
 
       <div className="assign-table-card">
@@ -638,9 +764,24 @@ const PTAssignmentPage = () => {
                       ? Math.min(100, Math.round((item.classes_completed / item.total_classes_snapshot) * 100))
                       : 0;
 
-                    const statusClass = item.status === 'Active'
-                      ? 'active-status'
-                      : (item.status === 'Completed' ? 'completed-status' : (item.status === 'Expired' ? 'expired-status' : 'cancelled-status'));
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const isExpired = (item.status || '').toLowerCase() === 'expired' || (item.expiry_date && item.expiry_date < todayStr);
+                    const isCompleted = (item.status || '').toLowerCase() === 'completed' || (item.total_classes_snapshot > 0 && item.classes_completed >= item.total_classes_snapshot);
+                    const isCancelled = (item.status || '').toLowerCase() === 'cancelled';
+
+                    let displayStatus = 'ACTIVE';
+                    let statusClass = 'active-status';
+
+                    if (isCancelled) {
+                      displayStatus = 'CANCELLED';
+                      statusClass = 'cancelled-status';
+                    } else if (isCompleted) {
+                      displayStatus = 'COMPLETED';
+                      statusClass = 'completed-status';
+                    } else if (isExpired) {
+                      displayStatus = 'EXPIRED';
+                      statusClass = 'expired-status';
+                    }
 
                     return (
                       <tr key={item.id}>
@@ -709,7 +850,7 @@ const PTAssignmentPage = () => {
                           {formatDateDDMMYYYY(item.expiry_date)}
                         </td>
                         <td>
-                          <span className={`status-pill ${statusClass}`}>{item.status}</span>
+                          <span className={`status-pill ${statusClass}`}>{displayStatus}</span>
                         </td>
                         <td style={{ textAlign: 'right' }}>
                           <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', justifyContent: 'flex-end' }}>

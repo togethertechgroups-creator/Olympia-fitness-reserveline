@@ -7,59 +7,166 @@ const cron = require('node-cron');
 // Use global fetch (Workers / Node 18+) or fall back to node-fetch
 const fetch = globalThis.fetch ?? require('node-fetch');
 
-// ─── WhatsApp Cloud API Config ────────────────────────────────────────────────
-const WA_TOKEN = process.env.WHATSAPP_TOKEN || '';
-const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
+// ─── WhatsApp Metamerged API Config ──────────────────────────────────────────
 const COUNTRY_CODE = process.env.COUNTRY_CODE || '91';
 
-// Helper: normalize phone number to international format (no + or spaces)
+// Helper: get the verified Metamerged WhatsApp API key
+const getWaKey = (workerEnv) => {
+  const candidate = workerEnv?.WHATSAPP_KEY || process.env.WHATSAPP_KEY || workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN;
+  // If candidate is a valid 32-character hex key (or not an old Facebook token starting with EAAG)
+  if (candidate && !candidate.startsWith('EAAG') && candidate.length <= 64) {
+    return candidate.trim();
+  }
+  return '84fc8e6467ae79aee05aa0a3c1c18fd9';
+};
+
+// Helper: normalize phone number to international format with 91 in front (e.g. 918530613447)
 const normalizePhone = (phone) => {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length === 10) return `${COUNTRY_CODE}${digits}`;
-  if (digits.startsWith('0')) return `${COUNTRY_CODE}${digits.slice(1)}`;
+  if (!phone) return '';
+  let digits = String(phone).replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  else if (digits.startsWith('0') && digits.length === 11) digits = digits.slice(1);
+
+  // If 10 digits (e.g. 8530613447) -> prefix with 91
+  if (digits.length === 10) {
+    return `${COUNTRY_CODE}${digits}`;
+  }
+  // If 12 digits and already starts with 91 (e.g. 918530613447) -> return as is
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits;
+  }
+  // If >10 digits not starting with 91 -> take last 10 digits and prefix 91
+  if (digits.length > 10 && !digits.startsWith('91')) {
+    return `${COUNTRY_CODE}${digits.slice(-10)}`;
+  }
   return digits;
 };
 
-// Helper: send a WhatsApp text message via Cloud API
-const sendWhatsAppMessage = async (toPhone, message) => {
-  if (!WA_TOKEN || !WA_PHONE_ID) {
-    throw new Error('WhatsApp Phone Number ID not configured. Add WHATSAPP_PHONE_NUMBER_ID to server/.env');
+// Helper: send a WhatsApp text message via Metamerged API
+const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
+  const phone = normalizePhone(toPhone);
+  if (!phone) {
+    throw new Error('Valid recipient phone number is required.');
   }
-  const url = `https://graph.facebook.com/v19.0/${WA_PHONE_ID}/messages`;
-  const body = {
-    messaging_product: 'whatsapp',
-    to: normalizePhone(toPhone),
+
+  const waKey = getWaKey(workerEnv);
+  const endpoint = 'https://api.metamerged.com/api/send';
+  const payload = {
+    number: phone,
     type: 'text',
-    text: { body: message }
+    message: message
   };
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${WA_TOKEN}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  });
-  const data = await resp.json();
-  if (!resp.ok) {
-    throw new Error(data?.error?.message || `WhatsApp API error ${resp.status}`);
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Access-Token': waKey
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && (data.success === true || data.status === true)) {
+      console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST`);
+      return data;
+    }
+  } catch (postErr) {
+    console.warn('[WhatsApp API] POST failed, trying GET fallback:', postErr.message);
   }
-  return data;
+
+  // Fallback to GET endpoint
+  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=text&message=${encodeURIComponent(message)}&access_token=${encodeURIComponent(waKey)}`;
+  const getResp = await fetch(getUrl);
+  const getData = await getResp.json().catch(() => ({}));
+  if (getResp.ok && (getData.success === true || getData.status === true)) {
+    console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET`);
+    return getData;
+  }
+
+  if (getData && (getData.success === false || getData.status === false)) {
+    throw new Error(getData.message || 'Failed to send WhatsApp message via Metamerged');
+  }
+  return getData;
+};
+
+// Helper: send a WhatsApp document message via Metamerged API
+const isPublicUrl = (url) => {
+  if (!url || typeof url !== 'string') return false;
+  if (!url.startsWith('https://') && !url.startsWith('http://')) return false;
+  const lower = url.toLowerCase();
+  if (lower.includes('localhost') || lower.includes('127.0.0.1') || lower.includes('192.168.') || lower.includes('10.') || lower.includes('172.16.') || lower.includes('0.0.0.0')) {
+    return false;
+  }
+  return true;
+};
+
+const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, workerEnv) => {
+  const phone = normalizePhone(toPhone);
+  if (!phone) {
+    throw new Error('Valid recipient phone number is required.');
+  }
+
+  const waKey = getWaKey(workerEnv);
+  const endpoint = 'https://api.metamerged.com/api/send';
+  const payload = {
+    number: phone,
+    type: 'document',
+    message: message || '',
+    variables: {
+      documentUrl: documentUrl || '',
+      fileName: fileName || 'document.pdf'
+    }
+  };
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Access-Token': waKey
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && (data.success === true || data.status === true)) {
+      console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST`);
+      return data;
+    }
+  } catch (postErr) {
+    console.warn('[WhatsApp API] Document POST failed, trying GET fallback:', postErr.message);
+  }
+
+  // Fallback to GET endpoint
+  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&document_url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
+  const getResp = await fetch(getUrl);
+  const getData = await getResp.json().catch(() => ({}));
+  if (getResp.ok && (getData.success === true || getData.status === true)) {
+    console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET`);
+    return getData;
+  }
+
+  if (getData && (getData.success === false || getData.status === false)) {
+    throw new Error(getData.message || 'Failed to send WhatsApp document via Metamerged');
+  }
+  return getData;
 };
 
 // Message templates
 const buildExpiringSoonMsg = (client) => {
   const expiry = new Date(client.expiryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `Hi ${client.name}! 👋\n\nThis is a friendly reminder from *KH3 WELLNESS* 🏋️‍♂️\n\nYour *${client.plan}* membership is expiring on *${expiry}*.\n\nRenew now to keep crushing your goals! 💪\n\nContact us at the front desk or call to renew. See you in the gym! 🔥`;
+  return `Hi ${client.name}! 👋\n\nThis is a friendly reminder from *OLYMPIA FITNESS* 🏋️‍♂️\n\nYour *${client.plan}* membership is expiring on *${expiry}*.\n\nRenew now to keep crushing your goals! 💪\n\nContact us at the front desk or call to renew. See you in the gym! 🔥`;
 };
 
 const buildExpiredMsg = (client) => {
   const expiry = new Date(client.expiryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-  return `Hi ${client.name}! 😊\n\nYour *${client.plan}* membership at *KH3 WELLNESS* has expired on *${expiry}*.\n\nWe miss you! 💙 Come back and continue your fitness journey.\n\nRenew today — visit us at the front desk or give us a call! 🏋️‍♂️🔥`;
+  return `Hi ${client.name}! 😊\n\nYour *${client.plan}* membership at *OLYMPIA FITNESS* has expired on *${expiry}*.\n\nWe miss you! 💙 Come back and continue your fitness journey.\n\nRenew today — visit us at the front desk or give us a call! 🏋️‍♂️🔥`;
 };
 
 const buildPaymentReminderMsg = (client) => {
-  return `Hi ${client.name}! 👋\n\nThis is a friendly reminder from *KH3 WELLNESS* 🏋️‍♂️\n\nYou have a pending due amount of *₹${client.dueAmount}* for your *${client.plan}* membership.\n\nPlease clear the pending amount at your earliest convenience to continue enjoying our services. 💪\n\nContact us at the front desk or call to clear the dues. See you in the gym! 🔥`;
+  return `Hi ${client.name}! 👋\n\nThis is a friendly reminder from *OLYMPIA FITNESS* 🏋️‍♂️\n\nYou have a pending due amount of *₹${client.dueAmount}* for your *${client.plan}* membership.\n\nPlease clear the pending amount at your earliest convenience to continue enjoying our services. 💪\n\nContact us at the front desk or call to clear the dues. See you in the gym! 🔥`;
 };
 
 const app = express();
@@ -202,6 +309,37 @@ function toDateLabel(d = new Date()) {
   return `${day}/${month}/${year}`;
 }
 
+function getTodayDateStr() {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(new Date());
+  } catch (e) {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+}
+
+function normalizeDateToISO(dStr) {
+  if (!dStr) return null;
+  if (typeof dStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dStr.trim())) {
+    return dStr.trim();
+  }
+  const parsed = parseAnyDate(dStr);
+  if (!parsed || isNaN(parsed.getTime())) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // ─── Schema Initialization ───────────────────────────────────────────────────
 async function initDb() {
   try {
@@ -278,6 +416,7 @@ async function initDb() {
     id            TEXT PRIMARY KEY,
     trainerId     TEXT UNIQUE,
     name          TEXT NOT NULL,
+    phone         TEXT,
     specialization TEXT,
     experience    TEXT,
     status        TEXT DEFAULT 'Active',
@@ -620,6 +759,11 @@ async function initDb() {
         console.log('✅ Added profileImage column to trainers table');
       } catch (e) { }
 
+      try {
+        db.prepare("ALTER TABLE trainers ADD COLUMN phone TEXT NULLABLE").run();
+        console.log('✅ Added phone column to trainers table');
+      } catch (e) { }
+
       // Migrate pt_packages table if category check constraint exists or restricts 'Challenge'
       try {
         const pkgSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_packages'").get()?.sql || '';
@@ -741,6 +885,19 @@ async function initDb() {
       } catch (e) { }
 
       try {
+        db.prepare("ALTER TABLE general_package_bookings ADD COLUMN paid_amount REAL").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE general_package_bookings ADD COLUMN due_amount REAL").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE general_package_bookings ADD COLUMN payment_status TEXT DEFAULT 'Paid'").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE general_package_bookings ADD COLUMN invoice_id TEXT").run();
+      } catch (e) { }
+
+      try {
         db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN discount_amount REAL DEFAULT 0").run();
         console.log('✅ Added discount_amount column to pt_advance_bookings table');
       } catch (e) { }
@@ -748,6 +905,19 @@ async function initDb() {
       try {
         db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN payment_method TEXT DEFAULT 'CASH'").run();
         console.log('✅ Added payment_method column to pt_advance_bookings table');
+      } catch (e) { }
+
+      try {
+        db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN paid_amount REAL").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN due_amount REAL").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN payment_status TEXT DEFAULT 'Paid'").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE pt_advance_bookings ADD COLUMN invoice_id TEXT").run();
       } catch (e) { }
 
       db.exec(`
@@ -870,6 +1040,20 @@ async function initDb() {
       ];
       for (const col of adjCols) {
         try { await db.prepare(`ALTER TABLE trainer_payroll_adjustments ADD COLUMN ${col.name} ${col.type}`).run(); } catch (e) { }
+      }
+
+      // Auto-normalize all existing client phone numbers to have 91 country code
+      try {
+        const clientsWithPhone = await db.prepare("SELECT id, phone FROM clients WHERE phone IS NOT NULL AND phone != ''").all();
+        const updateStmt = db.prepare("UPDATE clients SET phone = ? WHERE id = ?");
+        for (const c of (clientsWithPhone || [])) {
+          const normalized = normalizePhone(c.phone);
+          if (normalized && normalized !== c.phone) {
+            await updateStmt.run(normalized, c.id);
+          }
+        }
+      } catch (phoneErr) {
+        console.warn('Client phone normalization notice:', phoneErr.message);
       }
 
       // No auto-seeding of default PT packages
@@ -1062,46 +1246,105 @@ const backfillPtAssignmentTransactions = async () => {
 
 const autoActivateAdvanceBookings = async () => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getTodayDateStr();
 
     // 1. General Package Advance Bookings Auto-Activation
     const scheduledGenBookings = await db.prepare(`
-        SELECT b.*, c."expiryDate" as "currentExpiry"
+        SELECT b.*,
+               c.id as client_uuid,
+               c.clientId as client_code,
+               c."expiryDate" as "currentExpiry"
         FROM general_package_bookings b
-        JOIN clients c ON b.client_id = c.id
-        WHERE b.status = 'Scheduled' AND b.booking_start_date <= ?
-      `).all(today);
+        LEFT JOIN clients c ON (
+          CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR
+          CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR
+          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR
+          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
+        )
+        WHERE b.status = 'Scheduled'
+      `).all();
 
     for (const b of (scheduledGenBookings || [])) {
-      const isCurrentExpired = !b.currentExpiry || b.currentExpiry < today;
+      const bStartISO = normalizeDateToISO(b.booking_start_date);
+      if (!bStartISO || bStartISO > today) {
+        continue;
+      }
+
+      // Start date has arrived or passed (bStartISO <= today)
+      const currentExpiryISO = normalizeDateToISO(b.currentExpiry);
+      const isCurrentExpired = !currentExpiryISO || currentExpiryISO <= today || currentExpiryISO <= bStartISO;
+
       if (isCurrentExpired) {
+        const discAmt = parseFloat(b.discount_amount) || 0;
+        const grossPrice = parseFloat(b.price) || 0;
+        const discountedPrice = Math.max(0, grossPrice - discAmt);
+        const paidAmountVal = b.paid_amount !== undefined && b.paid_amount !== null ? parseFloat(b.paid_amount) : discountedPrice;
+        const dueAmountVal = b.due_amount !== undefined && b.due_amount !== null ? parseFloat(b.due_amount) : Math.max(0, discountedPrice - paidAmountVal);
+        const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
+
+        const targetClientId = b.client_uuid || b.client_id;
+        const targetClientCode = b.client_code || b.client_id;
+
         await db.prepare(`
             UPDATE clients 
-            SET plan = ?, fromDate = ?, expiryDate = ?, amount = ?, status = 'active'
-            WHERE id = ?
-          `).run(b.plan_type, b.booking_start_date, b.booking_end_date, b.price, b.client_id);
+            SET plan = ?, fromDate = ?, expiryDate = ?, amount = ?, paidAmount = ?, dueAmount = ?, paymentStatus = ?, status = 'active'
+            WHERE id = ? OR clientId = ? OR CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?
+          `).run(
+            b.plan_type,
+            b.booking_start_date,
+            b.booking_end_date,
+            discountedPrice,
+            paidAmountVal,
+            dueAmountVal,
+            paymentStatusVal,
+            String(targetClientId),
+            String(targetClientCode),
+            String(targetClientId),
+            String(targetClientCode)
+          );
 
         await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(b.id);
-        console.log(`✅ [Cron] Auto-activated General Package Booking #${b.id} for Client ${b.client_id}`);
+        console.log(`✅ [Auto-Activation] General Package Booking #${b.id} activated for Client ${targetClientCode} (Start: ${b.booking_start_date})`);
       }
     }
 
     // 2. PT Advance Bookings Flagging to ReadyToActivate
     const scheduledPtBookings = await db.prepare(`
-        SELECT b.*
+        SELECT b.*,
+               c.id as client_uuid,
+               c.clientId as client_code
         FROM pt_advance_bookings b
-        WHERE b.status = 'Scheduled' AND b.booking_start_date <= ?
-      `).all(today);
+        LEFT JOIN clients c ON (
+          CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR
+          CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR
+          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR
+          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
+        )
+        WHERE b.status = 'Scheduled'
+      `).all();
 
     for (const b of (scheduledPtBookings || [])) {
+      const bStartISO = normalizeDateToISO(b.booking_start_date);
+      if (!bStartISO || bStartISO > today) {
+        continue;
+      }
+
+      const targetClientId = b.client_uuid || b.client_id;
+      const targetClientCode = b.client_code || b.client_id;
+
       const activeAssignment = await db.prepare(`
           SELECT id FROM pt_assignments
-          WHERE client_id = ? AND status = 'Active' AND expiry_date >= ?
-        `).get(b.client_id, today);
+          WHERE (
+            CAST(client_id AS TEXT) = ? OR
+            CAST(client_id AS TEXT) = ? OR
+            TRIM(CAST(client_id AS TEXT)) = ? OR
+            TRIM(CAST(client_id AS TEXT)) = ?
+          ) AND status = 'Active' AND expiry_date >= ?
+        `).get(String(targetClientId), String(targetClientCode), String(targetClientId), String(targetClientCode), today);
 
       if (!activeAssignment) {
         await db.prepare("UPDATE pt_advance_bookings SET status = 'ReadyToActivate' WHERE id = ?").run(b.id);
-        console.log(`⏰ [Cron] PT Advance Booking #${b.id} marked as ReadyToActivate`);
+        console.log(`⏰ [Auto-Activation] PT Advance Booking #${b.id} marked as ReadyToActivate for Client ${targetClientCode}`);
       }
     }
   } catch (e) {
@@ -1144,10 +1387,18 @@ const syncPayrollLocksToExpenses = async () => {
   }
 };
 
-// Run on startup
-autoExpireAssignments();
-autoActivateAdvanceBookings();
-syncPayrollLocksToExpenses();
+// Run on startup (Node.js environments)
+if (!process.env.CF_WORKER) {
+  autoExpireAssignments();
+  autoActivateAdvanceBookings();
+  syncPayrollLocksToExpenses();
+
+  // Periodic background auto-activation & expiry check (runs every minute)
+  setInterval(() => {
+    autoExpireAssignments().catch(err => console.error('autoExpireAssignments interval error:', err.message));
+    autoActivateAdvanceBookings().catch(err => console.error('autoActivateAdvanceBookings interval error:', err.message));
+  }, 60 * 1000);
+}
 
 const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
   const baseStr = assignedDateStr || new Date().toISOString().split('T')[0];
@@ -1165,9 +1416,9 @@ const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
 };
 
 const COMMISSION_MATRIX = {
-  'A_PRO_PT': { Slab1: 0.40, Slab2: 0.40 },
-  'A': { Slab1: 0.40, Slab2: 0.40 },
-  'B': { Slab1: 0.30, Slab2: 0.30 }
+  'A_PRO_PT': { Slab1: 0.40, Slab2: 0.25 },
+  'A': { Slab1: 0.40, Slab2: 0.25 },
+  'B': { Slab1: 0.30, Slab2: 0.25 }
 };
 
 const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
@@ -1189,7 +1440,7 @@ const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
   if (trainer && trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '') {
     commRate = parseFloat(trainer.custom_commission_percent) / 100;
   } else if (trainer && trainer.grade && COMMISSION_MATRIX[trainer.grade]) {
-    commRate = COMMISSION_MATRIX[trainer.grade][slab] || COMMISSION_MATRIX[trainer.grade].Slab1 || 0.25;
+    commRate = COMMISSION_MATRIX[trainer.grade][slab] || COMMISSION_MATRIX[trainer.grade].Slab2 || 0.25;
   }
   return (packagePrice * commRate) / totalClasses;
 };
@@ -1311,30 +1562,79 @@ app.get('/api/bills/client/:clientId', async (req, res) => {
 
 // ─── CLIENT Routes ───────────────────────────────────────────────────────────
 
-// GET all clients (including R2 profileImage URL)
+let _lastAutoActivate = 0;
+const runThrottledAutoActivate = () => {
+  const now = Date.now();
+  if (now - _lastAutoActivate > 60 * 1000) {
+    _lastAutoActivate = now;
+    autoActivateAdvanceBookings().catch(err => console.error('Throttled auto-activate error:', err.message));
+  }
+};
+
+// GET all clients (including R2 profileImage URL) - Highly optimized parallel query
 app.get('/api/clients', async (req, res) => {
   try {
-    const clients = await db.prepare(`
-      SELECT 
-        c.id, c.clientId, c.name, c.phone, c.plan, c.fromDate, c.expiryDate, 
-        c.amount, c.paidAmount, c.dueAmount, c.paymentStatus, c.personalTraining, 
-        c.status, c.gender, c.ptCategory, c.ptFromDate, c.ptToDate, c.ptPackage, 
-        c.programType, c.diet, c.trainerId, c.admissionDate, c.profileImage, c.gstin, c.dateAdded,
-        t.name as trainerName 
-      FROM clients c 
-      LEFT JOIN trainers t ON c.trainerId = t.id 
-      ORDER BY c.dateAdded DESC
-    `).all();
+    runThrottledAutoActivate();
+
+    const [clients, genAdvanceDues, ptAdvanceDues, otherServiceDues] = await Promise.all([
+      db.prepare(`
+        SELECT 
+          c.id, c.clientId, c.name, c.phone, c.plan, c.fromDate, c.expiryDate, 
+          c.amount, c.paidAmount, c.dueAmount, c.paymentStatus, c.personalTraining, 
+          c.status, c.gender, c.ptCategory, c.ptFromDate, c.ptToDate, c.ptPackage, 
+          c.programType, c.diet, c.trainerId, c.admissionDate, c.profileImage, c.gstin, c.dateAdded,
+          t.name as trainerName 
+        FROM clients c 
+        LEFT JOIN trainers t ON c.trainerId = t.id 
+        ORDER BY c.dateAdded DESC
+      `).all().catch(() => []),
+      db.prepare(`
+        SELECT client_id, SUM(due_amount) as totalGenDue 
+        FROM general_package_bookings 
+        WHERE status != 'Cancelled' AND due_amount > 0 
+        GROUP BY client_id
+      `).all().catch(() => []),
+      db.prepare(`
+        SELECT client_id, SUM(due_amount) as totalPtDue 
+        FROM pt_advance_bookings 
+        WHERE status != 'Cancelled' AND due_amount > 0 
+        GROUP BY client_id
+      `).all().catch(() => []),
+      db.prepare(`
+        SELECT clientId, SUM(dueAmount) as totalOtherDue 
+        FROM bills 
+        WHERE invoice_category = 'OtherService' AND dueAmount > 0 
+        GROUP BY clientId
+      `).all().catch(() => [])
+    ]);
+
+    const genDueMap = new Map((genAdvanceDues || []).map(r => [String(r.client_id), Number(r.totalGenDue || 0)]));
+    const ptDueMap = new Map((ptAdvanceDues || []).map(r => [String(r.client_id), Number(r.totalPtDue || 0)]));
+    const otherDueMap = new Map((otherServiceDues || []).map(r => [String(r.clientId), Number(r.totalOtherDue || 0)]));
+
     res.json(clients.map(c => {
+      const cidStr = String(c.id);
+      const cCodeStr = String(c.clientId || '');
+
       const tot = Number(c.amount || 0);
       const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
-      const due = Math.max(0, tot - pd);
-      const status = due <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+      const baseDue = (c.dueAmount !== undefined && c.dueAmount !== null)
+        ? Math.max(0, Number(c.dueAmount))
+        : Math.max(0, tot - pd);
+
+      const extraGenDue = genDueMap.get(cidStr) || genDueMap.get(cCodeStr) || 0;
+      const extraPtDue = ptDueMap.get(cidStr) || ptDueMap.get(cCodeStr) || 0;
+      const extraOtherDue = otherDueMap.get(cidStr) || otherDueMap.get(cCodeStr) || 0;
+
+      // Aggregated due across memberships, advance bookings, PT, and other services
+      const totalDue = Math.max(baseDue, extraGenDue + extraPtDue + extraOtherDue);
+      const status = totalDue <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+
       return {
         ...c,
         personalTraining: !!c.personalTraining,
         paidAmount: pd,
-        dueAmount: due,
+        dueAmount: totalDue,
         paymentStatus: status
       };
     }));
@@ -1380,13 +1680,15 @@ app.get('/api/clients/:id', async (req, res) => {
     if (!client) return res.status(404).json({ message: 'Client not found' });
     const tot = Number(client.amount || 0);
     const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : tot;
-    const due = Math.max(0, tot - pd);
-    const status = due <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+    const baseDue = (client.dueAmount !== undefined && client.dueAmount !== null)
+      ? Math.max(0, Number(client.dueAmount))
+      : Math.max(0, tot - pd);
+    const status = baseDue <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
     res.json({
       ...client,
       personalTraining: !!client.personalTraining,
       paidAmount: pd,
-      dueAmount: due,
+      dueAmount: baseDue,
       paymentStatus: status
     });
   } catch (err) {
@@ -1423,6 +1725,7 @@ app.post('/api/clients', async (req, res) => {
     const finalPaidAmount = req.body.paidAmount !== undefined ? req.body.paidAmount : amount;
     const dueAmount = amount - finalPaidAmount;
     const paymentStatus = dueAmount <= 0 ? 'Paid' : (finalPaidAmount > 0 ? 'Partial' : 'Due');
+    const normalizedPhone = phone ? normalizePhone(phone) : '';
 
     await db.prepare(`
       INSERT INTO clients (
@@ -1432,7 +1735,7 @@ app.post('/api/clients', async (req, res) => {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, clientId || '', name, phone || '', plan || '', fromDate || '', expiryDate || '',
+      id, clientId || '', name, normalizedPhone, plan || '', fromDate || '', expiryDate || '',
       amount, personalTraining ? 1 : 0, status,
       gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet ? 1 : 0,
       trainerId, admissionDate, finalProfileImage,
@@ -1480,20 +1783,87 @@ app.post('/api/clients/:id/payment', async (req, res) => {
     const clientId = req.params.id;
     const { paidAmount, paymentDate, paymentMethod } = req.body;
 
-    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?').get(String(clientId), String(clientId));
     if (!client) return res.status(404).json({ error: 'Client not found' });
 
     const amountToPay = parseFloat(paidAmount);
     if (isNaN(amountToPay) || amountToPay <= 0) return res.status(400).json({ error: 'Invalid paid amount' });
 
-    const newPaidAmount = (client.paidAmount || 0) + amountToPay;
-    const newDueAmount = Math.max(0, (client.amount || 0) - newPaidAmount);
+    const currentDue = (client.dueAmount !== undefined && client.dueAmount !== null)
+      ? Math.max(0, parseFloat(client.dueAmount) || 0)
+      : Math.max(0, (parseFloat(client.amount) || 0) - (parseFloat(client.paidAmount) || 0));
+
+    const newDueAmount = Math.max(0, currentDue - amountToPay);
+    const newPaidAmount = (parseFloat(client.paidAmount) || 0) + amountToPay;
     const newStatus = newDueAmount <= 0 ? 'Paid' : 'Partial';
 
     // Update client
     await db.prepare(`
       UPDATE clients SET paidAmount = ?, dueAmount = ?, paymentStatus = ? WHERE id = ?
-    `).run(newPaidAmount, newDueAmount, newStatus, clientId);
+    `).run(newPaidAmount, newDueAmount, newStatus, client.id);
+
+    // If client had advance booking or other service dues, cascade update those rows
+    let remainingToDeduct = amountToPay;
+    try {
+      if (remainingToDeduct > 0) {
+        const genBookings = await db.prepare(`
+          SELECT id, due_amount, paid_amount 
+          FROM general_package_bookings 
+          WHERE (client_id = ? OR client_id = ?) AND due_amount > 0 AND status != 'Cancelled'
+          ORDER BY id ASC
+        `).all(client.id, client.clientId);
+
+        for (const gb of (genBookings || [])) {
+          if (remainingToDeduct <= 0) break;
+          const deduct = Math.min(remainingToDeduct, parseFloat(gb.due_amount || 0));
+          const newGbDue = Math.max(0, parseFloat(gb.due_amount || 0) - deduct);
+          const newGbPaid = (parseFloat(gb.paid_amount) || 0) + deduct;
+          const newGbStatus = newGbDue <= 0 ? 'Paid' : 'Partial';
+          await db.prepare('UPDATE general_package_bookings SET due_amount = ?, paid_amount = ?, payment_status = ? WHERE id = ?').run(newGbDue, newGbPaid, newGbStatus, gb.id);
+          remainingToDeduct -= deduct;
+        }
+      }
+
+      if (remainingToDeduct > 0) {
+        const ptBookings = await db.prepare(`
+          SELECT id, due_amount, paid_amount 
+          FROM pt_advance_bookings 
+          WHERE (client_id = ? OR client_id = ?) AND due_amount > 0 AND status != 'Cancelled'
+          ORDER BY id ASC
+        `).all(client.id, client.clientId);
+
+        for (const pb of (ptBookings || [])) {
+          if (remainingToDeduct <= 0) break;
+          const deduct = Math.min(remainingToDeduct, parseFloat(pb.due_amount || 0));
+          const newPbDue = Math.max(0, parseFloat(pb.due_amount || 0) - deduct);
+          const newPbPaid = (parseFloat(pb.paid_amount) || 0) + deduct;
+          const newPbStatus = newPbDue <= 0 ? 'Paid' : 'Partial';
+          await db.prepare('UPDATE pt_advance_bookings SET due_amount = ?, paid_amount = ?, payment_status = ? WHERE id = ?').run(newPbDue, newPbPaid, newPbStatus, pb.id);
+          remainingToDeduct -= deduct;
+        }
+      }
+
+      if (remainingToDeduct > 0) {
+        const osBills = await db.prepare(`
+          SELECT id, dueAmount, paidAmount 
+          FROM bills 
+          WHERE (clientId = ? OR clientId = ?) AND invoice_category = 'OtherService' AND dueAmount > 0
+          ORDER BY timestamp ASC
+        `).all(client.id, client.clientId);
+
+        for (const ob of (osBills || [])) {
+          if (remainingToDeduct <= 0) break;
+          const deduct = Math.min(remainingToDeduct, parseFloat(ob.dueAmount || 0));
+          const newObDue = Math.max(0, parseFloat(ob.dueAmount || 0) - deduct);
+          const newObPaid = (parseFloat(ob.paidAmount) || 0) + deduct;
+          const newObStatus = newObDue <= 0 ? 'Paid' : 'Partial';
+          await db.prepare('UPDATE bills SET dueAmount = ?, remainingBalance = ?, paidAmount = ?, paymentStatus = ? WHERE id = ?').run(newObDue, newObDue, newObPaid, newObStatus, ob.id);
+          remainingToDeduct -= deduct;
+        }
+      }
+    } catch (cascadeErr) {
+      console.warn('Notice: Error cascading due deductions:', cascadeErr.message);
+    }
 
     // Generate Bill No
     const billRow = await db.prepare("SELECT billNo FROM bills ORDER BY timestamp DESC LIMIT 1").get();
@@ -1735,6 +2105,8 @@ app.put('/api/clients/:id', async (req, res) => {
       }
     }
 
+    const normalizedPhone = phone !== undefined ? (phone ? normalizePhone(phone) : '') : null;
+
     await db.prepare(`
       UPDATE clients SET
         clientId = COALESCE(?, clientId),
@@ -1759,7 +2131,7 @@ app.put('/api/clients/:id', async (req, res) => {
         gstin = ?
       WHERE id = ?
     `).run(
-      clientId ?? null, name ?? null, phone ?? null, plan ?? null,
+      clientId ?? null, name ?? null, normalizedPhone ?? null, plan ?? null,
       fromDate ?? null, expiryDate ?? null, amount ?? null,
       personalTraining !== undefined ? (personalTraining ? 1 : 0) : null,
       status ?? null,
@@ -1869,7 +2241,7 @@ app.get('/api/trainers/next-id', async (req, res) => {
 // POST create trainer
 app.post('/api/trainers', async (req, res) => {
   try {
-    const { trainerId, name, specialization, experience, status = 'Active', grade, custom_commission_percent, profileImage } = req.body;
+    const { trainerId, name, phone, specialization, experience, status = 'Active', grade, custom_commission_percent, profileImage } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
       return res.status(400).json({ error: 'Valid Grade (A_PRO_PT, A, B) is required.' });
     }
@@ -1881,9 +2253,9 @@ app.post('/api/trainers', async (req, res) => {
     const finalProfileImage = await saveImageToR2(profileImage, 'trainer', id, req.env);
 
     await db.prepare(`
-      INSERT INTO trainers (id, trainerId, name, specialization, experience, status, grade, custom_commission_percent, profileImage)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, trainerId, name, specialization, experience, status, grade, commOverride, finalProfileImage || null);
+      INSERT INTO trainers (id, trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null);
 
     const newTrainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(id);
     res.status(201).json(newTrainer);
@@ -1895,7 +2267,7 @@ app.post('/api/trainers', async (req, res) => {
 // PUT update trainer
 app.put('/api/trainers/:id', async (req, res) => {
   try {
-    const { trainerId, name, specialization, experience, status, grade, custom_commission_percent, profileImage } = req.body;
+    const { trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
       return res.status(400).json({ error: 'Valid Grade (A_PRO_PT, A, B) is required.' });
     }
@@ -1907,9 +2279,9 @@ app.put('/api/trainers/:id', async (req, res) => {
 
     await db.prepare(`
       UPDATE trainers SET
-        trainerId = ?, name = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?
+        trainerId = ?, name = ?, phone = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?
       WHERE id = ?
-    `).run(trainerId, name, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id);
+    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id);
 
     const updated = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(req.params.id);
     res.json(updated);
@@ -2290,10 +2662,16 @@ app.delete('/api/pt-assignments/:id', async (req, res) => {
 // ─── GENERAL PACKAGE ADVANCE BOOKING Routes ─────────────────────────
 app.get('/api/general-bookings', async (req, res) => {
   try {
+    await autoActivateAdvanceBookings().catch(err => console.error('Auto activate in /general-bookings error:', err.message));
     const bookings = await db.prepare(`
-      SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.expiryDate as currentPlanExpiry
+      SELECT b.*,
+             c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.expiryDate as currentPlanExpiry,
+             COALESCE(b.paid_amount, b.price - COALESCE(b.discount_amount, 0)) as paid_amount,
+             COALESCE(b.due_amount, 0) as due_amount,
+             COALESCE(b.payment_status, 'Paid') as payment_status,
+             COALESCE(b.discount_amount, 0) as discount_amount
       FROM general_package_bookings b
-      JOIN clients c ON b.client_id = c.id
+      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
       ORDER BY b.created_at DESC
     `).all();
     res.json(bookings);
@@ -2304,14 +2682,14 @@ app.get('/api/general-bookings', async (req, res) => {
 
 app.post('/api/general-bookings', async (req, res) => {
   try {
-    const { client_id, plan_type, price, booking_start_date, booking_end_date, discount_amount = 0, payment_method = 'CASH' } = req.body;
+    const { client_id, plan_type, price, booking_start_date, booking_end_date, discount_amount = 0, payment_method = 'CASH', paid_amount } = req.body;
     const discAmt = parseFloat(discount_amount) || 0;
 
     if (!client_id || !plan_type || price === undefined || price === null || !booking_start_date) {
       return res.status(400).json({ error: 'Client, plan type, price, and start date are required.' });
     }
 
-    const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(client_id);
+    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?').get(String(client_id), String(client_id));
     if (!client) return res.status(404).json({ error: 'Client not found.' });
 
     const today = new Date().toISOString().split('T')[0];
@@ -2339,10 +2717,77 @@ app.post('/api/general-bookings', async (req, res) => {
       endDate = calculateExpiryDate(booking_start_date, days);
     }
 
+    const grossPrice = parseFloat(price) || 0;
+    const discountedPrice = Math.max(0, grossPrice - discAmt);
+    const paidAmountVal = (paid_amount !== undefined && paid_amount !== null && paid_amount !== '')
+      ? parseFloat(paid_amount)
+      : discountedPrice;
+    const dueAmountVal = Math.max(0, discountedPrice - paidAmountVal);
+    const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
+    const payMethodVal = payment_method || 'CASH';
+
+    // Generate Invoice in bills
+    const allBills = await db.prepare("SELECT billNo FROM bills WHERE billNo LIKE 'INV-%'").all();
+    let maxNum = 0;
+    for (const b of (allBills || [])) {
+      const match = b.billNo && b.billNo.match(/INV-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
+    const billId = randomUUID();
+    const invoiceDateStr = toDateLabel();
+
+    await db.prepare(`
+      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, discount_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GeneralAdvance', ?)
+    `).run(
+      billId,
+      nextBillNo,
+      String(client.clientId || client.id || client_id),
+      client.name,
+      invoiceDateStr,
+      booking_start_date,
+      endDate,
+      discountedPrice,
+      paidAmountVal,
+      dueAmountVal,
+      paymentStatusVal,
+      0,
+      discountedPrice,
+      dueAmountVal,
+      `Advance Booking — ${plan_type}`,
+      discAmt
+    );
+
+    if (paidAmountVal > 0) {
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+      `).run(
+        txId,
+        String(client.clientId || client.id || client_id),
+        billId,
+        `${client.name} - Advance Booking (${plan_type})`,
+        payMethodVal,
+        paidAmountVal,
+        invoiceDateStr
+      );
+    }
+
+    if (dueAmountVal > 0) {
+      const currentDue = client.dueAmount || 0;
+      const newDue = currentDue + dueAmountVal;
+      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, 'Due', client.id);
+    }
+
     const result = await db.prepare(`
-      INSERT INTO general_package_bookings (client_id, plan_type, price, discount_amount, payment_method, booking_start_date, booking_end_date, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'Scheduled')
-    `).run(client_id, plan_type, parseFloat(price), discAmt, payment_method || 'CASH', booking_start_date, endDate);
+      INSERT INTO general_package_bookings (client_id, plan_type, price, discount_amount, payment_method, booking_start_date, booking_end_date, status, paid_amount, due_amount, payment_status, invoice_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'Scheduled', ?, ?, ?, ?)
+    `).run(String(client.id), plan_type, grossPrice, discAmt, payMethodVal, booking_start_date, endDate, paidAmountVal, dueAmountVal, paymentStatusVal, billId);
 
     const newBooking = await db.prepare(`
       SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode
@@ -2351,7 +2796,7 @@ app.post('/api/general-bookings', async (req, res) => {
       WHERE b.id = ?
     `).get(result.lastInsertRowid);
 
-    res.status(201).json(newBooking);
+    res.status(201).json({ ...newBooking, billNo: nextBillNo, billId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2378,18 +2823,188 @@ app.patch('/api/general-bookings/:id/cancel', async (req, res) => {
   }
 });
 
+// POST /api/general-bookings/:id/payment — Record due clearance payment for general advance booking
+app.post('/api/general-bookings/:id/payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paidAmount, paymentMethod = 'CASH', paymentDate } = req.body;
+    const amountToPay = parseFloat(paidAmount);
+    if (isNaN(amountToPay) || amountToPay <= 0) {
+      return res.status(400).json({ error: 'Valid payment amount is required.' });
+    }
+
+    const booking = await db.prepare(`
+      SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.dueAmount as clientDue
+      FROM general_package_bookings b
+      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      WHERE b.id = ?
+    `).get(id);
+
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+
+    const currentDue = parseFloat(booking.due_amount || 0);
+    const newDue = Math.max(0, currentDue - amountToPay);
+    const newPaid = (parseFloat(booking.paid_amount) || 0) + amountToPay;
+    const newStatus = newDue <= 0 ? 'Paid' : 'Partial';
+
+    // Update general_package_bookings
+    await db.prepare(`
+      UPDATE general_package_bookings 
+      SET paid_amount = ?, due_amount = ?, payment_status = ? 
+      WHERE id = ?
+    `).run(newPaid, newDue, newStatus, id);
+
+    // Update client dueAmount in clients table
+    try {
+      const clientRecord = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(booking.client_id, booking.client_id);
+      if (clientRecord) {
+        const updatedClientDue = Math.max(0, (parseFloat(clientRecord.dueAmount) || 0) - amountToPay);
+        const updatedClientStatus = updatedClientDue <= 0 ? 'Paid' : 'Partial';
+        await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedClientDue, updatedClientStatus, clientRecord.id);
+      }
+    } catch (e) {}
+
+    // Generate Invoice in bills
+    const allBills = await db.prepare("SELECT billNo FROM bills WHERE billNo LIKE 'INV-%'").all();
+    let maxNum = 0;
+    for (const b of (allBills || [])) {
+      const match = b.billNo && b.billNo.match(/INV-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
+    const billId = randomUUID();
+    const invoiceDateStr = paymentDate || toDateLabel();
+
+    const netTotal = parseFloat(booking.price || 0) - parseFloat(booking.discount_amount || 0);
+
+    await db.prepare(`
+      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, discount_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GeneralAdvance', ?)
+    `).run(
+      billId,
+      nextBillNo,
+      String(booking.clientCode || booking.client_id),
+      booking.clientName,
+      invoiceDateStr,
+      booking.booking_start_date,
+      booking.booking_end_date,
+      amountToPay,
+      amountToPay,
+      newDue,
+      'Paid',
+      1,
+      netTotal,
+      newDue,
+      `Advance Due Payment — ${booking.plan_type}`,
+      parseFloat(booking.discount_amount || 0)
+    );
+
+    const txId = randomUUID();
+    await db.prepare(`
+      INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+    `).run(
+      txId,
+      String(booking.clientCode || booking.client_id),
+      billId,
+      `${booking.clientName} - Advance Due Payment (${booking.plan_type})`,
+      paymentMethod,
+      amountToPay,
+      invoiceDateStr
+    );
+
+    const updatedBooking = await db.prepare(`
+      SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.expiryDate as currentPlanExpiry,
+             COALESCE(b.paid_amount, b.price - COALESCE(b.discount_amount, 0)) as paid_amount,
+             COALESCE(b.due_amount, 0) as due_amount,
+             COALESCE(b.payment_status, 'Paid') as payment_status,
+             COALESCE(b.discount_amount, 0) as discount_amount
+      FROM general_package_bookings b
+      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      WHERE b.id = ?
+    `).get(id);
+
+    res.json({ success: true, booking: updatedBooking, billId, billNo: nextBillNo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/general-bookings/:id/activate — Manually activate general package advance booking
+app.post('/api/general-bookings/:id/activate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const booking = await db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
+    if (!booking) return res.status(404).json({ error: 'General advance booking not found.' });
+
+    if (booking.status === 'Active') {
+      return res.status(400).json({ error: 'This booking is already active.' });
+    }
+    if (booking.status === 'Cancelled') {
+      return res.status(400).json({ error: 'Cannot activate a cancelled booking.' });
+    }
+
+    const client = await db.prepare(`
+      SELECT * FROM clients 
+      WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ? OR TRIM(CAST(id AS TEXT)) = ? OR TRIM(CAST(clientId AS TEXT)) = ?
+    `).get(String(booking.client_id), String(booking.client_id), String(booking.client_id).trim(), String(booking.client_id).trim());
+
+    const discAmt = parseFloat(booking.discount_amount) || 0;
+    const grossPrice = parseFloat(booking.price) || 0;
+    const discountedPrice = Math.max(0, grossPrice - discAmt);
+    const paidAmountVal = (booking.paid_amount !== undefined && booking.paid_amount !== null) ? parseFloat(booking.paid_amount) : discountedPrice;
+    const dueAmountVal = (booking.due_amount !== undefined && booking.due_amount !== null) ? parseFloat(booking.due_amount) : Math.max(0, discountedPrice - paidAmountVal);
+    const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
+
+    if (client) {
+      await db.prepare(`
+        UPDATE clients 
+        SET plan = ?, fromDate = ?, expiryDate = ?, amount = ?, paidAmount = ?, dueAmount = ?, paymentStatus = ?, status = 'active'
+        WHERE id = ? OR clientId = ? OR CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?
+      `).run(booking.plan_type, booking.booking_start_date, booking.booking_end_date, discountedPrice, paidAmountVal, dueAmountVal, paymentStatusVal, client.id, client.clientId || client.id, String(client.id), String(client.clientId || client.id));
+    }
+
+    await db.prepare("UPDATE general_package_bookings SET status = 'Active' WHERE id = ?").run(id);
+
+    const updatedBooking = await db.prepare(`
+      SELECT b.*,
+             c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.expiryDate as currentPlanExpiry,
+             COALESCE(b.paid_amount, b.price - COALESCE(b.discount_amount, 0)) as paid_amount,
+             COALESCE(b.due_amount, 0) as due_amount,
+             COALESCE(b.payment_status, 'Paid') as payment_status,
+             COALESCE(b.discount_amount, 0) as discount_amount
+      FROM general_package_bookings b
+      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      WHERE b.id = ?
+    `).get(id);
+
+    res.json({ success: true, booking: updatedBooking });
+  } catch (err) {
+    console.error('Error activating general advance booking:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── PT ADVANCE BOOKING Routes ──────────────────────────────────────
 app.get('/api/pt-advance-bookings', async (req, res) => {
   try {
+    await autoActivateAdvanceBookings().catch(err => console.error('Auto activate in /pt-advance-bookings error:', err.message));
     const bookings = await db.prepare(`
       SELECT b.*,
              c.name as clientName, c.phone as clientPhone, c.clientId as clientCode,
              t.name as trainerName, t.grade as trainerGrade,
-             p.name as packageName, p.duration_days
+             p.name as packageName, p.duration_days,
+             COALESCE(b.paid_amount, b.price_snapshot - COALESCE(b.discount_amount, 0)) as paid_amount,
+             COALESCE(b.due_amount, 0) as due_amount,
+             COALESCE(b.payment_status, 'Paid') as payment_status,
+             COALESCE(b.discount_amount, 0) as discount_amount
       FROM pt_advance_bookings b
-      JOIN clients c ON b.client_id = c.id
-      JOIN trainers t ON b.trainer_id = t.id
-      JOIN pt_packages p ON b.pt_package_id = p.id
+      JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      JOIN trainers t ON (CAST(b.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(b.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
+      JOIN pt_packages p ON CAST(b.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
       ORDER BY b.created_at DESC
     `).all();
     res.json(bookings);
@@ -2400,32 +3015,103 @@ app.get('/api/pt-advance-bookings', async (req, res) => {
 
 app.post('/api/pt-advance-bookings', async (req, res) => {
   try {
-    const { client_id, pt_package_id, trainer_id, booking_start_date, discount_amount = 0 } = req.body;
+    const { client_id, pt_package_id, trainer_id, booking_start_date, discount_amount = 0, payment_method = 'CASH', paid_amount } = req.body;
     const discAmt = parseFloat(discount_amount) || 0;
 
     if (!client_id || !pt_package_id || !trainer_id || !booking_start_date) {
       return res.status(400).json({ error: 'Client, PT Package, Trainer, and Start Date are required.' });
     }
 
+    const client = await db.prepare('SELECT * FROM clients WHERE CAST(id AS TEXT) = ? OR CAST(clientId AS TEXT) = ?').get(String(client_id), String(client_id));
+    if (!client) return res.status(404).json({ error: 'Client not found.' });
+
     const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
     if (!pkg) return res.status(404).json({ error: 'PT Package not found.' });
 
+    const trainer = await db.prepare('SELECT * FROM trainers WHERE CAST(id AS TEXT) = ? OR CAST(trainerId AS TEXT) = ?').get(String(trainer_id), String(trainer_id));
+
     const latestPt = await db.prepare(`
       SELECT * FROM pt_assignments
-      WHERE client_id = ? AND (status = 'Active' OR expiry_date >= CURRENT_DATE)
+      WHERE (CAST(client_id AS TEXT) = ? OR CAST(client_id AS TEXT) = ?) AND (status = 'Active' OR expiry_date >= CURRENT_DATE)
       ORDER BY expiry_date DESC LIMIT 1
-    `).get(client_id);
-
+    `).get(String(client.id), String(client.clientId || ''));
 
     const today = new Date().toISOString().split('T')[0];
     const initialStatus = (booking_start_date <= today && (!latestPt || latestPt.status !== 'Active'))
       ? 'ReadyToActivate'
       : 'Scheduled';
 
+    const grossPrice = parseFloat(pkg.price) || 0;
+    const discountedPrice = Math.max(0, grossPrice - discAmt);
+    const paidAmountVal = (paid_amount !== undefined && paid_amount !== null && paid_amount !== '')
+      ? parseFloat(paid_amount)
+      : discountedPrice;
+    const dueAmountVal = Math.max(0, discountedPrice - paidAmountVal);
+    const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
+    const payMethodVal = payment_method || 'CASH';
+
+    // Generate Invoice in bills
+    const allBills = await db.prepare("SELECT billNo FROM bills WHERE billNo LIKE 'INV-%'").all();
+    let maxNum = 0;
+    for (const b of (allBills || [])) {
+      const match = b.billNo && b.billNo.match(/INV-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
+    const billId = randomUUID();
+    const invoiceDateStr = toDateLabel();
+
+    await db.prepare(`
+      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, discount_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PTAdvance', ?)
+    `).run(
+      billId,
+      nextBillNo,
+      String(client.clientId || client.id || client_id),
+      client.name,
+      invoiceDateStr,
+      booking_start_date,
+      booking_start_date,
+      discountedPrice,
+      paidAmountVal,
+      dueAmountVal,
+      paymentStatusVal,
+      0,
+      discountedPrice,
+      dueAmountVal,
+      `Advance PT Booking — ${pkg.name} (${trainer?.name || 'Trainer'})`,
+      discAmt
+    );
+
+    if (paidAmountVal > 0) {
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+      `).run(
+        txId,
+        String(client.clientId || client.id || client_id),
+        billId,
+        `${client.name} - Advance PT Booking (${pkg.name})`,
+        payMethodVal,
+        paidAmountVal,
+        invoiceDateStr
+      );
+    }
+
+    if (dueAmountVal > 0) {
+      const currentDue = client.dueAmount || 0;
+      const newDue = currentDue + dueAmountVal;
+      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(newDue, 'Due', client.id);
+    }
+
     const result = await db.prepare(`
-      INSERT INTO pt_advance_bookings (client_id, pt_package_id, trainer_id, price_snapshot, discount_amount, payment_method, total_classes_snapshot, booking_start_date, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(client_id, pt_package_id, trainer_id, pkg.price, discAmt, req.body.payment_method || 'CASH', pkg.total_classes, booking_start_date, initialStatus);
+      INSERT INTO pt_advance_bookings (client_id, pt_package_id, trainer_id, price_snapshot, discount_amount, payment_method, total_classes_snapshot, booking_start_date, status, paid_amount, due_amount, payment_status, invoice_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(String(client.id), pt_package_id, trainer_id, pkg.price, discAmt, payMethodVal, pkg.total_classes, booking_start_date, initialStatus, paidAmountVal, dueAmountVal, paymentStatusVal, billId);
 
     const newBooking = await db.prepare(`
       SELECT b.*, c.name as clientName, t.name as trainerName, p.name as packageName
@@ -2436,7 +3122,7 @@ app.post('/api/pt-advance-bookings', async (req, res) => {
       WHERE b.id = ?
     `).get(result.lastInsertRowid);
 
-    res.status(201).json(newBooking);
+    res.status(201).json({ ...newBooking, billNo: nextBillNo, billId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2463,6 +3149,123 @@ app.patch('/api/pt-advance-bookings/:id/cancel', async (req, res) => {
   }
 });
 
+// POST /api/pt-advance-bookings/:id/payment — Record due clearance payment for PT advance booking
+app.post('/api/pt-advance-bookings/:id/payment', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paidAmount, paymentMethod = 'CASH', paymentDate } = req.body;
+    const amountToPay = parseFloat(paidAmount);
+    if (isNaN(amountToPay) || amountToPay <= 0) {
+      return res.status(400).json({ error: 'Valid payment amount is required.' });
+    }
+
+    const booking = await db.prepare(`
+      SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode, c.dueAmount as clientDue,
+             t.name as trainerName, p.name as packageName
+      FROM pt_advance_bookings b
+      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      LEFT JOIN trainers t ON (CAST(b.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(b.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
+      LEFT JOIN pt_packages p ON CAST(b.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      WHERE b.id = ?
+    `).get(id);
+
+    if (!booking) return res.status(404).json({ error: 'PT Advance Booking not found.' });
+
+    const currentDue = parseFloat(booking.due_amount || 0);
+    const newDue = Math.max(0, currentDue - amountToPay);
+    const newPaid = (parseFloat(booking.paid_amount) || 0) + amountToPay;
+    const newStatus = newDue <= 0 ? 'Paid' : 'Partial';
+
+    // Update pt_advance_bookings
+    await db.prepare(`
+      UPDATE pt_advance_bookings 
+      SET paid_amount = ?, due_amount = ?, payment_status = ? 
+      WHERE id = ?
+    `).run(newPaid, newDue, newStatus, id);
+
+    // Update client dueAmount in clients table
+    try {
+      const clientRecord = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(booking.client_id, booking.client_id);
+      if (clientRecord) {
+        const updatedClientDue = Math.max(0, (parseFloat(clientRecord.dueAmount) || 0) - amountToPay);
+        const updatedClientStatus = updatedClientDue <= 0 ? 'Paid' : 'Partial';
+        await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedClientDue, updatedClientStatus, clientRecord.id);
+      }
+    } catch (e) {}
+
+    // Generate Invoice in bills
+    const allBills = await db.prepare("SELECT billNo FROM bills WHERE billNo LIKE 'INV-%'").all();
+    let maxNum = 0;
+    for (const b of (allBills || [])) {
+      const match = b.billNo && b.billNo.match(/INV-(\d+)/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    }
+    const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
+    const billId = randomUUID();
+    const invoiceDateStr = paymentDate || toDateLabel();
+
+    const netTotal = parseFloat(booking.price_snapshot || 0) - parseFloat(booking.discount_amount || 0);
+
+    await db.prepare(`
+      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, discount_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PTAdvance', ?)
+    `).run(
+      billId,
+      nextBillNo,
+      String(booking.clientCode || booking.client_id),
+      booking.clientName,
+      invoiceDateStr,
+      booking.booking_start_date,
+      booking.booking_start_date,
+      amountToPay,
+      amountToPay,
+      newDue,
+      'Paid',
+      1,
+      netTotal,
+      newDue,
+      `PT Advance Due Payment — ${booking.packageName} (${booking.trainerName || 'Trainer'})`,
+      parseFloat(booking.discount_amount || 0)
+    );
+
+    const txId = randomUUID();
+    await db.prepare(`
+      INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+    `).run(
+      txId,
+      String(booking.clientCode || booking.client_id),
+      billId,
+      `${booking.clientName} - PT Advance Due Payment (${booking.packageName})`,
+      paymentMethod,
+      amountToPay,
+      invoiceDateStr
+    );
+
+    const updatedBooking = await db.prepare(`
+      SELECT b.*, c.name as clientName, c.phone as clientPhone, c.clientId as clientCode,
+             t.name as trainerName, t.grade as trainerGrade,
+             p.name as packageName, p.duration_days,
+             COALESCE(b.paid_amount, b.price_snapshot - COALESCE(b.discount_amount, 0)) as paid_amount,
+             COALESCE(b.due_amount, 0) as due_amount,
+             COALESCE(b.payment_status, 'Paid') as payment_status,
+             COALESCE(b.discount_amount, 0) as discount_amount
+      FROM pt_advance_bookings b
+      JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      JOIN trainers t ON (CAST(b.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(b.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
+      JOIN pt_packages p ON CAST(b.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      WHERE b.id = ?
+    `).get(id);
+
+    res.json({ success: true, booking: updatedBooking, billId, billNo: nextBillNo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
   try {
     const { id } = req.params;
@@ -2483,7 +3286,8 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
     const assignDate = new Date().toISOString().split('T')[0];
     const expiryDate = calculateExpiryDate(assignDate, durationDays);
 
-    const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), null, booking.payment_method || 'UPI');
+    const paidAmtToPass = booking.paid_amount !== undefined && booking.paid_amount !== null ? booking.paid_amount : null;
+    const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), paidAmtToPass, booking.payment_method || 'UPI');
     const invoiceId = invoiceObj ? invoiceObj.billId : null;
 
     // Complete any previous active PT assignment for this client
@@ -2689,10 +3493,10 @@ app.get('/api/pt-class-log/history', async (req, res) => {
              at.name as assignedTrainerName, at.grade as assignedTrainerGrade
       FROM pt_class_log l
       LEFT JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      LEFT JOIN clients c ON l.client_id = c.id
-      LEFT JOIN trainers t ON l.trainer_id = t.id
-      LEFT JOIN trainers at ON a.trainer_id = at.id
-      LEFT JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN clients c ON (CAST(l.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(l.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      LEFT JOIN trainers t ON (CAST(l.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(l.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
+      LEFT JOIN trainers at ON (CAST(a.trainer_id AS TEXT) = CAST(at.id AS TEXT) OR CAST(a.trainer_id AS TEXT) = CAST(at.trainerId AS TEXT))
+      LEFT JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
       WHERE 1=1
     `;
 
@@ -2703,12 +3507,12 @@ app.get('/api/pt-class-log/history', async (req, res) => {
       params.push(targetMonth);
     }
     if (client_id && client_id !== 'undefined') {
-      sql += " AND l.client_id = ?";
-      params.push(client_id);
+      sql += " AND (CAST(l.client_id AS TEXT) = CAST(? AS TEXT) OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT) OR CAST(c.id AS TEXT) = CAST(? AS TEXT))";
+      params.push(client_id, client_id, client_id);
     }
     if (trainer_id && trainer_id !== 'undefined') {
-      sql += " AND l.trainer_id = ?";
-      params.push(trainer_id);
+      sql += " AND (CAST(l.trainer_id AS TEXT) = CAST(? AS TEXT) OR CAST(a.trainer_id AS TEXT) = CAST(? AS TEXT) OR CAST(t.trainerId AS TEXT) = CAST(? AS TEXT) OR CAST(at.trainerId AS TEXT) = CAST(? AS TEXT))";
+      params.push(trainer_id, trainer_id, trainer_id, trainer_id);
     }
     if (pt_assignment_id && pt_assignment_id !== 'undefined') {
       sql += " AND l.pt_assignment_id = ?";
@@ -2727,38 +3531,58 @@ app.get('/api/pt-class-log/history', async (req, res) => {
 async function getMonthlyGymTotalRevenue(targetMonth) {
   let total = 0;
   try {
-    const txns = await db.prepare('SELECT amount, date FROM transactions').all();
+    const txns = await db.prepare('SELECT amount, date, timestamp FROM transactions').all();
     txns.forEach(t => {
-      if (!t.date) return;
-      let matches = false;
-      if (t.date.startsWith(targetMonth)) {
-        matches = true;
-      } else {
-        const parts = t.date.split('/');
-        if (parts.length === 3) {
-          const year = parts[2].trim();
-          const month = parts[1].trim().padStart(2, '0');
-          if (`${year}-${month}` === targetMonth) matches = true;
-        }
+      const d = parseAnyDate(t.date || t.timestamp);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === targetMonth) total += (parseFloat(t.amount) || 0);
       }
-      if (matches) total += (parseFloat(t.amount) || 0);
     });
   } catch (e) { }
 
   try {
-    const row = await db.prepare(`
-      SELECT SUM(price_snapshot) as "sumVal" FROM other_service_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
-    `).get(targetMonth);
-    if (row && row.sumVal) total += parseFloat(row.sumVal);
+    const rows = await db.prepare('SELECT price_snapshot, sale_date, created_at FROM other_service_sales').all();
+    rows.forEach(s => {
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === targetMonth) total += (parseFloat(s.price_snapshot) || 0);
+      }
+    });
   } catch (e) { }
 
   try {
-    const row = await db.prepare(`
-      SELECT SUM(total_amount) as "sumVal" FROM supplement_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
-    `).get(targetMonth);
-    if (row && row.sumVal) total += parseFloat(row.sumVal);
+    const rows = await db.prepare('SELECT total_amount, sale_date, created_at FROM supplement_sales').all();
+    rows.forEach(s => {
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === targetMonth) total += (parseFloat(s.total_amount) || 0);
+      }
+    });
+  } catch (e) { }
+
+  try {
+    const genBookings = await db.prepare("SELECT price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all();
+    genBookings.forEach(b => {
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === targetMonth) total += Math.max(0, parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0));
+      }
+    });
+  } catch (e) { }
+
+  try {
+    const ptBookings = await db.prepare("SELECT price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all();
+    ptBookings.forEach(b => {
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === targetMonth) total += Math.max(0, parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0));
+      }
+    });
   } catch (e) { }
 
   return total;
@@ -2804,9 +3628,12 @@ app.get('/api/trainer-salary-report', async (req, res) => {
       const totalSalary = logs.reduce((sum, item) => sum + (item.per_class_rate_snapshot || 0), 0);
 
       const hasCustomRate = tr.custom_commission_percent !== null && tr.custom_commission_percent !== undefined && tr.custom_commission_percent !== '';
+      const standardRate = (tr.grade && COMMISSION_MATRIX[tr.grade])
+        ? (COMMISSION_MATRIX[tr.grade][activeSlab] || COMMISSION_MATRIX[tr.grade].Slab2 || 0.25) * 100
+        : 25;
       const commRatePercent = hasCustomRate
         ? parseFloat(tr.custom_commission_percent)
-        : (tr.grade ? (COMMISSION_MATRIX[tr.grade]?.Slab1 ? COMMISSION_MATRIX[tr.grade].Slab1 * 100 : 25) : 0);
+        : standardRate;
 
       // Fetch payroll adjustment if exists
       const adj = await db.prepare('SELECT * FROM trainer_payroll_adjustments WHERE trainer_id = ? AND month = ?').get(tr.id, targetMonth);
@@ -2971,6 +3798,7 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
       incentiveAmount, incentiveType, otherAmount, otherType, otherLabel,
       commissionSalary, totalPayable, pdfBase64, user_role
     } = req.body;
+    let finalDocUrl = req.body.documentUrl;
 
     if (user_role !== 'superadmin') {
       return res.status(403).json({ error: 'Access denied. Master / Superadmin access only.' });
@@ -2994,62 +3822,34 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
       `• ${oLabelText}: ${othSign}₹${(otherAmount || 0).toLocaleString('en-IN')}\n` +
       `---------------------------\n` +
       `*TOTAL PAYABLE: ₹${(totalPayable || 0).toLocaleString('en-IN')}*\n\n` +
-      `Please find your detailed PDF payslip attached.\n\n` +
-      `*KH3 WELLNESS* 🏋️‍♂️`;
+      `*OLYMPIA FITNESS* 🏋️‍♂️`;
 
-    if (WA_PHONE_ID && WA_TOKEN && pdfBase64) {
-      const pdfBuffer = Buffer.from(pdfBase64, 'base64');
-      const filename = `Payslip_${(trainerName || 'Trainer').replace(/\s+/g, '_')}_${month}.pdf`;
-      const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2);
-      const headerPart = Buffer.from(
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-        `Content-Type: application/pdf\r\n\r\n`,
-        'utf8'
-      );
-      const footerPart = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
-      const multipartBody = Buffer.concat([headerPart, pdfBuffer, footerPart]);
-
-      const uploadResp = await fetch(
-        `https://graph.facebook.com/v19.0/${WA_PHONE_ID}/media`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          },
-          body: multipartBody,
+    if (!finalDocUrl && pdfBase64) {
+      try {
+        const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
+        const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+        const filename = `Payslip_${(trainerName || 'Trainer').replace(/[^a-zA-Z0-9_-]/g, '_')}_${month}.pdf`;
+        const savedPath = await savePdfDocument(pdfBuffer, filename, req.env);
+        const host = req.get('host') || 'localhost';
+        const proto = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+        if (savedPath) {
+          finalDocUrl = `${proto}://${host}${savedPath}`;
         }
-      );
-      const uploadData = await uploadResp.json();
-      if (!uploadResp.ok) {
-        throw new Error(uploadData?.error?.message || `Media upload failed: ${uploadResp.status}`);
+      } catch (e) {
+        console.warn('Payslip PDF upload notice:', e.message);
       }
-      const mediaId = uploadData.id;
+    }
 
-      const toPhone = normalizePhone(phone);
-      const msgResp = await fetch(
-        `https://graph.facebook.com/v19.0/${WA_PHONE_ID}/messages`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${WA_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to: toPhone,
-            type: 'document',
-            document: { id: mediaId, filename, caption },
-          }),
-        }
-      );
-      const msgData = await msgResp.json();
-      if (!msgResp.ok) {
-        throw new Error(msgData?.error?.message || `Send failed: ${msgResp.status}`);
+    if (finalDocUrl && isPublicUrl(finalDocUrl)) {
+      const filename = `Payslip_${(trainerName || 'Trainer').replace(/[^a-zA-Z0-9_-]/g, '_')}_${month}.pdf`;
+      try {
+        await sendWhatsAppDocument(phone, caption, finalDocUrl, filename, req.env);
+      } catch (docErr) {
+        console.warn('Payslip document send error, falling back to text:', docErr.message);
+        await sendWhatsAppMessage(phone, caption, req.env);
       }
     } else {
-      await sendWhatsAppMessage(phone, caption);
+      await sendWhatsAppMessage(phone, caption, req.env);
     }
 
     await db.prepare(
@@ -3181,6 +3981,11 @@ app.get('/api/stats/pt-summary', async (req, res) => {
   try {
     const currentMonthStr = new Date().toISOString().substring(0, 7);
 
+    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active'").all();
+    await Promise.all(trainers.map(async tr => {
+      await syncTrainerMonthlyClassLogs(tr.id, currentMonthStr);
+    }));
+
     const totalRow = await db.prepare(`
       SELECT SUM(per_class_rate_snapshot) as "totalPayable"
       FROM pt_class_log
@@ -3189,7 +3994,6 @@ app.get('/api/stats/pt-summary', async (req, res) => {
 
     const totalPtCommissionPayable = totalRow && totalRow.totalPayable ? totalRow.totalPayable : 0;
 
-    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active'").all();
     const trainerRevenueList = await Promise.all(trainers.map(async tr => {
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
       const activeSlab = getSlabForRevenue(baseRevenue);
@@ -3317,7 +4121,16 @@ app.post('/api/restore', async (req, res) => {
 app.get('/api/transactions', async (req, res) => {
   try {
     await backfillPtAssignmentTransactions();
-    const txns = await db.prepare('SELECT * FROM transactions ORDER BY timestamp DESC').all();
+    const txns = await db.prepare(`
+      SELECT 
+        t.*,
+        b.discount_amount as discount_amount,
+        b.planAmount as bill_plan_amount,
+        b.totalPlanAmount as bill_total_amount
+      FROM transactions t
+      LEFT JOIN bills b ON t.billId = b.id
+      ORDER BY t.timestamp DESC
+    `).all();
     res.json(txns);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3368,7 +4181,7 @@ app.delete('/api/expenses/:id', async (req, res) => {
 app.post('/api/clients/:id/renew-expired', async (req, res) => {
   try {
     const clientId = req.params.id;
-    const { planName, price, durationDays, hasGst, gstin, paidAmount, paymentMethod, startDate } = req.body;
+    const { planName, price, durationDays, hasGst, gstin, paidAmount, paymentMethod, startDate, discount_amount } = req.body;
 
     if (!planName || price === undefined || price === null) {
       return res.status(400).json({ error: 'Plan name and price are required.' });
@@ -3387,8 +4200,10 @@ app.post('/api/clients/:id/renew-expired', async (req, res) => {
     const startStr = startDate || new Date().toISOString().split('T')[0];
     const expiryDateStr = calculateExpiryDate(startStr, durDays);
     const planPrice = parseFloat(price);
-    const paidAmountVal = paidAmount !== undefined && paidAmount !== null && paidAmount !== '' ? parseFloat(paidAmount) : planPrice;
-    const dueAmountVal = Math.max(0, planPrice - paidAmountVal);
+    const disc = parseFloat(discount_amount || 0);
+    const netPayable = Math.max(0, planPrice - disc);
+    const paidAmountVal = paidAmount !== undefined && paidAmount !== null && paidAmount !== '' ? parseFloat(paidAmount) : netPayable;
+    const dueAmountVal = Math.max(0, netPayable - paidAmountVal);
     const paymentStatusVal = dueAmountVal <= 0 ? 'Paid' : (paidAmountVal > 0 ? 'Partial' : 'Due');
     const payMethodVal = paymentMethod || 'CASH';
 
@@ -3406,11 +4221,11 @@ app.post('/api/clients/:id/renew-expired', async (req, res) => {
     const invoiceDateStr = toDateLabel();
 
     const gstSettings = await db.prepare('SELECT * FROM gst_settings WHERE id = 1').get() || { gst_rate_percent: 4.8 };
-    const gstCalc = computeGstBreakdown(planPrice, gstSettings.gst_rate_percent || 4.8);
+    const gstCalc = computeGstBreakdown(netPayable, gstSettings.gst_rate_percent || 4.8);
 
     await db.prepare(`
-      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, taxable_value, cgst_amount, sgst_amount, gst_rate_snapshot, client_gstin_snapshot)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'GeneralPlan', ?, ?, ?, ?, ?)
+      INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, discount_amount, taxable_value, cgst_amount, sgst_amount, gst_rate_snapshot, client_gstin_snapshot)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'GeneralPlan', ?, ?, ?, ?, ?, ?)
     `).run(
       billId,
       nextBillNo,
@@ -3419,13 +4234,14 @@ app.post('/api/clients/:id/renew-expired', async (req, res) => {
       invoiceDateStr,
       startStr,
       expiryDateStr,
-      planPrice,
+      netPayable,
       paidAmountVal,
       dueAmountVal,
       paymentStatusVal,
-      planPrice,
+      netPayable,
       dueAmountVal,
       planName,
+      disc,
       gstCalc.taxable_value,
       gstCalc.cgst_amount,
       gstCalc.sgst_amount,
@@ -3462,7 +4278,7 @@ app.post('/api/clients/:id/renew-expired', async (req, res) => {
         paymentStatus = ?,
         status = 'Active'
       WHERE id = ?
-    `).run(planName, startStr, expiryDateStr, planPrice, paidAmountVal, dueAmountVal, paymentStatusVal, client.id);
+    `).run(planName, startStr, expiryDateStr, netPayable, paidAmountVal, dueAmountVal, paymentStatusVal, client.id);
 
     const updatedClient = await db.prepare('SELECT * FROM clients WHERE id = ?').get(client.id);
 
@@ -3477,13 +4293,18 @@ app.post('/api/clients/:id/renew-expired', async (req, res) => {
       expiryDate: expiryDateStr,
       planName: planName,
       packageName: planName,
-      planAmount: planPrice,
-      totalPlanAmount: planPrice,
+      planAmount: netPayable,
+      totalPlanAmount: netPayable,
+      discount: disc,
+      discount_amount: disc,
+      original_price: planPrice,
       paidAmount: paidAmountVal,
       dueAmount: dueAmountVal,
       remainingBalance: dueAmountVal,
       paymentStatus: paymentStatusVal,
-      paymentMethod: payMethodVal
+      paymentMethod: payMethodVal,
+      client_gstin_snapshot: gstinSnapshot,
+      gstin: gstinSnapshot
     };
 
     res.json({
@@ -3921,6 +4742,102 @@ app.put('/api/other-services/sales/:id', async (req, res) => {
     res.json({ success: true, message: 'Other service sale updated successfully.', sale: updatedSale });
   } catch (err) {
     console.error('Error updating other service sale:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/other-services/sales/:id/payment — Record due payment on other service sale
+app.post('/api/other-services/sales/:id/payment', async (req, res) => {
+  try {
+    const saleId = req.params.id;
+    const { paidAmount, paymentMethod = 'UPI', paymentDate } = req.body;
+    const amountToPay = parseFloat(paidAmount);
+    if (isNaN(amountToPay) || amountToPay <= 0) {
+      return res.status(400).json({ error: 'Valid payment amount is required.' });
+    }
+
+    const sale = await db.prepare(`
+      SELECT s.*, b.billNo, b.planAmount, b.paidAmount as billPaid, b.dueAmount as billDue, b.totalPlanAmount, b.remainingBalance,
+             b.clientName, b.expiryDate, b.discount_amount
+      FROM other_service_sales s
+      LEFT JOIN bills b ON CAST(s.invoice_id AS TEXT) = CAST(b.id AS TEXT)
+      WHERE s.id = ?
+    `).get(saleId);
+
+    if (!sale) return res.status(404).json({ error: 'Other service sale record not found.' });
+
+    const currentDue = parseFloat(sale.billDue !== undefined ? sale.billDue : Math.max(0, (sale.price_snapshot || 0) - (sale.billPaid || 0)));
+    const newDue = Math.max(0, currentDue - amountToPay);
+    const newPaid = (parseFloat(sale.billPaid || 0)) + amountToPay;
+    const newStatus = newDue <= 0 ? 'Paid' : 'Partial';
+
+    // Update bill
+    if (sale.invoice_id) {
+      await db.prepare(`
+        UPDATE bills 
+        SET paidAmount = ?, dueAmount = ?, remainingBalance = ?, paymentStatus = ? 
+        WHERE id = ?
+      `).run(newPaid, newDue, newDue, newStatus, sale.invoice_id);
+    }
+
+    // Update client dueAmount in clients table
+    try {
+      const clientRecord = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(sale.client_id, sale.client_id);
+      if (clientRecord) {
+        const updatedClientDue = Math.max(0, (parseFloat(clientRecord.dueAmount) || 0) - amountToPay);
+        const updatedClientStatus = updatedClientDue <= 0 ? 'Paid' : 'Partial';
+        await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedClientDue, updatedClientStatus, clientRecord.id);
+      }
+    } catch (e) {}
+
+    // Add transaction record
+    const txId = randomUUID();
+    const invoiceDateStr = paymentDate || toDateLabel();
+    await db.prepare(`
+      INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+    `).run(
+      txId,
+      sale.client_id,
+      sale.invoice_id || randomUUID(),
+      `${sale.clientName || 'Client'} - Other Service Due Payment`,
+      paymentMethod,
+      amountToPay,
+      invoiceDateStr
+    );
+
+    const updatedSale = await db.prepare(`
+      SELECT 
+        s.id,
+        s.client_id,
+        s.service_id,
+        COALESCE(b.planAmount, s.price_snapshot) AS price_snapshot,
+        s.sale_date,
+        s.invoice_id,
+        s.created_at,
+        COALESCE(c.name, b.clientName, 'Unknown Client') AS clientName,
+        COALESCE(c.clientId, c.id, s.client_id) AS clientCode,
+        COALESCE(c.phone, '') AS clientPhone,
+        COALESCE(t.name, 'Other Service') AS serviceName,
+        COALESCE(t.duration_days, 30) AS duration_days,
+        COALESCE(b.billNo, '') AS billNo,
+        COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
+        COALESCE(b.dueAmount, 0) AS dueAmount,
+        COALESCE(b.paymentStatus, 'Paid') AS paymentStatus,
+        COALESCE(b.discount_amount, 0) AS discount_amount,
+        b.expiryDate
+      FROM other_service_sales s
+      LEFT JOIN clients c ON (
+        CAST(s.client_id AS TEXT) = CAST(c.id AS TEXT)
+        OR CAST(s.client_id AS TEXT) = CAST(c.clientId AS TEXT)
+      )
+      LEFT JOIN other_service_tariffs t ON CAST(s.service_id AS INTEGER) = t.id
+      LEFT JOIN bills b ON CAST(s.invoice_id AS TEXT) = CAST(b.id AS TEXT)
+      WHERE s.id = ?
+    `).get(saleId);
+
+    res.json({ success: true, message: 'Payment recorded successfully.', sale: updatedSale });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -4555,7 +5472,7 @@ app.get('/api/whatsapp/reminders', async (req, res) => {
       expiringSoon,
       expiredToday: expiredAll,
       counts: { expiringSoon: expiringSoon.length, expiredToday: expiredAll.length },
-      configured: !!WA_PHONE_ID
+      configured: !!getWaKey(req.env)
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4565,7 +5482,7 @@ app.get('/api/whatsapp/reminders', async (req, res) => {
 // POST /api/whatsapp/send — Send a message to a single client
 app.post('/api/whatsapp/send', async (req, res) => {
   try {
-    const { clientId, clientName, phone, type } = req.body;
+    const { clientId, clientName, phone, type, message: customMessage } = req.body;
     if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
     const client = { name: clientName, phone };
@@ -4576,15 +5493,17 @@ app.post('/api/whatsapp/send', async (req, res) => {
       client.expiryDate = dbClient.expiryDate;
     }
 
-    const message = type === 'expiring_soon'
-      ? buildExpiringSoonMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(7) })
-      : buildExpiredMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(0) });
+    const message = customMessage || (
+      type === 'expiring_soon'
+        ? buildExpiringSoonMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(7) })
+        : buildExpiredMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(0) })
+    );
 
-    await sendWhatsAppMessage(phone, message);
+    await sendWhatsAppMessage(phone, message, req.env);
 
     // Log to DB
     await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
-    ).run(randomUUID(), clientId || '', clientName, phone, type);
+    ).run(randomUUID(), clientId || '', clientName, phone, type || 'general');
 
     res.json({ success: true, message: 'WhatsApp message sent!' });
   } catch (err) {
@@ -4593,87 +5512,141 @@ app.post('/api/whatsapp/send', async (req, res) => {
   }
 });
 
-// POST /api/whatsapp/send-invoice — Send PDF invoice directly to client via WhatsApp Cloud API
+// In-memory / temporary cache for public documents (e.g. WhatsApp PDF invoices)
+const publicDocsCache = new Map();
+
+// Helper to save PDF buffer to R2 or public uploads and memory cache
+const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
+  try {
+    const objectKey = `invoices/${filename}`;
+
+    // 1. Cloudflare R2 Binding (Worker / Production)
+    const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+    if (r2Bucket && typeof r2Bucket.put === 'function') {
+      await r2Bucket.put(objectKey, pdfBuffer, {
+        httpMetadata: { contentType: 'application/pdf' }
+      });
+      console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket`);
+      return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    }
+
+    // 2. Local Node Development Mode
+    const localDir = path.join(UPLOADS_DIR, 'invoices');
+    if (!fs.existsSync(localDir)) {
+      try { fs.mkdirSync(localDir, { recursive: true }); } catch (e) {}
+    }
+    const localFilePath = path.join(localDir, filename);
+    fs.writeFileSync(localFilePath, pdfBuffer);
+
+    // Sync to remote Cloudflare R2 so Metamerged cloud can always download the PDF
+    try {
+      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfBase64: pdfBuffer.toString('base64'),
+          filename
+        })
+      });
+      const uploadJson = await uploadResp.json().catch(() => ({}));
+      if (uploadJson?.url) {
+        console.log(`✅ Synced ${filename} to Cloudflare R2: ${uploadJson.url}`);
+        return uploadJson.url;
+      }
+    } catch (syncErr) {
+      console.warn('Cloudflare R2 sync notice:', syncErr.message);
+    }
+
+    return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+  } catch (err) {
+    console.error('Failed to save PDF document:', err);
+    return null;
+  }
+};
+
+// POST /api/invoices/upload-pdf — Upload PDF directly to Cloudflare R2 / Storage
+app.post('/api/invoices/upload-pdf', async (req, res) => {
+  try {
+    const { pdfBase64, filename } = req.body;
+    if (!pdfBase64) return res.status(400).json({ error: 'pdfBase64 is required' });
+    const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
+    const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+    const safeFilename = (filename || `Invoice_${Date.now()}.pdf`).replace(/[^a-zA-Z0-9._-]/g, '_');
+    const objectKey = `invoices/${safeFilename}`;
+
+    const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
+    if (r2Bucket && typeof r2Bucket.put === 'function') {
+      await r2Bucket.put(objectKey, pdfBuffer, {
+        httpMetadata: { contentType: 'application/pdf' }
+      });
+    }
+
+    const publicUrl = `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    res.json({ success: true, url: publicUrl });
+  } catch (err) {
+    console.error('Upload PDF error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/public-docs/:id', (req, res) => {
+  const docId = req.params.id.replace(/\.pdf$/i, '');
+  const doc = publicDocsCache.get(docId);
+  if (!doc) {
+    return res.status(404).send('Document not found or expired.');
+  }
+  res.setHeader('Content-Type', doc.contentType || 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${doc.filename || 'document.pdf'}"`);
+  res.setHeader('Content-Length', doc.buffer.length);
+  res.send(doc.buffer);
+});
+
+// POST /api/whatsapp/send-invoice — Send invoice directly to client via WhatsApp
 app.post('/api/whatsapp/send-invoice', async (req, res) => {
   try {
-    if (!WA_TOKEN || !WA_PHONE_ID) {
-      return res.status(400).json({ error: 'WhatsApp not configured. Add WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID to server/.env' });
-    }
-
-    const { phone, name, billNo, pdfBase64 } = req.body;
+    const { phone, name, billNo, pdfBase64, message: customMsg } = req.body;
+    let documentUrl = req.body.documentUrl;
     if (!phone) return res.status(400).json({ error: 'Phone number is required' });
-    if (!pdfBase64) return res.status(400).json({ error: 'PDF data is required' });
 
-    const filename = `Invoice_${billNo || 'invoice'}.pdf`;
-    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+    const filename = `Invoice_${(billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
 
-    // ── 1. Upload PDF to WhatsApp Media ──────────────────────────────────────
-    const boundary = `WAboundary${Date.now()}`;
+    // If PDF base64 provided, cache it and resolve a valid document URL
+    if (!documentUrl && pdfBase64) {
+      try {
+        const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
+        const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+        const docId = `inv_${(billNo || 'doc').replace(/[^a-zA-Z0-9_-]/g, '')}_${Date.now()}`;
+        publicDocsCache.set(docId, {
+          buffer: pdfBuffer,
+          filename,
+          contentType: 'application/pdf',
+          timestamp: Date.now()
+        });
 
-    // Build multipart body using Buffer concat (needed for binary PDF data)
-    const headerPart = Buffer.from(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="messaging_product"\r\n\r\n` +
-      `whatsapp\r\n` +
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="type"\r\n\r\n` +
-      `application/pdf\r\n` +
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
-      `Content-Type: application/pdf\r\n\r\n`,
-      'utf8'
-    );
-    const footerPart = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
-    const multipartBody = Buffer.concat([headerPart, pdfBuffer, footerPart]);
-
-    const uploadResp = await fetch(
-      `https://graph.facebook.com/v19.0/${WA_PHONE_ID}/media`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${WA_TOKEN}`,
-          'Content-Type': `multipart/form-data; boundary=${boundary}`,
-        },
-        body: multipartBody,
+        const savedUrl = await savePdfDocument(pdfBuffer, filename, req.env);
+        if (savedUrl) {
+          documentUrl = savedUrl;
+        }
+      } catch (pdfErr) {
+        console.warn('PDF cache creation notice:', pdfErr.message);
       }
-    );
-    const uploadData = await uploadResp.json();
-    if (!uploadResp.ok) {
-      throw new Error(uploadData?.error?.message || `Media upload failed: ${uploadResp.status}`);
     }
-    const mediaId = uploadData.id;
 
-    // ── 2. Send document message ───────────────────────────────────────────
-    const toPhone = normalizePhone(phone);
-    const caption =
-      `Hi ${name || 'there'}! 👋\n\n` +
-      `Please find your invoice *${billNo || ''}* attached.\n\n` +
-      `Thank you for your payment! 💪\n\n` +
-      `*KH3 WELLNESS* 🏋️‍♂️`;
-
-    const msgResp = await fetch(
-      `https://graph.facebook.com/v19.0/${WA_PHONE_ID}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${WA_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to: toPhone,
-          type: 'document',
-          document: {
-            id: mediaId,
-            filename,
-            caption,
-          },
-        }),
-      }
+    const caption = customMsg || (
+      `Hi ${name || 'Member'}! 👋\n\n` +
+      `Please find your official invoice *${billNo || ''}* attached from *OLYMPIA FITNESS* 🏋️‍♂️\n\n` +
+      `Thank you for training with us! 💪🔥`
     );
-    const msgData = await msgResp.json();
-    if (!msgResp.ok) {
-      throw new Error(msgData?.error?.message || `Send failed: ${msgResp.status}`);
+
+    if (documentUrl && isPublicUrl(documentUrl)) {
+      try {
+        await sendWhatsAppDocument(phone, caption, documentUrl, filename, req.env);
+      } catch (docErr) {
+        console.warn('Document send error, falling back to text:', docErr.message);
+        await sendWhatsAppMessage(phone, caption, req.env);
+      }
+    } else {
+      await sendWhatsAppMessage(phone, caption, req.env);
     }
 
     // Log it
@@ -4681,7 +5654,7 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
       'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), '', name || '', phone, 'invoice_pdf');
 
-    res.json({ success: true, message: `Invoice sent to ${toPhone} via WhatsApp!` });
+    res.json({ success: true, message: `Invoice sent to ${phone} via WhatsApp!` });
   } catch (err) {
     console.error('WhatsApp invoice send error:', err.message);
     res.status(500).json({ error: err.message });
@@ -4699,7 +5672,7 @@ app.post('/api/whatsapp/send-payment-reminder', async (req, res) => {
     if (client.dueAmount <= 0) return res.status(400).json({ error: 'No pending due amount' });
 
     const message = buildPaymentReminderMsg(client);
-    await sendWhatsAppMessage(client.phone, message);
+    await sendWhatsAppMessage(client.phone, message, req.env);
 
     await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), client.id, client.name, client.phone, 'payment_reminder');
@@ -4735,7 +5708,7 @@ app.post('/api/whatsapp/send-bulk', async (req, res) => {
         const message = type === 'expiring_soon'
           ? buildExpiringSoonMsg(client)
           : buildExpiredMsg(client);
-        await sendWhatsAppMessage(client.phone, message);
+        await sendWhatsAppMessage(client.phone, message, req.env);
         await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
         ).run(randomUUID(), client.id, client.name, client.phone, type);
         results.push({ name: client.name, phone: client.phone, status: 'sent' });
@@ -4896,60 +5869,62 @@ app.get('/api/whatsapp/log', async (req, res) => {
 });
 
 // ─── Daily Cron: 9:00 AM — Auto-send WhatsApp reminders & Sweep Expired PT Assignments ─
-cron.schedule('0 9 * * *', async () => {
-  autoExpireAssignments();
-  autoActivateAdvanceBookings();
-  if (!WA_PHONE_ID || !WA_TOKEN) {
-    console.log('⚠️ [WhatsApp Cron] Skipped — WHATSAPP_PHONE_NUMBER_ID not set in .env');
-    return;
-  }
-
-  const todayISO = getDateOffsetISO(0);
-  const in7DaysISO = getDateOffsetISO(7);
-  const in3DaysISO = getDateOffsetISO(3);
-  console.log(`📲 [WhatsApp Cron] Running at ${new Date().toLocaleString('en-IN')}`);
-
-  // Send expiring-soon reminders (7 days and 3 days before)
-  const allClientsForCron = await db.prepare(`SELECT id, "clientId", name, phone, plan, "expiryDate" FROM clients WHERE phone IS NOT NULL AND phone != ''`).all();
-  const in7DaysObj = new Date(in7DaysISO);
-  const in3DaysObj = new Date(in3DaysISO);
-  const soonClients = allClientsForCron.filter(c => {
-    const d = parseAnyDate(c.expiryDate);
-    return d && (d.toISOString().split('T')[0] === in7DaysISO || d.toISOString().split('T')[0] === in3DaysISO);
-  });
-
-  for (const client of soonClients) {
-    try {
-      await sendWhatsAppMessage(client.phone, buildExpiringSoonMsg(client));
-      await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
-      ).run(randomUUID(), client.id, client.name, client.phone, 'expiring_soon');
-      console.log(`   ✅ Reminder sent → ${client.name} (expires in 7 or 3 days)`);
-      await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`   ❌ Failed → ${client.name}: ${err.message}`);
+if (!process.env.CF_WORKER) {
+  cron.schedule('0 9 * * *', async () => {
+    autoExpireAssignments();
+    autoActivateAdvanceBookings();
+    if (!WA_KEY) {
+      console.log('⚠️ [WhatsApp Cron] Skipped — WHATSAPP_KEY not set in .env');
+      return;
     }
-  }
 
-  // Send expired-today notifications
-  const expiredClients = allClientsForCron.filter(c => {
-    const d = parseAnyDate(c.expiryDate);
-    return d && d.toISOString().split('T')[0] === todayISO;
-  });
+    const todayISO = getDateOffsetISO(0);
+    const in7DaysISO = getDateOffsetISO(7);
+    const in3DaysISO = getDateOffsetISO(3);
+    console.log(`📲 [WhatsApp Cron] Running at ${new Date().toLocaleString('en-IN')}`);
 
-  for (const client of expiredClients) {
-    try {
-      await sendWhatsAppMessage(client.phone, buildExpiredMsg(client));
-      await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
-      ).run(randomUUID(), client.id, client.name, client.phone, 'expired');
-      console.log(`   ✅ Expiry notice sent → ${client.name}`);
-      await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`   ❌ Failed → ${client.name}: ${err.message}`);
+    // Send expiring-soon reminders (7 days and 3 days before)
+    const allClientsForCron = await db.prepare(`SELECT id, "clientId", name, phone, plan, "expiryDate" FROM clients WHERE phone IS NOT NULL AND phone != ''`).all();
+    const in7DaysObj = new Date(in7DaysISO);
+    const in3DaysObj = new Date(in3DaysISO);
+    const soonClients = allClientsForCron.filter(c => {
+      const d = parseAnyDate(c.expiryDate);
+      return d && (d.toISOString().split('T')[0] === in7DaysISO || d.toISOString().split('T')[0] === in3DaysISO);
+    });
+
+    for (const client of soonClients) {
+      try {
+        await sendWhatsAppMessage(client.phone, buildExpiringSoonMsg(client));
+        await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+        ).run(randomUUID(), client.id, client.name, client.phone, 'expiring_soon');
+        console.log(`   ✅ Reminder sent → ${client.name} (expires in 7 or 3 days)`);
+        await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        console.error(`   ❌ Failed → ${client.name}: ${err.message}`);
+      }
     }
-  }
 
-  console.log(`📲 [WhatsApp Cron] Done. Sent to ${soonClients.length + expiredClients.length} clients.`);
-}, { timezone: 'Asia/Kolkata' });
+    // Send expired-today notifications
+    const expiredClients = allClientsForCron.filter(c => {
+      const d = parseAnyDate(c.expiryDate);
+      return d && d.toISOString().split('T')[0] === todayISO;
+    });
+
+    for (const client of expiredClients) {
+      try {
+        await sendWhatsAppMessage(client.phone, buildExpiredMsg(client));
+        await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+        ).run(randomUUID(), client.id, client.name, client.phone, 'expired');
+        console.log(`   ✅ Expiry notice sent → ${client.name}`);
+        await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        console.error(`   ❌ Failed → ${client.name}: ${err.message}`);
+      }
+    }
+
+    console.log(`📲 [WhatsApp Cron] Done. Sent to ${soonClients.length + expiredClients.length} clients.`);
+  }, { timezone: 'Asia/Kolkata' });
+}
 
 // ─── STAFF Routes ────────────────────────────────────────────────────────────
 
@@ -6107,8 +7082,12 @@ app.use((err, req, res, next) => {
 
 app.initDb = initDb;
 app.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
+app.autoActivateAdvanceBookings = autoActivateAdvanceBookings;
+app.autoExpireAssignments = autoExpireAssignments;
 
 module.exports = app;
 module.exports.initDb = initDb;
 module.exports.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
+module.exports.autoActivateAdvanceBookings = autoActivateAdvanceBookings;
+module.exports.autoExpireAssignments = autoExpireAssignments;
 
