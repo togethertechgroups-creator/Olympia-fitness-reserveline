@@ -1115,7 +1115,8 @@ const AdvanceBookingPage = () => {
                     >
                       <option value="CASH">CASH</option>
                       <option value="UPI">UPI</option>
-                      <option value="BANK">BANK / CARD</option>
+                      <option value="CARD">CARD</option>
+                      <option value="BANK TRANSFER">BANK TRANSFER</option>
                     </select>
                   </div>
                 </div>
@@ -1245,7 +1246,8 @@ const AdvanceBookingPage = () => {
                     >
                       <option value="CASH">CASH</option>
                       <option value="UPI">UPI</option>
-                      <option value="BANK">BANK / CARD</option>
+                      <option value="CARD">CARD</option>
+                      <option value="BANK TRANSFER">BANK TRANSFER</option>
                     </select>
                   </div>
 
@@ -1347,7 +1349,8 @@ const AdvanceBookingPage = () => {
                 >
                   <option value="CASH">CASH</option>
                   <option value="UPI">UPI</option>
-                  <option value="BANK">BANK / CARD</option>
+                  <option value="CARD">CARD</option>
+                  <option value="BANK TRANSFER">BANK TRANSFER</option>
                 </select>
               </div>
 

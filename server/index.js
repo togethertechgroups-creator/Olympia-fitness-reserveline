@@ -1587,25 +1587,25 @@ app.get('/api/clients', async (req, res) => {
         FROM clients c 
         LEFT JOIN trainers t ON c.trainerId = t.id 
         ORDER BY c.dateAdded DESC
-      `).all().catch(() => []),
+      `).all(),
       db.prepare(`
         SELECT client_id, SUM(due_amount) as totalGenDue 
         FROM general_package_bookings 
         WHERE status != 'Cancelled' AND due_amount > 0 
         GROUP BY client_id
-      `).all().catch(() => []),
+      `).all(),
       db.prepare(`
         SELECT client_id, SUM(due_amount) as totalPtDue 
         FROM pt_advance_bookings 
         WHERE status != 'Cancelled' AND due_amount > 0 
         GROUP BY client_id
-      `).all().catch(() => []),
+      `).all(),
       db.prepare(`
         SELECT clientId, SUM(dueAmount) as totalOtherDue 
         FROM bills 
         WHERE invoice_category = 'OtherService' AND dueAmount > 0 
         GROUP BY clientId
-      `).all().catch(() => [])
+      `).all()
     ]);
 
     const genDueMap = new Map((genAdvanceDues || []).map(r => [String(r.client_id), Number(r.totalGenDue || 0)]));

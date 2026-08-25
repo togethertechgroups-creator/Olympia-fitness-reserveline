@@ -671,7 +671,7 @@ const ManageClientsPage = () => {
 
   const fetchClients = async () => {
     try {
-      const data = await getClients();
+      const data = await getClients(true);
       setClients(data);
       setLoading(false);
 

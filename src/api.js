@@ -93,6 +93,7 @@ export const addClient = async (clientData) => {
 };
 
 export const restoreData = async (backupData) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/restore`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -265,6 +266,7 @@ export const getClientBills = async (clientId) => {
 };
 
 export const updateBill = async (id, data) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/bills/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -274,6 +276,7 @@ export const updateBill = async (id, data) => {
 };
 
 export const deleteBill = async (id) => {
+  invalidateClientsCache();
   const response = await fetch(`${BASE_URL}/bills/${id}`, {
     method: 'DELETE',
   });
