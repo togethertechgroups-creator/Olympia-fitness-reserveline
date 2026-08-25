@@ -770,6 +770,22 @@ export const cancelGeneralBooking = async (id) => {
   return handleResponse(response);
 };
 
+export const deleteGeneralBooking = async (id) => {
+  const response = await fetch(`${BASE_URL}/general-bookings/${id}`, {
+    method: 'DELETE',
+  });
+  return handleResponse(response);
+};
+
+export const updateGeneralBooking = async (id, bookingData) => {
+  const response = await fetch(`${BASE_URL}/general-bookings/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bookingData),
+  });
+  return handleResponse(response);
+};
+
 export const activateGeneralBooking = async (id) => {
   const response = await fetch(`${BASE_URL}/general-bookings/${id}/activate`, {
     method: 'POST',
@@ -796,6 +812,22 @@ export const cancelPtAdvanceBooking = async (id) => {
   const response = await fetch(`${BASE_URL}/pt-advance-bookings/${id}/cancel`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'x-user-role': localStorage.getItem('userRole') || '' },
+  });
+  return handleResponse(response);
+};
+
+export const deletePtAdvanceBooking = async (id) => {
+  const response = await fetch(`${BASE_URL}/pt-advance-bookings/${id}`, {
+    method: 'DELETE',
+  });
+  return handleResponse(response);
+};
+
+export const updatePtAdvanceBooking = async (id, bookingData) => {
+  const response = await fetch(`${BASE_URL}/pt-advance-bookings/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bookingData),
   });
   return handleResponse(response);
 };

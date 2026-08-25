@@ -2823,6 +2823,51 @@ app.patch('/api/general-bookings/:id/cancel', async (req, res) => {
   }
 });
 
+app.delete('/api/general-bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'General booking not found' });
+    if (existing.invoice_id) {
+      try {
+        await db.prepare('DELETE FROM bills WHERE id = ?').run(existing.invoice_id);
+        await db.prepare('DELETE FROM transactions WHERE billId = ?').run(existing.invoice_id);
+      } catch (e) {}
+    }
+    await db.prepare('DELETE FROM general_package_bookings WHERE id = ?').run(id);
+    res.json({ success: true, message: 'General booking deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/general-bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { plan_type, price, discount_amount, paid_amount, due_amount, payment_status, booking_start_date, booking_end_date } = req.body;
+    const existing = await db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'General booking not found' });
+
+    await db.prepare(`
+      UPDATE general_package_bookings SET
+        plan_type = COALESCE(?, plan_type),
+        price = COALESCE(?, price),
+        discount_amount = COALESCE(?, discount_amount),
+        paid_amount = COALESCE(?, paid_amount),
+        due_amount = COALESCE(?, due_amount),
+        payment_status = COALESCE(?, payment_status),
+        booking_start_date = COALESCE(?, booking_start_date),
+        booking_end_date = COALESCE(?, booking_end_date)
+      WHERE id = ?
+    `).run(plan_type, price, discount_amount, paid_amount, due_amount, payment_status, booking_start_date, booking_end_date, id);
+
+    const updated = await db.prepare('SELECT * FROM general_package_bookings WHERE id = ?').get(id);
+    res.json({ success: true, booking: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/general-bookings/:id/payment — Record due clearance payment for general advance booking
 app.post('/api/general-bookings/:id/payment', async (req, res) => {
   try {
@@ -3144,6 +3189,52 @@ app.patch('/api/pt-advance-bookings/:id/cancel', async (req, res) => {
 
     await db.prepare("UPDATE pt_advance_bookings SET status = 'Cancelled' WHERE id = ?").run(id);
     res.json({ success: true, message: 'PT advance booking cancelled.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/pt-advance-bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'PT advance booking not found' });
+    if (existing.invoice_id) {
+      try {
+        await db.prepare('DELETE FROM bills WHERE id = ?').run(existing.invoice_id);
+        await db.prepare('DELETE FROM transactions WHERE billId = ?').run(existing.invoice_id);
+      } catch (e) {}
+    }
+    await db.prepare('DELETE FROM pt_advance_bookings WHERE id = ?').run(id);
+    res.json({ success: true, message: 'PT advance booking deleted successfully.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/pt-advance-bookings/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { price_snapshot, discount_amount, paid_amount, due_amount, payment_status, booking_start_date, expiry_date, trainer_id, pt_package_id } = req.body;
+    const existing = await db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
+    if (!existing) return res.status(404).json({ error: 'PT advance booking not found' });
+
+    await db.prepare(`
+      UPDATE pt_advance_bookings SET
+        price_snapshot = COALESCE(?, price_snapshot),
+        discount_amount = COALESCE(?, discount_amount),
+        paid_amount = COALESCE(?, paid_amount),
+        due_amount = COALESCE(?, due_amount),
+        payment_status = COALESCE(?, payment_status),
+        booking_start_date = COALESCE(?, booking_start_date),
+        expiry_date = COALESCE(?, expiry_date),
+        trainer_id = COALESCE(?, trainer_id),
+        pt_package_id = COALESCE(?, pt_package_id)
+      WHERE id = ?
+    `).run(price_snapshot, discount_amount, paid_amount, due_amount, payment_status, booking_start_date, expiry_date, trainer_id, pt_package_id, id);
+
+    const updated = await db.prepare('SELECT * FROM pt_advance_bookings WHERE id = ?').get(id);
+    res.json({ success: true, booking: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

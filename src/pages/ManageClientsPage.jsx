@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient, updateBill, deleteBill, deleteOtherServiceSale, sendWhatsAppText } from '../api';
+import { getClients, deleteClient, restoreData, fetchTransactions, getTrainers, addClientPayment, getClientBills, getSettings, renewExpiredClient, getGeneralBookings, getPtAdvanceBookings, getPtAssignmentsByClient, getOtherServiceSalesByClient, updateBill, deleteBill, deleteOtherServiceSale, sendWhatsAppText, updateGeneralBooking, deleteGeneralBooking, updatePtAdvanceBooking, deletePtAdvanceBooking, updatePtAssignment, deletePtAssignment, updateClient, getClientById } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import ExpiredPlansModal from '../components/ExpiredPlansModal';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
@@ -140,6 +140,8 @@ const ManageClientsPage = () => {
   const handleOpenEditBill = (bill) => {
     setEditBillModal({
       isOpen: true,
+      itemType: 'bill',
+      rawId: bill.id,
       bill,
       planName: bill.planName || viewClientModal.client?.plan || 'General Plan',
       totalPlanAmount: bill.totalPlanAmount !== undefined ? bill.totalPlanAmount : (bill.planAmount || 0),
@@ -153,24 +155,164 @@ const ManageClientsPage = () => {
     });
   };
 
+  const handleEditHistoryItem = (item) => {
+    if (!item) return;
+    if (item.billObj) {
+      handleOpenEditBill(item.billObj);
+      return;
+    }
+    if (item.id && String(item.id).startsWith('bill-')) {
+      handleOpenEditBill(item);
+      return;
+    }
+
+    if (item.id && String(item.id).startsWith('gen-adv-')) {
+      const bookingId = String(item.id).replace('gen-adv-', '');
+      const booking = (advanceBookings.general || []).find(b => String(b.id) === String(bookingId)) || item;
+      setEditBillModal({
+        isOpen: true,
+        itemType: 'gen-adv',
+        rawId: bookingId,
+        bill: { id: bookingId, billNo: item.billNo || 'ADV-GEN' },
+        planName: item.planName || 'General Plan',
+        totalPlanAmount: item.amount !== undefined ? item.amount : (booking.price || 0),
+        paidAmount: item.paidAmount !== undefined ? item.paidAmount : item.amount,
+        dueAmount: item.dueAmount !== undefined ? item.dueAmount : 0,
+        invoiceDate: item.date || item.startDate || new Date().toISOString().split('T')[0],
+        joinDate: item.startDate || '',
+        expiryDate: item.expiryDate || '',
+        discount_amount: booking.discount_amount || 0,
+        isSaving: false
+      });
+      return;
+    }
+
+    if (item.id && String(item.id).startsWith('pt-adv-')) {
+      const bookingId = String(item.id).replace('pt-adv-', '');
+      const booking = (advanceBookings.pt || []).find(b => String(b.id) === String(bookingId)) || item;
+      setEditBillModal({
+        isOpen: true,
+        itemType: 'pt-adv',
+        rawId: bookingId,
+        bill: { id: bookingId, billNo: item.billNo || 'ADV-PT' },
+        planName: item.planName || 'PT Package',
+        totalPlanAmount: item.amount !== undefined ? item.amount : (booking.price_snapshot || 0),
+        paidAmount: item.paidAmount !== undefined ? item.paidAmount : item.amount,
+        dueAmount: item.dueAmount !== undefined ? item.dueAmount : 0,
+        invoiceDate: item.date || item.startDate || new Date().toISOString().split('T')[0],
+        joinDate: item.startDate || '',
+        expiryDate: item.expiryDate || '',
+        discount_amount: booking.discount_amount || 0,
+        isSaving: false
+      });
+      return;
+    }
+
+    if (item.ptObj || (item.id && String(item.id).startsWith('pt-'))) {
+      const ptId = item.ptObj?.id || String(item.id).replace('pt-', '');
+      const ptItem = item.ptObj || (viewClientModal.ptAssignments || []).find(p => String(p.id) === String(ptId));
+      setEditBillModal({
+        isOpen: true,
+        itemType: 'pt-assign',
+        rawId: ptId,
+        bill: { id: ptId, billNo: item.billNo || 'PT-ASSIGN' },
+        planName: item.planName || 'PT Package',
+        totalPlanAmount: item.amount !== undefined ? item.amount : (ptItem?.package_price_snapshot || 0),
+        paidAmount: item.paidAmount !== undefined ? item.paidAmount : item.amount,
+        dueAmount: item.dueAmount !== undefined ? item.dueAmount : 0,
+        invoiceDate: item.date || item.startDate || new Date().toISOString().split('T')[0],
+        joinDate: item.startDate || '',
+        expiryDate: item.expiryDate || '',
+        discount_amount: ptItem?.discount_amount || 0,
+        isSaving: false
+      });
+      return;
+    }
+
+    const currClient = viewClientModal.client;
+    setEditBillModal({
+      isOpen: true,
+      itemType: 'client-membership',
+      rawId: currClient?.id,
+      bill: { id: currClient?.id, billNo: 'MEMBERSHIP' },
+      planName: item.planName || currClient?.plan || 'General Plan',
+      totalPlanAmount: item.amount !== undefined ? item.amount : (currClient?.amount || 0),
+      paidAmount: item.paidAmount !== undefined ? item.paidAmount : (currClient?.paidAmount || 0),
+      dueAmount: item.dueAmount !== undefined ? item.dueAmount : (currClient?.dueAmount || 0),
+      invoiceDate: item.date || item.startDate || currClient?.fromDate || new Date().toISOString().split('T')[0],
+      joinDate: item.startDate || currClient?.fromDate || '',
+      expiryDate: item.expiryDate || currClient?.expiryDate || '',
+      discount_amount: 0,
+      isSaving: false
+    });
+  };
+
   const handleSaveEditBill = async (e) => {
     e.preventDefault();
     if (!editBillModal.bill) return;
     setEditBillModal(prev => ({ ...prev, isSaving: true }));
     try {
-      await updateBill(editBillModal.bill.id, {
-        planName: editBillModal.planName,
-        totalPlanAmount: parseFloat(editBillModal.totalPlanAmount) || 0,
-        planAmount: parseFloat(editBillModal.totalPlanAmount) || 0,
-        paidAmount: parseFloat(editBillModal.paidAmount) || 0,
-        dueAmount: parseFloat(editBillModal.dueAmount) || 0,
-        invoiceDate: editBillModal.invoiceDate,
-        joinDate: editBillModal.joinDate,
-        expiryDate: editBillModal.expiryDate,
-        discount_amount: parseFloat(editBillModal.discount_amount) || 0,
-        syncClient: true
-      });
-      alert('Invoice updated successfully.');
+      const itemType = editBillModal.itemType || 'bill';
+      const total = parseFloat(editBillModal.totalPlanAmount) || 0;
+      const paid = parseFloat(editBillModal.paidAmount) || 0;
+      const due = parseFloat(editBillModal.dueAmount) || 0;
+      const disc = parseFloat(editBillModal.discount_amount) || 0;
+      const status = due <= 0 ? 'Paid' : (paid > 0 ? 'Partial' : 'Due');
+
+      if (itemType === 'gen-adv') {
+        await updateGeneralBooking(editBillModal.rawId, {
+          plan_type: editBillModal.planName,
+          price: total,
+          discount_amount: disc,
+          paid_amount: paid,
+          due_amount: due,
+          payment_status: status,
+          booking_start_date: editBillModal.joinDate || editBillModal.invoiceDate,
+          booking_end_date: editBillModal.expiryDate
+        });
+      } else if (itemType === 'pt-adv') {
+        await updatePtAdvanceBooking(editBillModal.rawId, {
+          price_snapshot: total,
+          discount_amount: disc,
+          paid_amount: paid,
+          due_amount: due,
+          payment_status: status,
+          booking_start_date: editBillModal.joinDate || editBillModal.invoiceDate,
+          expiry_date: editBillModal.expiryDate
+        });
+      } else if (itemType === 'pt-assign') {
+        await updatePtAssignment(editBillModal.rawId, {
+          package_price_snapshot: total,
+          discount_amount: disc,
+          assigned_date: editBillModal.joinDate || editBillModal.invoiceDate,
+          expiry_date: editBillModal.expiryDate
+        });
+      } else if (itemType === 'client-membership') {
+        await updateClient(editBillModal.rawId, {
+          plan: editBillModal.planName,
+          amount: total,
+          paidAmount: paid,
+          dueAmount: due,
+          paymentStatus: status,
+          fromDate: editBillModal.joinDate || editBillModal.invoiceDate,
+          expiryDate: editBillModal.expiryDate
+        });
+      } else {
+        await updateBill(editBillModal.bill.id, {
+          planName: editBillModal.planName,
+          totalPlanAmount: total,
+          planAmount: total,
+          paidAmount: paid,
+          dueAmount: due,
+          invoiceDate: editBillModal.invoiceDate,
+          joinDate: editBillModal.joinDate,
+          expiryDate: editBillModal.expiryDate,
+          discount_amount: disc,
+          syncClient: true
+        });
+      }
+
+      alert('Plan / Invoice updated successfully.');
       const currClient = viewClientModal.client;
       setEditBillModal({ isOpen: false, bill: null, isSaving: false });
       await fetchClients();
@@ -183,7 +325,7 @@ const ManageClientsPage = () => {
         }
       }
     } catch (err) {
-      alert(err.message || 'Failed to update invoice');
+      alert(err.message || 'Failed to update plan / invoice');
       setEditBillModal(prev => ({ ...prev, isSaving: false }));
     }
   };
@@ -205,6 +347,60 @@ const ManageClientsPage = () => {
       }
     } catch (err) {
       alert(err.message || 'Failed to delete invoice');
+    }
+  };
+
+  const handleDeleteHistoryItem = async (item) => {
+    if (!item) return;
+    const label = item.planName || item.type || 'this record';
+    if (!window.confirm(`Are you sure you want to delete ${label}?`)) return;
+
+    try {
+      if (item.billObj) {
+        await deleteBill(item.billObj.id);
+      } else if (item.id && String(item.id).startsWith('bill-')) {
+        const billId = String(item.id).replace('bill-', '');
+        await deleteBill(billId);
+      } else if (item.id && String(item.id).startsWith('gen-adv-')) {
+        const bookingId = String(item.id).replace('gen-adv-', '');
+        await deleteGeneralBooking(bookingId);
+      } else if (item.id && String(item.id).startsWith('pt-adv-')) {
+        const bookingId = String(item.id).replace('pt-adv-', '');
+        await deletePtAdvanceBooking(bookingId);
+      } else if (item.ptObj || (item.id && String(item.id).startsWith('pt-'))) {
+        const ptId = item.ptObj?.id || String(item.id).replace('pt-', '');
+        await deletePtAssignment(ptId);
+      } else if (item.id && String(item.id).startsWith('svc-')) {
+        const svcId = String(item.id).replace('svc-', '');
+        await deleteOtherServiceSale(svcId);
+      } else if (item.id && String(item.id).startsWith('current-')) {
+        const currClient = viewClientModal.client;
+        if (currClient) {
+          await updateClient(currClient.id, {
+            plan: '',
+            amount: 0,
+            paidAmount: 0,
+            dueAmount: 0,
+            fromDate: null,
+            expiryDate: null,
+            status: 'Inactive'
+          });
+        }
+      }
+
+      alert('Deleted successfully.');
+      const currClient = viewClientModal.client;
+      await fetchClients();
+      if (currClient) {
+        try {
+          const refreshedClient = await getClientById(currClient.id);
+          await handleViewClient(refreshedClient || currClient);
+        } catch (_) {
+          await handleViewClient(currClient);
+        }
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to delete record');
     }
   };
 
@@ -1937,50 +2133,46 @@ const ManageClientsPage = () => {
                                     >
                                       📄 PDF
                                     </button>
-                                    {item.billObj && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          style={{
-                                            padding: '0.35rem 0.7rem',
-                                            fontSize: '0.76rem',
-                                            background: '#fef3c7',
-                                            color: '#d97706',
-                                            border: '1px solid #fde68a',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontWeight: '800',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '3px'
-                                          }}
-                                          onClick={() => handleOpenEditBill(item.billObj)}
-                                          title="Edit Invoice Details"
-                                        >
-                                          ✏️ Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          style={{
-                                            padding: '0.35rem 0.7rem',
-                                            fontSize: '0.76rem',
-                                            background: '#fee2e2',
-                                            color: '#dc2626',
-                                            border: '1px solid #fecaca',
-                                            borderRadius: '6px',
-                                            cursor: 'pointer',
-                                            fontWeight: '800',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '3px'
-                                          }}
-                                          onClick={() => handleDeleteBill(item.billObj.id)}
-                                          title="Delete Invoice"
-                                        >
-                                          🗑️ Delete
-                                        </button>
-                                      </>
-                                    )}
+                                    <button
+                                      type="button"
+                                      style={{
+                                        padding: '0.35rem 0.7rem',
+                                        fontSize: '0.76rem',
+                                        background: '#fef3c7',
+                                        color: '#d97706',
+                                        border: '1px solid #fde68a',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                      onClick={() => handleEditHistoryItem(item)}
+                                      title="Edit Plan Details"
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      style={{
+                                        padding: '0.35rem 0.7rem',
+                                        fontSize: '0.76rem',
+                                        background: '#fee2e2',
+                                        color: '#dc2626',
+                                        border: '1px solid #fecaca',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '3px'
+                                      }}
+                                      onClick={() => handleDeleteHistoryItem(item)}
+                                      title="Delete Plan Record"
+                                    >
+                                      🗑️ Delete
+                                    </button>
                                   </div>
                                 </td>
                               </tr>
@@ -2303,55 +2495,71 @@ const ManageClientsPage = () => {
                     </div>
 
                     {/* Historic Plan Invoices */}
-                    <div className="landscape-bottom-col">
-                      <div className="col-header-small" style={{ color: '#ea580c' }}>
-                        <span>📜 Plan History Invoices ({viewClientModal.bills ? viewClientModal.bills.length : 0})</span>
-                      </div>
-                      <div className="scrollable-list">
-                        {viewClientModal.bills && viewClientModal.bills.length > 0 ? viewClientModal.bills.map(b => (
-                          <div key={`bill-${b.id}`} className="mini-card" style={{ borderLeft: '3px solid #ea580c' }}>
-                            <div className="mc-head">
-                              <strong style={{ color: '#0f172a' }}>{b.billNo || 'INVOICE'}</strong>
-                              <span className="mc-status" style={{ background: b.dueAmount > 0 ? '#ea580c' : '#16a34a' }}>
-                                {b.dueAmount > 0 ? `Due ₹${b.dueAmount}` : 'Paid'}
-                              </span>
-                            </div>
-                            <div className="mc-dates">
-                              <strong>{b.planName || 'Membership'}</strong> • ₹{Number(b.totalPlanAmount || b.planAmount || 0).toLocaleString()}
-                            </div>
-                            <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '2px' }}>
-                              {formatDateDDMMYYYY(b.joinDate || b.invoiceDate)} → {formatDateDDMMYYYY(b.expiryDate)}
-                            </div>
-                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
-                              <button
-                                type="button"
-                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#e0f2fe', color: '#0284c7', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
-                                onClick={() => {
-                                  setInvoicePreviewClient(b);
-                                  setViewClientModal({ isOpen: false, client: null });
-                                }}
-                              >
-                                PDF
-                              </button>
-                              <button
-                                type="button"
-                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fef3c7', color: '#d97706', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
-                                onClick={() => handleOpenEditBill(b)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
-                                onClick={() => handleDeleteBill(b.id)}
-                              >
-                                Delete
-                              </button>
-                            </div>
+                    {(() => {
+                      const displayInvoices = (viewClientModal.bills && viewClientModal.bills.length > 0)
+                        ? viewClientModal.bills
+                        : historicPlans;
+                      return (
+                        <div className="landscape-bottom-col">
+                          <div className="col-header-small" style={{ color: '#ea580c' }}>
+                            <span>📜 Plan History Invoices ({displayInvoices.length})</span>
                           </div>
-                        )) : <div className="mini-empty">No Invoices Found</div>}
-                      </div>
-                    </div>
+                          <div className="scrollable-list">
+                            {displayInvoices.length > 0 ? displayInvoices.map((item, idx) => {
+                              const itemAmt = Number(item.totalPlanAmount || item.amount || item.planAmount || 0);
+                              const itemPaid = Number(item.paidAmount !== undefined ? item.paidAmount : itemAmt);
+                              const itemDue = Number(item.dueAmount !== undefined ? item.dueAmount : Math.max(0, itemAmt - itemPaid));
+                              const itemStatus = item.paymentStatus || (itemDue > 0 ? 'Due' : 'Paid');
+                              const itemStart = item.startDate || item.joinDate || item.invoiceDate || item.date;
+                              const itemEnd = item.expiryDate || item.booking_end_date;
+
+                              return (
+                                <div key={item.id || `inv-${idx}`} className="mini-card" style={{ borderLeft: '3px solid #ea580c' }}>
+                                  <div className="mc-head">
+                                    <strong style={{ color: '#0f172a' }}>{item.billNo || item.planName || 'PLAN INVOICE'}</strong>
+                                    <span className="mc-status" style={{ background: itemDue > 0 ? '#ea580c' : '#16a34a' }}>
+                                      {itemDue > 0 ? `Due ₹${itemDue.toLocaleString()}` : itemStatus}
+                                    </span>
+                                  </div>
+                                  <div className="mc-dates">
+                                    <strong>{item.planName || item.packageName || 'Membership'}</strong> • ₹{itemAmt.toLocaleString()}
+                                  </div>
+                                  <div style={{ fontSize: '0.73rem', color: '#64748b', marginTop: '2px' }}>
+                                    {formatDateDDMMYYYY(itemStart)} → {formatDateDDMMYYYY(itemEnd)}
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                                    <button
+                                      type="button"
+                                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#e0f2fe', color: '#0284c7', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                      onClick={() => handleOpenPdf(item)}
+                                      title="View Invoice PDF"
+                                    >
+                                      PDF
+                                    </button>
+                                    <button
+                                      type="button"
+                                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fef3c7', color: '#d97706', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                      onClick={() => handleEditHistoryItem(item)}
+                                      title="Edit Plan Details"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                      onClick={() => handleDeleteHistoryItem(item)}
+                                      title="Delete Plan Record"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            }) : <div className="mini-empty">No Plan History Found</div>}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
