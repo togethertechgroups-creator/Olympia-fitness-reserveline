@@ -642,7 +642,7 @@ const PTAssignmentPage = () => {
       <div className="assign-filters-bar">
         <div className="assign-filter-group" style={{ flex: '1 1 240px', minWidth: '220px' }}>
           <label>Search Client / Trainer / Package</label>
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '38px' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '42px' }}>
             <svg
               style={{ position: 'absolute', left: '10px', color: '#94a3b8', pointerEvents: 'none' }}
               width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
