@@ -1659,26 +1659,37 @@ app.get('/api/clients/check-id/:clientId', async (req, res) => {
   }
 });
 
-app.get('/api/clients/next-id', async (req, res) => {
-  try {
-    const rows = await db.prepare('SELECT clientId FROM clients').all();
-    let maxId = 2856;
+const getNextSequentialClientId = async () => {
+  const rows = await db.prepare('SELECT clientId FROM clients').all();
+  let maxId = 2856;
 
-    if (rows && rows.length > 0) {
-      for (const row of rows) {
-        if (!row || !row.clientId) continue;
-        const str = String(row.clientId).trim();
-        const match = str.match(/\d+/g);
+  if (rows && rows.length > 0) {
+    for (const row of rows) {
+      if (!row || !row.clientId) continue;
+      const str = String(row.clientId).trim();
+      if (/^\d+$/.test(str)) {
+        const num = parseInt(str, 10);
+        if (!isNaN(num) && num < 100000 && num > maxId) {
+          maxId = num;
+        }
+      } else {
+        const match = str.match(/(\d{4,5})$/);
         if (match) {
-          const num = parseInt(match[match.length - 1], 10);
-          if (!isNaN(num) && num > maxId) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num >= 2857 && num < 100000 && num > maxId) {
             maxId = num;
           }
         }
       }
     }
+  }
 
-    const nextId = String(maxId + 1);
+  return String(maxId + 1);
+};
+
+app.get('/api/clients/next-id', async (req, res) => {
+  try {
+    const nextId = await getNextSequentialClientId();
     res.json({ nextId });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1724,9 +1735,11 @@ app.post('/api/clients', async (req, res) => {
       gstinVal = gstin.trim().toUpperCase();
     }
 
-    // Check for unique clientId
-    if (clientId) {
-      const existing = await db.prepare('SELECT id FROM clients WHERE clientId = ?').get(clientId);
+    let finalClientId = clientId ? String(clientId).trim() : '';
+    if (!finalClientId) {
+      finalClientId = await getNextSequentialClientId();
+    } else {
+      const existing = await db.prepare('SELECT id FROM clients WHERE clientId = ?').get(finalClientId);
       if (existing) {
         return res.status(400).json({ error: 'This Client ID is already in use.' });
       }
@@ -1747,7 +1760,7 @@ app.post('/api/clients', async (req, res) => {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      id, clientId || '', name, normalizedPhone, plan || '', fromDate || '', expiryDate || '',
+      id, finalClientId, name, normalizedPhone, plan || '', fromDate || '', expiryDate || '',
       amount, personalTraining ? 1 : 0, status,
       gender, ptCategory, ptFromDate, ptToDate, ptPackage, programType, diet ? 1 : 0,
       trainerId, admissionDate, finalProfileImage,
