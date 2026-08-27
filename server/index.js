@@ -2722,8 +2722,11 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
     
     const isTrainerIdChanged = trainer_id !== undefined && trainer_id !== null && String(trainer_id) !== String(assignment.trainer_id || '');
     const isPtPackageIdChanged = pt_package_id !== undefined && pt_package_id !== null && String(pt_package_id) !== String(assignment.pt_package_id || '');
-    const isAssignedDateChanged = assigned_date !== undefined && assigned_date !== null && String(assigned_date) !== String(assignment.assigned_date || '');
-    const isDiscountAmountChanged = discount_amount !== undefined && discount_amount !== null && parseFloat(discount_amount || 0) !== parseFloat(assignment.discount_amount || 0);
+    
+    const normDate = (d) => d ? String(d).split('T')[0].split(' ')[0] : '';
+    const isAssignedDateChanged = assigned_date !== undefined && assigned_date !== null && normDate(assigned_date) !== normDate(assignment.assigned_date || '');
+    
+    const isDiscountAmountChanged = discount_amount !== undefined && discount_amount !== null && Math.abs(parseFloat(discount_amount || 0) - parseFloat(assignment.discount_amount || 0)) > 0.01;
 
     const isOtherFieldsModifying = isTrainerIdChanged || isPtPackageIdChanged || isAssignedDateChanged || isDiscountAmountChanged;
 
@@ -2743,11 +2746,12 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
       }
     }
     if (isAssignedDateChanged) {
+      const cleanDate = normDate(assigned_date);
       updateFields.push('assigned_date = ?');
-      params.push(assigned_date);
+      params.push(cleanDate);
       const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id || assignment.pt_package_id);
       const durDays = pkg ? (pkg.duration_days || 30) : 30;
-      const expiry = calculateExpiryDate(assigned_date, durDays);
+      const expiry = calculateExpiryDate(cleanDate, durDays);
       updateFields.push('expiry_date = ?');
       params.push(expiry);
     }

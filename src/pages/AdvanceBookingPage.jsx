@@ -68,7 +68,7 @@ const AdvanceBookingPage = () => {
   const preselectedClientId = searchParams.get('clientId') || '';
 
   const [activeTab, setActiveTab] = useState(initialTab);
-  const [filterStatus, setFilterStatus] = useState('All');
+  const [filterStatus, setFilterStatus] = useState('Scheduled');
   const [clients, setClients] = useState([]);
   const [settings, setSettings] = useState({});
   const [ptPackages, setPtPackages] = useState([]);
@@ -111,7 +111,7 @@ const AdvanceBookingPage = () => {
     price: '',
     discount_amount: '',
     paid_amount: '',
-    booking_start_date: getTomorrowDateStr(),
+    booking_start_date: new Date().toISOString().split('T')[0],
     booking_end_date: '',
     payment_method: 'CASH'
   });
@@ -326,11 +326,24 @@ const AdvanceBookingPage = () => {
     ) || null;
   };
 
-  const parseClientExpiryDate = (dateStr) => {
-    if (!dateStr) return null;
-    if (dateStr instanceof Date) return isNaN(dateStr.getTime()) ? null : dateStr;
-    let str = String(dateStr).trim();
+  const parseClientExpiryDate = (dateVal) => {
+    if (!dateVal) return null;
+    if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
+    if (typeof dateVal === 'number') {
+      const d = new Date(dateVal);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    let str = String(dateVal).trim();
     if (!str) return null;
+
+    if (!isNaN(str) && str.length >= 10 && !str.includes('-') && !str.includes('/') && !str.includes('.')) {
+      const num = Number(str);
+      if (!isNaN(num)) {
+        const d = new Date(num);
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
     if (str.includes('T')) str = str.split('T')[0];
     if (str.includes(' ')) str = str.split(' ')[0];
 
@@ -358,9 +371,9 @@ const AdvanceBookingPage = () => {
     return isNaN(d.getTime()) ? null : d;
   };
 
-  const calculateNextDayDate = (dateStr) => {
-    if (!dateStr) return getTomorrowDateStr();
-    const parsed = parseClientExpiryDate(dateStr);
+  const calculateNextDayDate = (dateVal) => {
+    if (!dateVal) return new Date().toISOString().split('T')[0];
+    const parsed = parseClientExpiryDate(dateVal);
     if (parsed) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -376,13 +389,14 @@ const AdvanceBookingPage = () => {
         return `${yyyy}-${mm}-${dd}`;
       }
     }
-    return getTomorrowDateStr();
+    return new Date().toISOString().split('T')[0];
   };
 
   const getNextMembershipStartDate = (client) => {
-    if (!client) return getTomorrowDateStr();
+    if (!client) return new Date().toISOString().split('T')[0];
 
-    let latestExpiryDate = client.expiryDate ? parseClientExpiryDate(client.expiryDate) : null;
+    const rawExpiry = client.expiryDate || client.expiry_date || client.currentPlanExpiry;
+    let latestExpiryDate = rawExpiry ? parseClientExpiryDate(rawExpiry) : null;
 
     // Check if client has scheduled general package advance bookings
     const clientBookings = (generalBookings || []).filter(b =>
@@ -403,7 +417,45 @@ const AdvanceBookingPage = () => {
       return calculateNextDayDate(latestExpiryDate);
     }
 
-    return getTomorrowDateStr();
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const getNextPtStartDate = (client) => {
+    if (!client) return new Date().toISOString().split('T')[0];
+
+    let latestExpiry = null;
+
+    const runningPt = hasRunningPtPlan(client.id || client.clientId);
+    if (runningPt && (runningPt.expiry_date || runningPt.expiryDate)) {
+      const p = parseClientExpiryDate(runningPt.expiry_date || runningPt.expiryDate);
+      if (p) latestExpiry = p;
+    }
+
+    (ptBookings || []).forEach(b => {
+      if ((String(b.client_id) === String(client.id) || String(b.clientCode) === String(client.clientId)) && ['Scheduled', 'ReadyToActivate', 'Active'].includes(b.status)) {
+        if (b.booking_start_date) {
+          const selPkg = ptPackages.find(pkg => String(pkg.id) === String(b.pt_package_id));
+          const dur = selPkg ? (selPkg.duration_days || 30) : 30;
+          const bEnd = calculatePlanExpiryDate(b.booking_start_date, 'PT', dur);
+          const pEnd = parseClientExpiryDate(bEnd);
+          if (pEnd && (!latestExpiry || pEnd > latestExpiry)) {
+            latestExpiry = pEnd;
+          }
+        }
+      }
+    });
+
+    const genExp = client.expiryDate || client.expiry_date || client.currentPlanExpiry;
+    if (!latestExpiry && genExp) {
+      const pGen = parseClientExpiryDate(genExp);
+      if (pGen) latestExpiry = pGen;
+    }
+
+    if (latestExpiry) {
+      return calculateNextDayDate(latestExpiry);
+    }
+
+    return new Date().toISOString().split('T')[0];
   };
 
   const handleGenClientChange = (cId) => {
@@ -459,11 +511,18 @@ const AdvanceBookingPage = () => {
       }
     }
 
+    if (ptForm.client_id && clients.length > 0) {
+      setPtForm(prev => ({
+        ...prev,
+        booking_start_date: prev.booking_start_date || new Date().toISOString().split('T')[0]
+      }));
+    }
+
     setIsModalOpen(true);
   };
 
-  const selectedGenClient = clients.find(c => c.id === genForm.client_id);
-  const selectedPtClient = clients.find(c => c.id === ptForm.client_id);
+  const selectedGenClient = clients.find(c => String(c.id) === String(genForm.client_id) || String(c.clientId) === String(genForm.client_id));
+  const selectedPtClient = clients.find(c => String(c.id) === String(ptForm.client_id) || String(c.clientId) === String(ptForm.client_id));
 
   // Available Tariff Keys from settings (guarantees options exist even if DB uses standard keys)
   const availableTariffs = Array.from(new Set([
@@ -753,7 +812,7 @@ const AdvanceBookingPage = () => {
       <div className="adv-content-card">
         {/* Status Filter Pills */}
         <div style={{ display: 'flex', gap: '8px', padding: '1.25rem 1.5rem 0.75rem 1.5rem', flexWrap: 'wrap', borderBottom: '1px solid #f1f5f9' }}>
-          {['All', 'Scheduled', 'ReadyToActivate', 'Active', 'Cancelled'].map(st => (
+          {['Scheduled', 'ReadyToActivate', 'Active', 'Cancelled', 'All'].map(st => (
             <button
               key={st}
               onClick={() => setFilterStatus(st)}
@@ -768,7 +827,7 @@ const AdvanceBookingPage = () => {
                 cursor: 'pointer'
               }}
             >
-              {st === 'All' ? 'All Statuses' : st === 'ReadyToActivate' ? '⚡ Ready To Activate' : st}
+              {st === 'All' ? 'All Statuses' : st === 'ReadyToActivate' ? '⚡ Ready To Activate' : st === 'Scheduled' ? '⏳ Scheduled' : st}
             </button>
           ))}
         </div>
@@ -1076,11 +1135,6 @@ const AdvanceBookingPage = () => {
                   <div className="client-summary-banner">
                     <span>Active Plan: <strong>{selectedGenClient.plan || 'None'}</strong></span>
                     <span>Current Expiry: <strong>{selectedGenClient.expiryDate ? formatDateDDMMYYYY(selectedGenClient.expiryDate) : 'N/A'}</strong></span>
-                    {selectedGenClient.expiryDate && (
-                      <span style={{ color: '#047857', fontWeight: '800' }}>
-                        📅 New Start Date: <strong>{formatDateDDMMYYYY(genForm.booking_start_date)}</strong> (Day after current expiry)
-                      </span>
-                    )}
                   </div>
                 )}
 

@@ -44,7 +44,7 @@ const ManageClientsPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState('Active');
+  const [activeFilter, setActiveFilter] = useState('Inactive');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [idSortOrder, setIdSortOrder] = useState('asc'); // 'asc' | 'desc'
@@ -448,7 +448,7 @@ const ManageClientsPage = () => {
     } else if (statusParam === 'All') {
       setActiveFilter('All');
     } else if (!statusParam) {
-      setActiveFilter('Active');
+      setActiveFilter('Inactive');
     }
   }, [location.search]);
 
@@ -993,7 +993,7 @@ const ManageClientsPage = () => {
       const { effectiveDue } = calcClientDueDetails(client);
 
       if (activeFilter === 'Active') return !isExpired;
-      if (activeFilter === 'Inactive') return isExpired;
+      if (activeFilter === 'Inactive') return isExpired || effectiveDue > 0 || isExpiringSoon;
       if (activeFilter === 'Reminder') return isExpiringSoon;
       if (activeFilter === 'Due Payment') return effectiveDue > 0;
 
@@ -1204,7 +1204,7 @@ const ManageClientsPage = () => {
       <header className="manage-header-section reveal">
         <div className="title-group">
           <h1><span>CLIENT</span> LIST</h1>
-          <p>System initialized. Monitoring active membership records.</p>
+          <p>System initialized. Monitoring inactive, pending, and relevant client records.</p>
         </div>
 
         <div className="stats-bar">
@@ -1304,9 +1304,9 @@ const ManageClientsPage = () => {
 
         <div className="filter-group">
           <div className="filter-pills">
-            {['All', 'Active', 'Due Payment', 'Inactive', 'Reminder'].map(filter => {
+            {['Inactive', 'Due Payment', 'Reminder', 'Active', 'All'].map(filter => {
               const dueCount = clients.filter(c => calcClientDueDetails(c).effectiveDue > 0).length;
-              const label = filter === 'Due Payment' ? `Due Payment (${dueCount})` : filter;
+              const label = filter === 'Due Payment' ? `Due Payment (${dueCount})` : (filter === 'Inactive' ? 'Inactive / Pending' : filter);
               return (
                 <button
                   key={filter}

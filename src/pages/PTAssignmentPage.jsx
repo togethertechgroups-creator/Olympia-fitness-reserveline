@@ -148,6 +148,35 @@ const PTAssignmentPage = () => {
     timing: ''
   });
 
+  const [timingModal, setTimingModal] = useState({
+    isOpen: false,
+    assignment: null,
+    timing: ''
+  });
+
+  const handleOpenTimingModal = (item) => {
+    setTimingModal({
+      isOpen: true,
+      assignment: item,
+      timing: item.timing || ''
+    });
+  };
+
+  const handleSaveTiming = async (e) => {
+    e.preventDefault();
+    if (!timingModal.assignment) return;
+    try {
+      await updatePtAssignment(timingModal.assignment.id, {
+        timing: timingModal.timing ? timingModal.timing.trim() : ''
+      });
+      setTimingModal({ isOpen: false, assignment: null, timing: '' });
+      showCustomAlert('Timing Updated', 'The workout timing has been updated successfully.');
+      loadAllData();
+    } catch (err) {
+      showCustomAlert('Update Error', err.message || 'Failed to update workout timing.');
+    }
+  };
+
   const handleOpenEditModal = (item) => {
     setEditingAssignment(item);
     setEditFormData({
@@ -164,7 +193,12 @@ const PTAssignmentPage = () => {
     e.preventDefault();
     if (!editingAssignment) return;
     try {
-      await updatePtAssignment(editingAssignment.id, editFormData);
+      const classesStarted = parseInt(editingAssignment.classes_completed || 0, 10) > 0;
+      const payload = classesStarted
+        ? { timing: editFormData.timing ? editFormData.timing.trim() : '' }
+        : editFormData;
+
+      await updatePtAssignment(editingAssignment.id, payload);
       setIsEditModalOpen(false);
       setEditingAssignment(null);
       showCustomAlert('Assignment Updated', 'The PT assignment details have been updated successfully.');
@@ -558,6 +592,11 @@ const PTAssignmentPage = () => {
     // 4. Search Query
     if (searchQuery && searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
+      const cName = (a.clientName || '').toLowerCase();
+      const cCode = (a.clientCode || a.client_id || '').toLowerCase();
+      const cPhone = (a.clientPhone || '').toLowerCase();
+      const tName = (a.trainerName || '').toLowerCase();
+      const pName = (a.packageName || '').toLowerCase();
       const timingStr = (a.timing || '').toLowerCase();
       const matches = cName.includes(q) || cCode.includes(q) || cPhone.includes(q) || tName.includes(q) || pName.includes(q) || timingStr.includes(q);
       if (!matches) return false;
@@ -791,8 +830,8 @@ const PTAssignmentPage = () => {
                         </td>
                         <td
                           style={{ cursor: 'pointer' }}
-                          onClick={() => handleOpenEditModal(item)}
-                          title="Click to edit timing"
+                          onClick={() => handleOpenTimingModal(item)}
+                          title="Click to edit workout timing"
                         >
                           {item.timing ? (
                             <span className="timing-pill">
@@ -885,26 +924,49 @@ const PTAssignmentPage = () => {
                               const classesStarted = parseInt(item.classes_completed || 0, 10) > 0;
                               return (
                                 <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenEditModal(item)}
-                                    style={{
-                                      padding: '0.35rem 0.65rem',
-                                      fontSize: '0.78rem',
-                                      fontWeight: '700',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cbd5e1',
-                                      background: '#ffffff',
-                                      color: '#334155',
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px'
-                                    }}
-                                    title={classesStarted ? `Edit Timing (${item.classes_completed} classes conducted)` : 'Edit PT Assignment'}
-                                  >
-                                    ✏️ Edit
-                                  </button>
+                                  {classesStarted ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenTimingModal(item)}
+                                      style={{
+                                        padding: '0.35rem 0.65rem',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        borderRadius: '6px',
+                                        border: '1px solid #6366f1',
+                                        background: '#e0e7ff',
+                                        color: '#4338ca',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                      }}
+                                      title={`Edit Workout Timing (${item.classes_completed} classes conducted)`}
+                                    >
+                                      ⏱️ Edit Timing
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditModal(item)}
+                                      style={{
+                                        padding: '0.35rem 0.65rem',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        background: '#ffffff',
+                                        color: '#334155',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px'
+                                      }}
+                                      title="Edit PT Assignment Details"
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                  )}
 
                                   {isSuperAdmin && (
                                     <button
@@ -1405,6 +1467,43 @@ const PTAssignmentPage = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Workout Timing Modal (Timing Only) */}
+      {timingModal.isOpen && timingModal.assignment && (
+        <div className="trainer-modal-overlay">
+          <div className="trainer-modal-content animated-scale-in" style={{ maxWidth: '480px' }}>
+            <div className="trainer-modal-header">
+              <h2>Edit Workout Timing</h2>
+              <button className="btn-close" onClick={() => setTimingModal({ isOpen: false, assignment: null, timing: '' })}>&times;</button>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.88rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+              <div><strong>Client:</strong> {timingModal.assignment.clientName}</div>
+              <div><strong>Package:</strong> {timingModal.assignment.packageName}</div>
+              <div><strong>Trainer:</strong> {timingModal.assignment.trainerName}</div>
+            </div>
+
+            <form onSubmit={handleSaveTiming} className="trainer-form">
+              <div className="trainer-form-group">
+                <label style={{ fontWeight: '700', color: '#0f172a' }}>Workout Timing / Slot</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                  value={timingModal.timing}
+                  onChange={e => setTimingModal(prev => ({ ...prev, timing: e.target.value }))}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600' }}
+                  autoFocus
+                />
+              </div>
+
+              <div className="trainer-modal-footer" style={{ marginTop: '1.5rem' }}>
+                <button type="button" className="trainer-btn-cancel" onClick={() => setTimingModal({ isOpen: false, assignment: null, timing: '' })}>Cancel</button>
+                <button type="submit" className="trainer-btn-save">Save Timing</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
