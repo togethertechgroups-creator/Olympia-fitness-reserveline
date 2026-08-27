@@ -1449,7 +1449,7 @@ const calculateExpiryDate = (assignedDateStr, durationDays = 30) => {
 const COMMISSION_MATRIX = {
   'A_PRO_PT': { Slab1: 0.40, Slab2: 0.25 },
   'A': { Slab1: 0.40, Slab2: 0.25 },
-  'B': { Slab1: 0.30, Slab2: 0.25 }
+  'B': { Slab1: 0.40, Slab2: 0.25 }
 };
 
 const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
@@ -1477,8 +1477,8 @@ const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
 };
 
 const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
-  const totalRevenue = await getTrainerMonthlyPtBaseRevenue(trainerId, yearMonthStr);
-  const currentSlab = getSlabForRevenue(totalRevenue);
+  const gymTotalRevenue = await getMonthlyGymTotalRevenue(yearMonthStr);
+  const currentSlab = getSlabForRevenue(gymTotalRevenue);
 
   const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
   if (!trainer) return currentSlab;
@@ -2241,6 +2241,8 @@ app.get('/api/trainers', async (req, res) => {
 
     const now = new Date();
     const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const gymTotalRevenue = await getMonthlyGymTotalRevenue(currentMonthStr);
+    const activeSlab = getSlabForRevenue(gymTotalRevenue);
 
     const trainersWithStats = await Promise.all(trainers.map(async (tr) => {
       const clientCountRow = await db.prepare(`
@@ -2254,7 +2256,6 @@ app.get('/api/trainers', async (req, res) => {
       const clientCount = clientCountRow ? clientCountRow.totalClients : 0;
       await syncTrainerMonthlyClassLogs(tr.id, currentMonthStr);
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
-      const activeSlab = getSlabForRevenue(baseRevenue);
 
       const logs = await db.prepare(`
         SELECT per_class_rate_snapshot
@@ -2267,7 +2268,7 @@ app.get('/api/trainers', async (req, res) => {
       const hasCustomRate = tr.custom_commission_percent !== null && tr.custom_commission_percent !== undefined && tr.custom_commission_percent !== '';
       const standardRate = (tr.grade && COMMISSION_MATRIX[tr.grade])
         ? (COMMISSION_MATRIX[tr.grade][activeSlab] || COMMISSION_MATRIX[tr.grade].Slab2 || 0.25) * 100
-        : 25;
+        : (activeSlab === 'Slab1' ? 40 : 25);
       const commRatePercent = hasCustomRate
         ? parseFloat(tr.custom_commission_percent)
         : standardRate;
@@ -2280,6 +2281,7 @@ app.get('/api/trainers', async (req, res) => {
         ...tr,
         clientCount: clientCount,
         monthlyPtBaseRevenue: baseRevenue,
+        monthlyGymTotalRevenue: gymTotalRevenue,
         activeSlab: activeSlab,
         commissionPercent: commRatePercent,
         commissionSalary: calculatedCommSalary,
@@ -3786,7 +3788,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
     const reportData = await Promise.all(trainers.map(async (tr) => {
       await syncTrainerMonthlyClassLogs(tr.id, targetMonth);
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
-      const activeSlab = getSlabForRevenue(baseRevenue);
+      const activeSlab = getSlabForRevenue(gymTotalRevenue);
 
       const logs = await db.prepare(`
         SELECT l.*,
@@ -4180,9 +4182,10 @@ app.get('/api/stats/pt-summary', async (req, res) => {
 
     const totalPtCommissionPayable = totalRow && totalRow.totalPayable ? totalRow.totalPayable : 0;
 
+    const gymTotalRevenue = await getMonthlyGymTotalRevenue(currentMonthStr);
     const trainerRevenueList = await Promise.all(trainers.map(async tr => {
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
-      const activeSlab = getSlabForRevenue(baseRevenue);
+      const activeSlab = getSlabForRevenue(gymTotalRevenue);
       return {
         id: tr.id,
         name: tr.name,

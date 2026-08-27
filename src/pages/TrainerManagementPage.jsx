@@ -267,12 +267,16 @@ const TrainerManagementPage = () => {
         ) : (
           trainers.map(trainer => {
             const rev = trainer.monthlyPtBaseRevenue || 0;
+            const gymRev = trainer.monthlyGymTotalRevenue !== undefined ? trainer.monthlyGymTotalRevenue : rev;
             const target = 300000;
-            const pct = Math.min(100, Math.round((rev / target) * 100));
-            const isSlab1 = rev > target;
+            const pct = Math.min(100, Math.round((gymRev / target) * 100));
+            const isSlab1 = trainer.activeSlab === 'Slab1' || gymRev > target;
             const gradeClass = (trainer.grade || 'unassigned').toLowerCase();
             const isAbsentToday = todayStatuses.some(s => String(s.trainer_id) === String(trainer.id) && s.status === 'Absent');
             const hasCustomComm = trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '';
+            const commPercent = trainer.commissionPercent !== undefined
+              ? trainer.commissionPercent
+              : (hasCustomComm ? parseFloat(trainer.custom_commission_percent) : (isSlab1 ? 40 : 25));
 
             return (
               <div key={trainer.id} className={`trainer-card ${trainer.status.toLowerCase()}`}>
@@ -358,7 +362,7 @@ const TrainerManagementPage = () => {
                     <div className="pt-revenue-header">
                       <span className="pt-revenue-title">This Month PT Base Revenue</span>
                       <span className={`slab-badge ${hasCustomComm ? 'custom-rate' : (isSlab1 ? 'slab1' : 'slab2')}`}>
-                        {hasCustomComm ? `Custom Rate: ${trainer.custom_commission_percent}%` : (isSlab1 ? 'Slab 1' : 'Slab 2')}
+                        {hasCustomComm ? `Custom Rate: ${trainer.custom_commission_percent}%` : (isSlab1 ? '40% (Gym > ₹3L)' : '25% (Gym ≤ ₹3L)')}
                       </span>
                     </div>
                     <div className="pt-revenue-val">{formatCurrency(rev)}</div>
@@ -374,10 +378,10 @@ const TrainerManagementPage = () => {
                     }}>
                       <div>
                         <div style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.03em' }}>
-                          PT Commission ({trainer.commissionPercent || (hasCustomComm ? trainer.custom_commission_percent : (isSlab1 ? (trainer.grade === 'B' ? 30 : 40) : 25))}%)
+                          PT Commission ({commPercent}%)
                         </div>
                         <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#059669', marginTop: '2px' }}>
-                          {formatCurrency(trainer.commissionSalary !== undefined ? trainer.commissionSalary : (rev * ((trainer.commissionPercent || 25) / 100)))}
+                          {formatCurrency(trainer.commissionSalary !== undefined ? trainer.commissionSalary : (rev * (commPercent / 100)))}
                         </div>
                       </div>
                       <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px' }}>
@@ -391,8 +395,8 @@ const TrainerManagementPage = () => {
                           <div className="slab-progress-bar-fill" style={{ width: `${pct}%` }}></div>
                         </div>
                         <div className="slab-progress-text">
-                          <span>{pct}% of ₹3L Slab Threshold</span>
-                          <span>{isSlab1 ? 'Slab 1 Unlocked 🎉' : `₹${Math.round(target - rev).toLocaleString('en-IN')} to Slab 1`}</span>
+                          <span>Gym Total: {formatCurrency(gymRev)} ({pct}% of ₹3L)</span>
+                          <span>{isSlab1 ? '40% Commission Unlocked 🎉' : `${formatCurrency(Math.max(0, target - gymRev))} to 40% (Currently 25%)`}</span>
                         </div>
                       </div>
                     )}
@@ -570,7 +574,7 @@ const TrainerManagementPage = () => {
                   placeholder="e.g. 35 (Leave blank for standard grade commission)"
                 />
                 <small style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '0.25rem', display: 'block', lineHeight: '1.3' }}>
-                  Leave blank to use standard grade-based commission (A Pro PT/A: 40%↓25%, B: 30%↓25%). If set, this fixed rate applies to all this trainer's PT payouts regardless of monthly revenue slab.
+                  Leave blank to use standard gym revenue commission (Gym Revenue &gt; ₹3L: 40%, ≤ ₹3L: 25%). If set, this fixed rate applies to all this trainer's PT payouts regardless of monthly gym revenue.
                 </small>
               </div>
 
