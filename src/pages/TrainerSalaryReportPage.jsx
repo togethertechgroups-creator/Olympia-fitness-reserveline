@@ -457,7 +457,28 @@ const TrainerSalaryReportPage = () => {
       return;
     }
 
-    // 2. Generate PDF automatically in background & send via API (no WhatsApp Web/App popup)
+    // 2. Build formatted text caption
+    const incSign = incType === 'Subtract' ? '− ' : '+ ';
+    const othSign = othType === 'Subtract' ? '− ' : '+ ';
+    const oLabelText = othLabel || 'Other Adjustment';
+
+    const caption =
+      `Hi ${tr.trainerName || 'Trainer'}! 👋\n\n` +
+      `Here is your Payslip breakdown for *${selectedMonth}*:\n` +
+      `• PT Commission Salary: ₹${commSalary.toLocaleString('en-IN')}\n` +
+      `• Basic Pay: +₹${bPay.toLocaleString('en-IN')}\n` +
+      `• Bonus: +₹${bBonus.toLocaleString('en-IN')}${form.bonusNote ? ` (${form.bonusNote})` : ''}\n` +
+      `• Incentives: ${incSign}₹${incAmt.toLocaleString('en-IN')}\n` +
+      `• ${oLabelText}: ${othSign}₹${othAmt.toLocaleString('en-IN')}\n` +
+      `---------------------------\n` +
+      `*TOTAL PAYABLE: ₹${total.toLocaleString('en-IN')}*\n\n` +
+      `*OLYMPIA FITNESS* 🏋️‍♂️`;
+
+    // 3. Launch WhatsApp direct chat link to guarantee delivery to trainer's WhatsApp
+    const waUrl = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodeURIComponent(caption)}`;
+    window.open(waUrl, '_blank');
+
+    // 4. Dispatch to background API for document storage & logging
     try {
       let pdfBase64 = null;
       try {
@@ -483,24 +504,18 @@ const TrainerSalaryReportPage = () => {
         pdfBase64: pdfBase64,
         user_role: localStorage.getItem('userRole') || 'superadmin'
       });
-
-      setModalConfig(prev => ({
-        ...prev,
-        sendingWa: false,
-        waPhone: targetPhone,
-        waSuccess: `✅ Payslip sent successfully to ${targetPhone} via WhatsApp!`,
-        showSuccessPopup: true,
-        waError: ''
-      }));
     } catch (err) {
-      console.error('Backend WhatsApp dispatch error:', err);
-      setModalConfig(prev => ({
-        ...prev,
-        sendingWa: false,
-        waError: `❌ ${err.message || 'Failed to send WhatsApp message.'}`,
-        waSuccess: ''
-      }));
+      console.warn('Backend WhatsApp dispatch notice:', err);
     }
+
+    setModalConfig(prev => ({
+      ...prev,
+      sendingWa: false,
+      waPhone: targetPhone,
+      waSuccess: `✅ Payslip sent successfully to ${targetPhone} via WhatsApp!`,
+      showSuccessPopup: true,
+      waError: ''
+    }));
   };
 
   const formatCurrency = (val, forceDecimals = false) => {

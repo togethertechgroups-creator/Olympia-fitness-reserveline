@@ -58,14 +58,18 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   };
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Access-Token': waKey
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
     if (resp.ok && (data.success === true || data.status === true)) {
@@ -79,7 +83,11 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   // Fallback to GET endpoint
   const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=text&message=${encodeURIComponent(message)}&access_token=${encodeURIComponent(waKey)}`;
   try {
-    const getResp = await fetch(getUrl);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const getResp = await fetch(getUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     const getData = await getResp.json().catch(() => ({}));
     if (getResp.ok && (getData.success === true || getData.status === true)) {
       console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET`);
@@ -129,14 +137,18 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   };
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Access-Token': waKey
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
     if (resp.ok && (data.success === true || data.status === true)) {
@@ -150,7 +162,11 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   // Fallback to GET endpoint
   const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&media_url=${encodeURIComponent(documentUrl || '')}&document_url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
   try {
-    const getResp = await fetch(getUrl);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const getResp = await fetch(getUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     const getData = await getResp.json().catch(() => ({}));
     if (getResp.ok && (getData.success === true || getData.status === true)) {
       console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET`);
