@@ -363,8 +363,30 @@ const TrainerManagementPage = () => {
                     </div>
                     <div className="pt-revenue-val">{formatCurrency(rev)}</div>
 
+                    {/* Calculated Percentage-wise PT Commission Payout */}
+                    <div style={{
+                      marginTop: '0.65rem',
+                      paddingTop: '0.65rem',
+                      borderTop: '1px dashed #cbd5e1',
+                      display: 'flex',
+                      justify: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '0.72rem', fontWeight: '800', textTransform: 'uppercase', color: '#64748b', letterSpacing: '0.03em' }}>
+                          PT Commission ({trainer.commissionPercent || (hasCustomComm ? trainer.custom_commission_percent : (isSlab1 ? (trainer.grade === 'B' ? 30 : 40) : 25))}%)
+                        </div>
+                        <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#059669', marginTop: '2px' }}>
+                          {formatCurrency(trainer.commissionSalary !== undefined ? trainer.commissionSalary : (rev * ((trainer.commissionPercent || 25) / 100)))}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px' }}>
+                        {trainer.classesConducted || 0} Classes Logged
+                      </div>
+                    </div>
+
                     {!hasCustomComm && (
-                      <div className="slab-progress-container">
+                      <div className="slab-progress-container" style={{ marginTop: '0.65rem' }}>
                         <div className="slab-progress-bar-bg">
                           <div className="slab-progress-bar-fill" style={{ width: `${pct}%` }}></div>
                         </div>

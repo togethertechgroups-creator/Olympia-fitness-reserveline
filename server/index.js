@@ -2252,14 +2252,39 @@ app.get('/api/trainers', async (req, res) => {
       `).get(tr.id, tr.id);
 
       const clientCount = clientCountRow ? clientCountRow.totalClients : 0;
+      await syncTrainerMonthlyClassLogs(tr.id, currentMonthStr);
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, currentMonthStr);
       const activeSlab = getSlabForRevenue(baseRevenue);
+
+      const logs = await db.prepare(`
+        SELECT per_class_rate_snapshot
+        FROM pt_class_log
+        WHERE trainer_id = ? AND strftime('%Y-%m', class_date) = ?
+      `).all(tr.id, currentMonthStr);
+
+      const totalSalary = (logs || []).reduce((sum, item) => sum + (item.per_class_rate_snapshot || 0), 0);
+
+      const hasCustomRate = tr.custom_commission_percent !== null && tr.custom_commission_percent !== undefined && tr.custom_commission_percent !== '';
+      const standardRate = (tr.grade && COMMISSION_MATRIX[tr.grade])
+        ? (COMMISSION_MATRIX[tr.grade][activeSlab] || COMMISSION_MATRIX[tr.grade].Slab2 || 0.25) * 100
+        : 25;
+      const commRatePercent = hasCustomRate
+        ? parseFloat(tr.custom_commission_percent)
+        : standardRate;
+
+      const calculatedCommSalary = (logs && logs.length > 0)
+        ? totalSalary
+        : Math.round(baseRevenue * (commRatePercent / 100));
 
       return {
         ...tr,
         clientCount: clientCount,
         monthlyPtBaseRevenue: baseRevenue,
-        activeSlab: activeSlab
+        activeSlab: activeSlab,
+        commissionPercent: commRatePercent,
+        commissionSalary: calculatedCommSalary,
+        totalSalary: calculatedCommSalary,
+        classesConducted: (logs || []).length
       };
     }));
 
