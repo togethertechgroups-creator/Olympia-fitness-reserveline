@@ -1006,33 +1006,33 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
 
       {/* Confirmation Success Popup Modal */}
       {modalConfig.showSuccessPopup && (
-        <div className="payslip-modal-overlay animated-fade-in" style={{ zIndex: 1200 }}>
-          <div className="payslip-modal-card" style={{ maxWidth: '420px', textAlign: 'center', padding: '2rem 1.5rem', background: '#ffffff', borderRadius: '16px' }}>
+        <div className="payslip-modal-overlay animated-fade-in" style={{ zIndex: 9999 }}>
+          <div className="payslip-modal-card" style={{ maxWidth: '440px', textAlign: 'center', padding: '2.2rem 1.75rem', background: '#ffffff', borderRadius: '20px', boxShadow: '0 25px 60px rgba(0, 0, 0, 0.4)' }}>
             <div style={{
-              width: '64px',
-              height: '64px',
+              width: '68px',
+              height: '68px',
               background: 'linear-gradient(135deg, #059669, #10b981)',
               color: '#ffffff',
               borderRadius: '50%',
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '2.2rem',
+              fontSize: '2.4rem',
               fontWeight: '900',
               margin: '0 auto 1.25rem auto',
-              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.35)'
+              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.4)'
             }}>
               ✓
             </div>
-            <h3 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.3rem', fontWeight: '800' }}>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.4rem', fontWeight: '800' }}>
               Payslip Sent Successfully!
             </h3>
-            <p style={{ color: '#475569', fontSize: '0.93rem', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+            <p style={{ color: '#475569', fontSize: '0.95rem', lineHeight: '1.5', margin: '0 0 1.75rem 0' }}>
               The salary payslip PDF for <strong>{modalConfig.trainer?.trainerName}</strong> ({selectedMonth}) has been generated and delivered directly to <strong>+{modalConfig.waPhone}</strong> via WhatsApp in the background.
             </p>
             <button
               className="btn-primary-modal"
-              style={{ width: '100%', padding: '0.75rem', fontSize: '0.98rem', fontWeight: '800', background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: '10px', color: '#ffffff', cursor: 'pointer' }}
+              style={{ width: '100%', padding: '0.8rem', fontSize: '1rem', fontWeight: '800', background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: '12px', color: '#ffffff', cursor: 'pointer', boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)' }}
               onClick={() => setModalConfig(prev => ({ ...prev, isOpen: false, showSuccessPopup: false }))}
             >
               OK
