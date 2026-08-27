@@ -15,7 +15,7 @@ const AddClientPage = () => {
   const navigate = useNavigate();
   const [settings, setSettings] = useState({});
   const [formData, setFormData] = useState({
-    clientId: '',
+    clientId: '2857',
     name: '',
     gender: 'Male',
     phone: '',
@@ -125,7 +125,7 @@ const AddClientPage = () => {
       if (data && data.nextId) {
         setFormData(prev => ({
           ...prev,
-          clientId: prev.clientId ? prev.clientId : data.nextId
+          clientId: (prev.clientId && prev.clientId !== '2857') ? prev.clientId : data.nextId
         }));
       }
     } catch (error) {

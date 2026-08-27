@@ -1695,7 +1695,7 @@ const getNextSequentialClientId = async () => {
       const str = String(row.clientId).trim();
       if (/^\d+$/.test(str)) {
         const num = parseInt(str, 10);
-        if (!isNaN(num) && num < 100000 && num > maxId) {
+        if (!isNaN(num) && num >= 2857 && num < 100000 && num > maxId) {
           maxId = num;
         }
       } else {
