@@ -98,6 +98,12 @@ const AdvanceBookingPage = () => {
     clientId: ''
   });
 
+  const getTomorrowDateStr = () => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  };
+
   // General Booking Form
   const [genForm, setGenForm] = useState({
     client_id: preselectedClientId,
@@ -105,7 +111,7 @@ const AdvanceBookingPage = () => {
     price: '',
     discount_amount: '',
     paid_amount: '',
-    booking_start_date: new Date().toISOString().split('T')[0],
+    booking_start_date: getTomorrowDateStr(),
     booking_end_date: '',
     payment_method: 'CASH'
   });
@@ -353,7 +359,7 @@ const AdvanceBookingPage = () => {
   };
 
   const calculateNextDayDate = (dateStr) => {
-    if (!dateStr) return new Date().toISOString().split('T')[0];
+    if (!dateStr) return getTomorrowDateStr();
     const parsed = parseClientExpiryDate(dateStr);
     if (parsed) {
       parsed.setDate(parsed.getDate() + 1);
@@ -362,17 +368,13 @@ const AdvanceBookingPage = () => {
       const dd = String(parsed.getDate()).padStart(2, '0');
       return `${yyyy}-${mm}-${dd}`;
     }
-    return new Date().toISOString().split('T')[0];
+    return getTomorrowDateStr();
   };
 
   const handleGenClientChange = (cId) => {
     setIsDirty(true);
     const selClient = clients.find(c => c.id === cId);
-    let defaultStart = new Date().toISOString().split('T')[0];
-
-    if (selClient && selClient.expiryDate) {
-      defaultStart = calculateNextDayDate(selClient.expiryDate);
-    }
+    const defaultStart = calculateNextDayDate(selClient?.expiryDate);
 
     let endDateStr = genForm.booking_end_date;
     if (genForm.plan_type) {
@@ -426,8 +428,8 @@ const AdvanceBookingPage = () => {
       
     const durDays = settings[`${plan}_duration`] || (plan === 'Quarterly' ? 90 : (plan === 'Half-Yearly' ? 180 : (plan === 'Annual' ? 365 : 30)));
     
-    // Auto compute end date
-    const startStr = genForm.booking_start_date || new Date().toISOString().split('T')[0];
+    // Auto compute end date starting from booking_start_date
+    const startStr = genForm.booking_start_date || getTomorrowDateStr();
     const startDateObj = new Date(startStr);
     startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
     const endDateStr = startDateObj.toISOString().split('T')[0];
