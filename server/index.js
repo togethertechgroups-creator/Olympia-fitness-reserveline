@@ -3979,10 +3979,14 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
         const pdfBuffer = Buffer.from(cleanBase64, 'base64');
         const filename = `Payslip_${(trainerName || 'Trainer').replace(/[^a-zA-Z0-9_-]/g, '_')}_${month}.pdf`;
         const savedPath = await savePdfDocument(pdfBuffer, filename, req.env);
-        const host = req.get('host') || 'localhost';
-        const proto = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
         if (savedPath) {
-          finalDocUrl = `${proto}://${host}${savedPath}`;
+          if (savedPath.startsWith('http://') || savedPath.startsWith('https://')) {
+            finalDocUrl = savedPath;
+          } else {
+            const host = req.get('host') || 'localhost';
+            const proto = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+            finalDocUrl = `${proto}://${host}${savedPath.startsWith('/') ? '' : '/'}${savedPath}`;
+          }
         }
       } catch (e) {
         console.warn('Payslip PDF upload notice:', e.message);
