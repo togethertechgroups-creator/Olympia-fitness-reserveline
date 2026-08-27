@@ -1661,17 +1661,24 @@ app.get('/api/clients/check-id/:clientId', async (req, res) => {
 
 app.get('/api/clients/next-id', async (req, res) => {
   try {
-    const row = await db.prepare("SELECT clientId FROM clients WHERE clientId LIKE 'GYM2026%' ORDER BY clientId DESC LIMIT 1").get();
-    let nextId = 'GYM20260001';
+    const rows = await db.prepare('SELECT clientId FROM clients').all();
+    let maxId = 2856;
 
-    if (row && row.clientId) {
-      const match = row.clientId.match(/GYM2026(\d{4})/);
-      if (match) {
-        const nextNum = parseInt(match[1], 10) + 1;
-        nextId = `GYM2026${nextNum.toString().padStart(4, '0')}`;
+    if (rows && rows.length > 0) {
+      for (const row of rows) {
+        if (!row || !row.clientId) continue;
+        const str = String(row.clientId).trim();
+        const match = str.match(/\d+/g);
+        if (match) {
+          const num = parseInt(match[match.length - 1], 10);
+          if (!isNaN(num) && num > maxId) {
+            maxId = num;
+          }
+        }
       }
     }
 
+    const nextId = String(maxId + 1);
     res.json({ nextId });
   } catch (err) {
     res.status(500).json({ error: err.message });

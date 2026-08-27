@@ -116,7 +116,26 @@ const AddClientPage = () => {
   useEffect(() => {
     fetchSettings();
     fetchTrainers();
+    fetchNextClientId();
   }, []);
+
+  const fetchNextClientId = async () => {
+    try {
+      const data = await getNextClientId();
+      if (data && data.nextId) {
+        setFormData(prev => ({
+          ...prev,
+          clientId: prev.clientId ? prev.clientId : data.nextId
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch next client ID:', error);
+      setFormData(prev => ({
+        ...prev,
+        clientId: prev.clientId ? prev.clientId : '2857'
+      }));
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -372,7 +391,7 @@ const AddClientPage = () => {
                         type="text" name="clientId"
                         className={`input-field ${errors.clientId ? 'error-border' : ''}`}
                         value={formData.clientId} onChange={handleInputChange}
-                        placeholder="e.g. GYM20260001"
+                        placeholder="e.g. 2857"
                       />
                     </div>
 
