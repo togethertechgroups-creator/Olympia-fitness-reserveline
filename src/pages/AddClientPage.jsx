@@ -4,6 +4,7 @@ import { addClient, getNextClientId, getSettings, getTrainers, checkClientId } f
 import { planDurationDays } from '../data/mockData';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { isValidGSTIN } from '../utils/gstValidator';
+import { calculatePlanExpiryDate } from '../utils/formatDate';
 import './AddClientPage.css';
 
 const getTodayDate = () => {
@@ -184,28 +185,15 @@ const AddClientPage = () => {
 
     const dietPrice = formData.diet ? (settings.Diet || 0) : 0;
 
-    const start = new Date(formData.fromDate);
-    if (!isNaN(start.getTime())) {
-      let durationDays = settings[`${formData.plan}_duration`];
-      if (!durationDays) {
-        if (formData.plan === 'Annual') durationDays = 365;
-        else if (formData.plan === 'Half-Yearly' || formData.plan === 'Semi-Annual') durationDays = 180;
-        else if (formData.plan === 'Quarterly') durationDays = 90;
-        else if (formData.plan === 'Monthly') durationDays = 30;
-        else durationDays = 30;
-      }
-      durationDays = parseInt(durationDays, 10) || 30;
+    const startStr = formData.fromDate || getTodayDate();
+    const expiryDateStr = calculatePlanExpiryDate(startStr, formData.plan, settings[`${formData.plan}_duration`]);
 
-      const end = new Date(start);
-      end.setDate(start.getDate() + durationDays);
-      
-      const subtotal = basePrice + ptPrice + dietPrice;
-      const discountVal = parseFloat(formData.discount || 0);
-      setSummary({
-        toDate: end.toISOString().split('T')[0],
-        totalAmount: Math.max(0, subtotal - discountVal)
-      });
-    }
+    const subtotal = basePrice + ptPrice + dietPrice;
+    const discountVal = parseFloat(formData.discount || 0);
+    setSummary({
+      toDate: expiryDateStr,
+      totalAmount: Math.max(0, subtotal - discountVal)
+    });
   }, [formData.plan, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, formData.discount, settings]);
 
   const handleNextStep = (e) => {

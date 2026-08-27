@@ -7,7 +7,7 @@ import InvoicePreviewModal from '../components/InvoicePreviewModal';
 
 import './ManageClientsPage.css';
 
-import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatDateDDMMYYYY, calculatePlanExpiryDate } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import { parseUploadedExcel } from '../utils/excelParser';
 
@@ -18,11 +18,8 @@ const getDurationDays = (planName) => {
   return 30; // Monthly or default
 };
 
-const calcExpiryDateStr = (startDate, durationDays) => {
-  if (!startDate) return '';
-  const d = new Date(startDate);
-  d.setDate(d.getDate() + parseInt(durationDays, 10));
-  return d.toISOString().split('T')[0];
+const calcExpiryDateStr = (startDate, durationDays, planName = '') => {
+  return calculatePlanExpiryDate(startDate, planName, durationDays);
 };
 
 const calcClientDueDetails = (client) => {

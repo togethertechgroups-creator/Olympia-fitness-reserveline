@@ -19,7 +19,7 @@ import {
   getNextClientId
 } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
-import { formatDateDDMMYYYY } from '../utils/formatDate';
+import { formatDateDDMMYYYY, calculatePlanExpiryDate } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import './AdvanceBookingPage.css';
 
@@ -413,10 +413,7 @@ const AdvanceBookingPage = () => {
 
     let endDateStr = genForm.booking_end_date;
     if (genForm.plan_type) {
-      const durDays = settings[`${genForm.plan_type}_duration`] || (genForm.plan_type === 'Quarterly' ? 90 : (genForm.plan_type === 'Half-Yearly' ? 180 : (genForm.plan_type === 'Annual' ? 365 : 30)));
-      const startDateObj = new Date(defaultStart);
-      startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
-      endDateStr = startDateObj.toISOString().split('T')[0];
+      endDateStr = calculatePlanExpiryDate(defaultStart, genForm.plan_type, settings[`${genForm.plan_type}_duration`]);
     }
 
     setGenForm(prev => ({
@@ -451,10 +448,7 @@ const AdvanceBookingPage = () => {
         setGenForm(prev => {
           let endDateStr = prev.booking_end_date;
           if (prev.plan_type) {
-            const durDays = settings[`${prev.plan_type}_duration`] || (prev.plan_type === 'Quarterly' ? 90 : (prev.plan_type === 'Half-Yearly' ? 180 : (prev.plan_type === 'Annual' ? 365 : 30)));
-            const startDateObj = new Date(nextStart);
-            startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
-            endDateStr = startDateObj.toISOString().split('T')[0];
+            endDateStr = calculatePlanExpiryDate(nextStart, prev.plan_type, settings[`${prev.plan_type}_duration`]);
           }
           return {
             ...prev,
@@ -482,14 +476,9 @@ const AdvanceBookingPage = () => {
     const price = settings[`${plan}_Strengthening`] !== undefined && settings[`${plan}_Strengthening`] !== 0
       ? settings[`${plan}_Strengthening`]
       : (settings[plan] !== undefined ? settings[plan] : 0);
-      
-    const durDays = settings[`${plan}_duration`] || (plan === 'Quarterly' ? 90 : (plan === 'Half-Yearly' ? 180 : (plan === 'Annual' ? 365 : 30)));
-    
-    // Auto compute end date starting from booking_start_date
+
     const startStr = genForm.booking_start_date || getTomorrowDateStr();
-    const startDateObj = new Date(startStr);
-    startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
-    const endDateStr = startDateObj.toISOString().split('T')[0];
+    const endDateStr = calculatePlanExpiryDate(startStr, plan, settings[`${plan}_duration`]);
 
     setGenForm(prev => ({
       ...prev,
@@ -503,10 +492,7 @@ const AdvanceBookingPage = () => {
     setIsDirty(true);
     let endDateStr = genForm.booking_end_date;
     if (genForm.plan_type) {
-      const durDays = settings[`${genForm.plan_type}_duration`] || (genForm.plan_type === 'Quarterly' ? 90 : (genForm.plan_type === 'Half-Yearly' ? 180 : (genForm.plan_type === 'Annual' ? 365 : 30)));
-      const startDateObj = new Date(startDateStr);
-      startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
-      endDateStr = startDateObj.toISOString().split('T')[0];
+      endDateStr = calculatePlanExpiryDate(startDateStr, genForm.plan_type, settings[`${genForm.plan_type}_duration`]);
     }
     setGenForm(prev => ({ ...prev, booking_start_date: startDateStr, booking_end_date: endDateStr }));
   };
