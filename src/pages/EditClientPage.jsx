@@ -3,6 +3,7 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { planDurationDays } from '../data/mockData';
 import { getClientById, updateClient, getSettings, getTrainers } from '../api';
 import { isValidGSTIN } from '../utils/gstValidator';
+import { calculatePlanExpiryDate } from '../utils/formatDate';
 import './AddClientPage.css'; // Reuse AddClientPage styles
 
 const EditClientPage = () => {
@@ -196,26 +197,13 @@ const EditClientPage = () => {
       formData.diet !== initialPlanDetails.diet ||
       formData.fromDate !== initialPlanDetails.fromDate;
 
-    const start = new Date(formData.fromDate);
-    if (!isNaN(start.getTime())) {
-      let durationDays = settings[`${formData.plan}_duration`];
-      if (!durationDays) {
-        if (formData.plan === 'Annual') durationDays = 365;
-        else if (formData.plan === 'Half-Yearly' || formData.plan === 'Semi-Annual') durationDays = 180;
-        else if (formData.plan === 'Quarterly') durationDays = 90;
-        else if (formData.plan === 'Monthly') durationDays = 30;
-        else durationDays = 30;
-      }
-      durationDays = parseInt(durationDays, 10) || 30;
+    const startStr = formData.fromDate || '';
+    const expiryDateStr = calculatePlanExpiryDate(startStr, formData.plan, settings[`${formData.plan}_duration`]);
 
-      const end = new Date(start);
-      end.setDate(start.getDate() + durationDays);
-      
-      setSummary(prev => ({ 
-        toDate: hasPlanChanged ? end.toISOString().split('T')[0] : (prev.toDate || end.toISOString().split('T')[0]), 
-        totalAmount: hasPlanChanged ? currentCalculatedTotal : (formData.amount || prev.totalAmount)
-      }));
-    }
+    setSummary(prev => ({ 
+      toDate: hasPlanChanged ? expiryDateStr : (prev.toDate || expiryDateStr), 
+      totalAmount: hasPlanChanged ? currentCalculatedTotal : (formData.amount || prev.totalAmount)
+    }));
   }, [formData.plan, formData.programType, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, settings, initialPlanDetails]);
 
   // Removed PT date calculation useEffect

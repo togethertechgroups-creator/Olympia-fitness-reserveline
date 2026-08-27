@@ -54,19 +54,21 @@ export const calculatePlanExpiryDate = (startDateStr, planType, customDurationDa
     }
   }
 
-  const planLower = (planType || '').toLowerCase().trim();
+  const planClean = (planType || '').toLowerCase().replace(/[-_]/g, ' ').trim();
 
   let monthsToAdd = 0;
-  if (planLower.includes('annual') || planLower.includes('yearly') || planLower.includes('12 month')) {
+  if (planClean.includes('2 year') || planClean.includes('2 yr') || planClean.includes('24 m')) {
+    monthsToAdd = 24;
+  } else if (planClean.includes('annual') || planClean.includes('yearly') || planClean.includes('1 year') || planClean.includes('1 yr') || planClean.includes('12 m')) {
     monthsToAdd = 12;
-  } else if (planLower.includes('half-yearly') || planLower.includes('half yearly') || planLower.includes('semi-annual') || planLower.includes('6 month')) {
+  } else if (planClean.includes('half') || planClean.includes('semi') || planClean.includes('6 m')) {
     monthsToAdd = 6;
-  } else if (planLower.includes('quarterly') || planLower.includes('3 month')) {
+  } else if (planClean.includes('quarter') || planClean.includes('3 m')) {
     monthsToAdd = 3;
-  } else if (planLower.includes('monthly') || planLower.includes('1 month')) {
-    monthsToAdd = 1;
-  } else if (planLower.includes('2 month')) {
+  } else if (planClean.includes('2 m')) {
     monthsToAdd = 2;
+  } else if (planClean.includes('month') || planClean.includes('1 m')) {
+    monthsToAdd = 1;
   }
 
   if (monthsToAdd > 0) {
