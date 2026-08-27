@@ -134,7 +134,8 @@ const PTAssignmentPage = () => {
     custom_total_classes: '',
     custom_duration_days: 30,
     discount_amount: '',
-    assigned_date: new Date().toISOString().split('T')[0]
+    assigned_date: new Date().toISOString().split('T')[0],
+    timing: ''
   });
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -143,23 +144,18 @@ const PTAssignmentPage = () => {
     trainer_id: '',
     pt_package_id: '',
     assigned_date: '',
-    discount_amount: ''
+    discount_amount: '',
+    timing: ''
   });
 
   const handleOpenEditModal = (item) => {
-    if (parseInt(item.classes_completed || 0, 10) > 0) {
-      showCustomAlert(
-        'Cannot Edit Assignment',
-        `PT classes for ${item.clientName} have already started (${item.classes_completed} classes conducted).\n\nEditing is only allowed before any classes have been conducted.`
-      );
-      return;
-    }
     setEditingAssignment(item);
     setEditFormData({
       trainer_id: item.trainer_id || '',
       pt_package_id: item.pt_package_id || '',
       assigned_date: item.assigned_date || new Date().toISOString().split('T')[0],
-      discount_amount: item.discount_amount || ''
+      discount_amount: item.discount_amount || '',
+      timing: item.timing || ''
     });
     setIsEditModalOpen(true);
   };
@@ -309,6 +305,7 @@ const PTAssignmentPage = () => {
       custom_total_classes: '',
       custom_duration_days: 30,
       assigned_date: new Date().toISOString().split('T')[0],
+      timing: '',
       hasGst: isAct ? !!selClient?.gstin : false,
       gstin: isAct ? (selClient?.gstin || '') : ''
     });
@@ -431,6 +428,7 @@ const PTAssignmentPage = () => {
         discount_amount: parseFloat(formData.discount_amount || 0),
         hasGst: formData.hasGst,
         gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null,
+        timing: formData.timing ? formData.timing.trim() : null,
         ...(formData.is_custom
           ? {
               custom_package: {
@@ -560,13 +558,8 @@ const PTAssignmentPage = () => {
     // 4. Search Query
     if (searchQuery && searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
-      const cName = (a.clientName || '').toLowerCase();
-      const cCode = (a.clientCode || a.client_id || '').toString().toLowerCase();
-      const cPhone = (a.clientPhone || a.mobile || '').toString().toLowerCase();
-      const tName = (a.trainerName || '').toLowerCase();
-      const pName = (a.packageName || '').toLowerCase();
-
-      const matches = cName.includes(q) || cCode.includes(q) || cPhone.includes(q) || tName.includes(q) || pName.includes(q);
+      const timingStr = (a.timing || '').toLowerCase();
+      const matches = cName.includes(q) || cCode.includes(q) || cPhone.includes(q) || tName.includes(q) || pName.includes(q) || timingStr.includes(q);
       if (!matches) return false;
     }
 
@@ -749,6 +742,7 @@ const PTAssignmentPage = () => {
                   <tr>
                     <th>Client Name</th>
                     <th>Trainer & Grade</th>
+                    <th>Timing</th>
                     <th>Package</th>
                     {isSuperAdmin && <th>Package Price</th>}
                     <th>Class Progress</th>
@@ -794,6 +788,15 @@ const PTAssignmentPage = () => {
                           <span className={`grade-badge ${(item.trainerGrade || 'unassigned').toLowerCase()}`}>
                             {getGradeLabel(item.trainerGrade)}
                           </span>
+                        </td>
+                        <td>
+                          {item.timing ? (
+                            <span className="timing-pill">
+                              ⏱️ {item.timing}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>— Not set —</span>
+                          )}
                         </td>
                         <td>
                           <div style={{ fontWeight: '600', color: '#0f172a' }}>{item.packageName}</div>
@@ -879,22 +882,20 @@ const PTAssignmentPage = () => {
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditModal(item)}
-                                    disabled={classesStarted}
                                     style={{
                                       padding: '0.35rem 0.65rem',
                                       fontSize: '0.78rem',
                                       fontWeight: '700',
                                       borderRadius: '6px',
                                       border: '1px solid #cbd5e1',
-                                      background: classesStarted ? '#f8fafc' : '#ffffff',
-                                      color: classesStarted ? '#cbd5e1' : '#334155',
-                                      cursor: classesStarted ? 'not-allowed' : 'pointer',
+                                      background: '#ffffff',
+                                      color: '#334155',
+                                      cursor: 'pointer',
                                       display: 'flex',
                                       alignItems: 'center',
-                                      gap: '4px',
-                                      opacity: classesStarted ? 0.45 : 1
+                                      gap: '4px'
                                     }}
-                                    title={classesStarted ? `Cannot edit: ${item.classes_completed} classes already conducted.` : 'Edit PT Assignment'}
+                                    title={classesStarted ? `Edit Timing (${item.classes_completed} classes conducted)` : 'Edit PT Assignment'}
                                   >
                                     ✏️ Edit
                                   </button>
@@ -1106,6 +1107,17 @@ const PTAssignmentPage = () => {
                     ⚠️ This trainer has no assigned Grade. Set grade on Trainer Management first.
                   </p>
                 )}
+              </div>
+
+              {/* Workout Timing */}
+              <div className="trainer-form-group">
+                <label>Workout Timing / Slot (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                  value={formData.timing}
+                  onChange={e => { setFormData({ ...formData, timing: e.target.value }); setIsDirty(true); }}
+                />
               </div>
 
               {/* Select Package */}
@@ -1399,8 +1411,25 @@ const PTAssignmentPage = () => {
             </div>
 
             <form onSubmit={handleSaveEdit} className="trainer-form">
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', fontSize: '0.88rem', color: '#1e40af' }}>
-                💡 <strong>Classes Conducted:</strong> 0 / {editingAssignment.total_classes_snapshot} — This assignment can be edited because classes have not started yet.
+              {parseInt(editingAssignment.classes_completed || 0, 10) > 0 ? (
+                <div style={{ background: '#fef3c7', border: '1px solid #fde047', padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', fontSize: '0.88rem', color: '#92400e' }}>
+                  ⚠️ <strong>Classes Conducted:</strong> {editingAssignment.classes_completed} / {editingAssignment.total_classes_snapshot} — Package & Trainer details are locked because classes have started, but <strong>Workout Timing can be updated below</strong>.
+                </div>
+              ) : (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '0.85rem', borderRadius: '10px', marginBottom: '1rem', fontSize: '0.88rem', color: '#1e40af' }}>
+                  💡 <strong>Classes Conducted:</strong> 0 / {editingAssignment.total_classes_snapshot} — All assignment details can be edited.
+                </div>
+              )}
+
+              {/* Workout Timing (Always Editable) */}
+              <div className="trainer-form-group">
+                <label>Workout Timing / Slot</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                  value={editFormData.timing}
+                  onChange={e => setEditFormData({ ...editFormData, timing: e.target.value })}
+                />
               </div>
 
               {/* Select Trainer */}
@@ -1409,6 +1438,7 @@ const PTAssignmentPage = () => {
                 <select
                   value={editFormData.trainer_id}
                   onChange={e => setEditFormData({ ...editFormData, trainer_id: e.target.value })}
+                  disabled={parseInt(editingAssignment.classes_completed || 0, 10) > 0}
                   required
                 >
                   <option value="">-- Choose Trainer --</option>
@@ -1426,6 +1456,7 @@ const PTAssignmentPage = () => {
                 <select
                   value={editFormData.pt_package_id}
                   onChange={e => setEditFormData({ ...editFormData, pt_package_id: e.target.value })}
+                  disabled={parseInt(editingAssignment.classes_completed || 0, 10) > 0}
                   required
                 >
                   <option value="">-- Choose Package --</option>
@@ -1444,6 +1475,7 @@ const PTAssignmentPage = () => {
                   type="date"
                   value={editFormData.assigned_date}
                   onChange={e => setEditFormData({ ...editFormData, assigned_date: e.target.value })}
+                  disabled={parseInt(editingAssignment.classes_completed || 0, 10) > 0}
                   required
                 />
               </div>
@@ -1457,6 +1489,7 @@ const PTAssignmentPage = () => {
                     min="0"
                     value={editFormData.discount_amount}
                     onChange={e => setEditFormData({ ...editFormData, discount_amount: e.target.value })}
+                    disabled={parseInt(editingAssignment.classes_completed || 0, 10) > 0}
                     placeholder="0"
                   />
                 </div>

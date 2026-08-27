@@ -1440,7 +1440,7 @@ select.payment-form-input {
 }
 .landscape-bottom-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   padding: 0.85rem 1.25rem 1.25rem 1.25rem;
   background: #f8fafc;

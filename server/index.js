@@ -875,6 +875,11 @@ async function initDb() {
       } catch (e) { }
 
       try {
+        db.prepare("ALTER TABLE pt_assignments ADD COLUMN timing TEXT").run();
+        console.log('✅ Added timing column to pt_assignments table');
+      } catch (e) { }
+
+      try {
         db.prepare("ALTER TABLE general_package_bookings ADD COLUMN discount_amount REAL DEFAULT 0").run();
         console.log('✅ Added discount_amount column to general_package_bookings table');
       } catch (e) { }
@@ -2464,7 +2469,7 @@ app.get('/api/pt-assignments/client/:clientId', async (req, res) => {
 
 app.post('/api/pt-assignments', async (req, res) => {
   try {
-    const { client_id, trainer_id, pt_package_id, custom_package, assigned_date, discount_amount, paid_amount, payment_method, hasGst, gstin } = req.body;
+    const { client_id, trainer_id, pt_package_id, custom_package, assigned_date, discount_amount, paid_amount, payment_method, hasGst, gstin, timing } = req.body;
 
     if (!client_id || !trainer_id || (!pt_package_id && !custom_package)) {
       return res.status(400).json({ error: 'Client, Trainer, and Package selection are required.' });
@@ -2531,9 +2536,9 @@ app.post('/api/pt-assignments', async (req, res) => {
 
     const result = await db.prepare(`
       INSERT INTO pt_assignments (
-        client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
-    `).run(client_id, finalPackageId, trainer_id, priceSnapshot, discVal, totalClassesSnapshot, assignDate, expiryDate, invoiceId);
+        client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id, timing
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?, ?)
+    `).run(client_id, finalPackageId, trainer_id, priceSnapshot, discVal, totalClassesSnapshot, assignDate, expiryDate, invoiceId, timing || null);
 
     const newAssignment = await db.prepare(`
       SELECT a.*, c.name as clientName, c.clientId as clientCode, c.phone as clientPhone, c.gstin as clientGstin, t.name as trainerName, p.name as packageName, p.duration_days
@@ -2556,12 +2561,14 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
     const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(id);
     if (!assignment) return res.status(404).json({ error: 'PT Assignment not found.' });
 
-    if (parseInt(assignment.classes_completed || 0, 10) > 0) {
-      return res.status(400).json({ error: `Cannot edit PT assignment because classes have already started (${assignment.classes_completed} classes completed).` });
+    const { trainer_id, pt_package_id, assigned_date, discount_amount, timing } = req.body;
+    
+    const isOtherFieldsModifying = trainer_id || pt_package_id || assigned_date || (discount_amount !== undefined && parseFloat(discount_amount) !== parseFloat(assignment.discount_amount || 0));
+
+    if (parseInt(assignment.classes_completed || 0, 10) > 0 && isOtherFieldsModifying) {
+      return res.status(400).json({ error: `Cannot edit package/trainer details because classes have already started (${assignment.classes_completed} classes completed). Timing can still be updated.` });
     }
 
-    const { trainer_id, pt_package_id, assigned_date, discount_amount } = req.body;
-    
     let updateFields = [];
     let params = [];
 
@@ -2585,6 +2592,10 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
     if (discount_amount !== undefined) {
       updateFields.push('discount_amount = ?');
       params.push(parseFloat(discount_amount || 0));
+    }
+    if (timing !== undefined) {
+      updateFields.push('timing = ?');
+      params.push(timing ? String(timing).trim() : null);
     }
 
     if (updateFields.length > 0) {

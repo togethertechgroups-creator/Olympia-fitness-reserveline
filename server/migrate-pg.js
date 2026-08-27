@@ -373,6 +373,7 @@ async function run() {
         assigned_date           DATE NOT NULL,
         expiry_date             DATE NOT NULL,
         invoice_id              TEXT REFERENCES bills(id),
+        timing                  TEXT,
         created_at              TIMESTAMP DEFAULT NOW()
       );
     `);

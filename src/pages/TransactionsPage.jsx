@@ -34,12 +34,27 @@ const normalizeDate = (dStr) => {
   return str;
 };
 
+const getCurrentMonthStr = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const getMonthLabel = (monthStr) => {
+  if (!monthStr) return '';
+  const [year, month] = monthStr.split('-');
+  const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1);
+  return date.toLocaleString('default', { month: 'short', year: 'numeric' });
+};
+
 const TransactionsPage = () => {
   const navigate = useNavigate();
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr());
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
@@ -354,6 +369,12 @@ const TransactionsPage = () => {
 
     if (!matchesSearch) return false;
 
+    // Month filtering
+    if (selectedMonth) {
+      const txnDateNorm = normalizeDate(txn.date);
+      if (!txnDateNorm || !txnDateNorm.startsWith(selectedMonth)) return false;
+    }
+
     // Date filtering (From Date - To Date)
     if (fromDate || toDate) {
       const txnDateNorm = normalizeDate(txn.date);
@@ -495,6 +516,32 @@ const TransactionsPage = () => {
             <option value="BANK">Bank / Net Banking / Card</option>
           </select>
           
+          <div className="txn-month-filter">
+            <label className="txn-date-label">Month:</label>
+            <input 
+              type="month" 
+              className="txn-month-input"
+              value={selectedMonth}
+              onChange={(e) => { 
+                setSelectedMonth(e.target.value); 
+                setFromDate('');
+                setToDate('');
+                setCurrentPage(1); 
+              }}
+              title="Filter by Month"
+            />
+            {selectedMonth && (
+              <button 
+                type="button"
+                className="btn-clear-date" 
+                onClick={() => { setSelectedMonth(''); setCurrentPage(1); }}
+                title="Clear Month Filter"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+
           <div className="txn-date-filters">
             <div className="txn-date-input-group">
               <label className="txn-date-label">From:</label>
@@ -502,7 +549,11 @@ const TransactionsPage = () => {
                 type="date" 
                 className="txn-date-input"
                 value={fromDate}
-                onChange={(e) => { setFromDate(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => { 
+                  setFromDate(e.target.value); 
+                  setSelectedMonth('');
+                  setCurrentPage(1); 
+                }}
                 title="From Date"
               />
             </div>
@@ -512,7 +563,11 @@ const TransactionsPage = () => {
                 type="date" 
                 className="txn-date-input"
                 value={toDate}
-                onChange={(e) => { setToDate(e.target.value); setCurrentPage(1); }}
+                onChange={(e) => { 
+                  setToDate(e.target.value); 
+                  setSelectedMonth('');
+                  setCurrentPage(1); 
+                }}
                 title="To Date"
               />
             </div>
@@ -545,7 +600,14 @@ const TransactionsPage = () => {
           <span style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a' }}>{totalFilteredCount}</span>
         </div>
         <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: 'white', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net Received Amount</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Net Received Amount</span>
+            {selectedMonth && (
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#16a34a', background: '#f0fdf4', padding: '0.2rem 0.55rem', borderRadius: '6px', border: '1px solid #bbf7d0' }}>
+                {getMonthLabel(selectedMonth)}
+              </span>
+            )}
+          </div>
           <span style={{ fontSize: '2rem', fontWeight: 900, color: '#16a34a' }}>₹{totalFilteredAmount.toLocaleString()}</span>
         </div>
         {totalExpenseAmount > 0 && (
