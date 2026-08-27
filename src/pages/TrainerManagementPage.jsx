@@ -357,23 +357,21 @@ const TrainerManagementPage = () => {
                     </div>
                   </div>
 
-                  {/* Monthly PT Revenue & Slab Mini-Card */}
+                  {/* PT Commission & Slab Mini-Card */}
                   <div className="trainer-pt-revenue-card">
-                    <div className="pt-revenue-header">
-                      <span className="pt-revenue-title">This Month PT Base Revenue</span>
+                    <div className="pt-revenue-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="pt-revenue-title" style={{ fontSize: '0.8rem', fontWeight: '800', color: '#475569' }}>PT Commission Status</span>
                       <span className={`slab-badge ${hasCustomComm ? 'custom-rate' : (isSlab1 ? 'slab1' : 'slab2')}`}>
                         {hasCustomComm ? `Custom Rate: ${trainer.custom_commission_percent}%` : (isSlab1 ? '40% (Gym > ₹3L)' : '25% (Gym ≤ ₹3L)')}
                       </span>
                     </div>
-                    <div className="pt-revenue-val">{formatCurrency(rev)}</div>
 
                     {/* Calculated Percentage-wise PT Commission Payout */}
                     <div style={{
-                      marginTop: '0.65rem',
-                      paddingTop: '0.65rem',
-                      borderTop: '1px dashed #cbd5e1',
+                      marginTop: '0.5rem',
+                      paddingTop: '0.5rem',
                       display: 'flex',
-                      justify: 'space-between',
+                      justifyContent: 'space-between',
                       alignItems: 'center'
                     }}>
                       <div>
