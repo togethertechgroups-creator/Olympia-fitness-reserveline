@@ -789,13 +789,19 @@ const PTAssignmentPage = () => {
                             {getGradeLabel(item.trainerGrade)}
                           </span>
                         </td>
-                        <td>
+                        <td
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => handleOpenEditModal(item)}
+                          title="Click to edit timing"
+                        >
                           {item.timing ? (
                             <span className="timing-pill">
                               ⏱️ {item.timing}
                             </span>
                           ) : (
-                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>— Not set —</span>
+                            <span style={{ color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              — Not set — <span style={{ fontSize: '0.72rem', opacity: 0.7 }}>✏️</span>
+                            </span>
                           )}
                         </td>
                         <td>
@@ -874,8 +880,8 @@ const PTAssignmentPage = () => {
                               History
                             </button>
 
-                            {/* Edit & Delete Actions (Enabled ONLY if class hasn't started yet) */}
-                            {isSuperAdmin && (() => {
+                            {/* Edit & Delete Actions */}
+                            {(() => {
                               const classesStarted = parseInt(item.classes_completed || 0, 10) > 0;
                               return (
                                 <>
@@ -900,28 +906,30 @@ const PTAssignmentPage = () => {
                                     ✏️ Edit
                                   </button>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteAssignment(item)}
-                                    disabled={classesStarted}
-                                    style={{
-                                      padding: '0.35rem 0.65rem',
-                                      fontSize: '0.78rem',
-                                      fontWeight: '700',
-                                      borderRadius: '6px',
-                                      border: classesStarted ? '1px solid #cbd5e1' : '1px solid #fca5a5',
-                                      background: classesStarted ? '#f8fafc' : '#fef2f2',
-                                      color: classesStarted ? '#cbd5e1' : '#dc2626',
-                                      cursor: classesStarted ? 'not-allowed' : 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      opacity: classesStarted ? 0.45 : 1
-                                    }}
-                                    title={classesStarted ? `Cannot delete: ${item.classes_completed} classes already conducted.` : 'Delete PT Assignment'}
-                                  >
-                                    🗑️ Delete
-                                  </button>
+                                  {isSuperAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteAssignment(item)}
+                                      disabled={classesStarted}
+                                      style={{
+                                        padding: '0.35rem 0.65rem',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        borderRadius: '6px',
+                                        border: classesStarted ? '1px solid #cbd5e1' : '1px solid #fca5a5',
+                                        background: classesStarted ? '#f8fafc' : '#fef2f2',
+                                        color: classesStarted ? '#cbd5e1' : '#dc2626',
+                                        cursor: classesStarted ? 'not-allowed' : 'pointer',
+                                        display: classesStarted ? 'none' : 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        opacity: classesStarted ? 0.45 : 1
+                                      }}
+                                      title={classesStarted ? `Cannot delete: ${item.classes_completed} classes already conducted.` : 'Delete PT Assignment'}
+                                    >
+                                      🗑️ Delete
+                                    </button>
+                                  )}
                                 </>
                               );
                             })()}

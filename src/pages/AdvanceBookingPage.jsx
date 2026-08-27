@@ -266,10 +266,10 @@ const AdvanceBookingPage = () => {
     const key = `${pClient || ''}_${pTrainer || ''}_${pPackage || ''}_${pStart || ''}`;
     if ((pClient || pTrainer || pPackage || pStart) && handledParamsRef.current !== key) {
       handledParamsRef.current = key;
-      const selClient = clients.find(c => c.id === pClient);
+      const selClient = clients.find(c => String(c.id) === String(pClient) || String(c.clientId) === String(pClient));
       let calculatedStart = pStart;
-      if (!calculatedStart && selClient && selClient.expiryDate) {
-        calculatedStart = calculateNextDayDate(selClient.expiryDate);
+      if (!calculatedStart && selClient) {
+        calculatedStart = getNextMembershipStartDate(selClient);
       }
 
       setGenForm(prev => ({
@@ -286,7 +286,7 @@ const AdvanceBookingPage = () => {
       }));
       setIsModalOpen(true);
     }
-  }, [searchParams, clients]);
+  }, [searchParams, clients, generalBookings]);
 
   const loadData = async () => {
     setLoading(true);
@@ -362,19 +362,54 @@ const AdvanceBookingPage = () => {
     if (!dateStr) return getTomorrowDateStr();
     const parsed = parseClientExpiryDate(dateStr);
     if (parsed) {
-      parsed.setDate(parsed.getDate() + 1);
-      const yyyy = parsed.getFullYear();
-      const mm = String(parsed.getMonth() + 1).padStart(2, '0');
-      const dd = String(parsed.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const parsedClean = new Date(parsed);
+      parsedClean.setHours(0, 0, 0, 0);
+
+      if (parsedClean >= today) {
+        parsedClean.setDate(parsedClean.getDate() + 1);
+        const yyyy = parsedClean.getFullYear();
+        const mm = String(parsedClean.getMonth() + 1).padStart(2, '0');
+        const dd = String(parsedClean.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
     }
+    return getTomorrowDateStr();
+  };
+
+  const getNextMembershipStartDate = (client) => {
+    if (!client) return getTomorrowDateStr();
+
+    let latestExpiryDate = client.expiryDate ? parseClientExpiryDate(client.expiryDate) : null;
+
+    // Check if client has scheduled general package advance bookings
+    const clientBookings = (generalBookings || []).filter(b =>
+      (String(b.client_id) === String(client.id) || String(b.clientId) === String(client.id) || String(b.clientCode) === String(client.clientId)) &&
+      ['Scheduled', 'ReadyToActivate', 'Active'].includes(b.status)
+    );
+
+    clientBookings.forEach(b => {
+      if (b.booking_end_date) {
+        const bEnd = parseClientExpiryDate(b.booking_end_date);
+        if (bEnd && (!latestExpiryDate || bEnd > latestExpiryDate)) {
+          latestExpiryDate = bEnd;
+        }
+      }
+    });
+
+    if (latestExpiryDate) {
+      return calculateNextDayDate(latestExpiryDate);
+    }
+
     return getTomorrowDateStr();
   };
 
   const handleGenClientChange = (cId) => {
     setIsDirty(true);
-    const selClient = clients.find(c => c.id === cId);
-    const defaultStart = calculateNextDayDate(selClient?.expiryDate);
+    const selClient = clients.find(c => String(c.id) === String(cId) || String(c.clientId) === String(cId));
+    const defaultStart = getNextMembershipStartDate(selClient);
 
     let endDateStr = genForm.booking_end_date;
     if (genForm.plan_type) {
@@ -408,6 +443,28 @@ const AdvanceBookingPage = () => {
     setActionSuccess('');
     setClientMode('existing');
     setClientSearch('');
+
+    if (genForm.client_id && clients.length > 0) {
+      const selClient = clients.find(c => String(c.id) === String(genForm.client_id) || String(c.clientId) === String(genForm.client_id));
+      if (selClient) {
+        const nextStart = getNextMembershipStartDate(selClient);
+        setGenForm(prev => {
+          let endDateStr = prev.booking_end_date;
+          if (prev.plan_type) {
+            const durDays = settings[`${prev.plan_type}_duration`] || (prev.plan_type === 'Quarterly' ? 90 : (prev.plan_type === 'Half-Yearly' ? 180 : (prev.plan_type === 'Annual' ? 365 : 30)));
+            const startDateObj = new Date(nextStart);
+            startDateObj.setDate(startDateObj.getDate() + parseInt(durDays, 10));
+            endDateStr = startDateObj.toISOString().split('T')[0];
+          }
+          return {
+            ...prev,
+            booking_start_date: nextStart,
+            booking_end_date: endDateStr
+          };
+        });
+      }
+    }
+
     setIsModalOpen(true);
   };
 
@@ -1033,6 +1090,11 @@ const AdvanceBookingPage = () => {
                   <div className="client-summary-banner">
                     <span>Active Plan: <strong>{selectedGenClient.plan || 'None'}</strong></span>
                     <span>Current Expiry: <strong>{selectedGenClient.expiryDate ? formatDateDDMMYYYY(selectedGenClient.expiryDate) : 'N/A'}</strong></span>
+                    {selectedGenClient.expiryDate && (
+                      <span style={{ color: '#047857', fontWeight: '800' }}>
+                        📅 New Start Date: <strong>{formatDateDDMMYYYY(genForm.booking_start_date)}</strong> (Day after current expiry)
+                      </span>
+                    )}
                   </div>
                 )}
 

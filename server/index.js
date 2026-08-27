@@ -2634,7 +2634,12 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
 
     const { trainer_id, pt_package_id, assigned_date, discount_amount, timing } = req.body;
     
-    const isOtherFieldsModifying = trainer_id || pt_package_id || assigned_date || (discount_amount !== undefined && parseFloat(discount_amount) !== parseFloat(assignment.discount_amount || 0));
+    const isTrainerIdChanged = trainer_id !== undefined && trainer_id !== null && String(trainer_id) !== String(assignment.trainer_id || '');
+    const isPtPackageIdChanged = pt_package_id !== undefined && pt_package_id !== null && String(pt_package_id) !== String(assignment.pt_package_id || '');
+    const isAssignedDateChanged = assigned_date !== undefined && assigned_date !== null && String(assigned_date) !== String(assignment.assigned_date || '');
+    const isDiscountAmountChanged = discount_amount !== undefined && discount_amount !== null && parseFloat(discount_amount || 0) !== parseFloat(assignment.discount_amount || 0);
+
+    const isOtherFieldsModifying = isTrainerIdChanged || isPtPackageIdChanged || isAssignedDateChanged || isDiscountAmountChanged;
 
     if (parseInt(assignment.classes_completed || 0, 10) > 0 && isOtherFieldsModifying) {
       return res.status(400).json({ error: `Cannot edit package/trainer details because classes have already started (${assignment.classes_completed} classes completed). Timing can still be updated.` });
@@ -2643,15 +2648,15 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
     let updateFields = [];
     let params = [];
 
-    if (trainer_id) { updateFields.push('trainer_id = ?'); params.push(trainer_id); }
-    if (pt_package_id) {
+    if (isTrainerIdChanged) { updateFields.push('trainer_id = ?'); params.push(trainer_id); }
+    if (isPtPackageIdChanged) {
       const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id);
       if (pkg) {
         updateFields.push('pt_package_id = ?', 'package_price_snapshot = ?', 'total_classes_snapshot = ?');
         params.push(pt_package_id, pkg.price, pkg.total_classes);
       }
     }
-    if (assigned_date) {
+    if (isAssignedDateChanged) {
       updateFields.push('assigned_date = ?');
       params.push(assigned_date);
       const pkg = await db.prepare('SELECT * FROM pt_packages WHERE id = ?').get(pt_package_id || assignment.pt_package_id);
@@ -2660,13 +2665,16 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
       updateFields.push('expiry_date = ?');
       params.push(expiry);
     }
-    if (discount_amount !== undefined) {
+    if (isDiscountAmountChanged) {
       updateFields.push('discount_amount = ?');
       params.push(parseFloat(discount_amount || 0));
     }
     if (timing !== undefined) {
-      updateFields.push('timing = ?');
-      params.push(timing ? String(timing).trim() : null);
+      const newTiming = timing ? String(timing).trim() : null;
+      if (newTiming !== (assignment.timing || null)) {
+        updateFields.push('timing = ?');
+        params.push(newTiming);
+      }
     }
 
     if (updateFields.length > 0) {
