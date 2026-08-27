@@ -448,40 +448,26 @@ const TrainerSalaryReportPage = () => {
     else if (targetPhone.startsWith('0') && targetPhone.length === 11) targetPhone = targetPhone.slice(1);
     if (targetPhone.length === 10) targetPhone = `91${targetPhone}`;
 
-    // 2. Build formatted text caption
-    const incSign = incType === 'Subtract' ? '− ' : '+ ';
-    const othSign = othType === 'Subtract' ? '− ' : '+ ';
-    const oLabelText = othLabel || 'Other Adjustment';
-
-    const caption =
-      `Hi ${tr.trainerName || 'Trainer'}! 👋\n\n` +
-      `Here is your Payslip breakdown for *${selectedMonth}*:\n` +
-      `• PT Commission Salary: ₹${commSalary.toLocaleString('en-IN')}\n` +
-      `• Basic Pay: +₹${bPay.toLocaleString('en-IN')}\n` +
-      `• Bonus: +₹${bBonus.toLocaleString('en-IN')}${form.bonusNote ? ` (${form.bonusNote})` : ''}\n` +
-      `• Incentives: ${incSign}₹${incAmt.toLocaleString('en-IN')}\n` +
-      `• ${oLabelText}: ${othSign}₹${othAmt.toLocaleString('en-IN')}\n` +
-      `---------------------------\n` +
-      `*TOTAL PAYABLE: ₹${total.toLocaleString('en-IN')}*\n\n` +
-      `*OLYMPIA FITNESS* 🏋️‍♂️`;
-
-    // 3. Open direct WhatsApp Web / App chat window
-    if (targetPhone) {
-      const waUrl = `https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodeURIComponent(caption)}`;
-      window.open(waUrl, '_blank');
+    if (!targetPhone) {
+      setModalConfig(prev => ({
+        ...prev,
+        sendingWa: false,
+        waError: 'Please enter a valid WhatsApp phone number.'
+      }));
+      return;
     }
 
-    // 4. Also dispatch to backend API for document storage & logging
+    // 2. Generate PDF automatically in background & send via API (no WhatsApp Web/App popup)
     try {
       let pdfBase64 = null;
       try {
         pdfBase64 = await generatePDFBlobBase64();
       } catch (e) {
-        console.error('PDF generation string failed:', e);
+        console.error('PDF generation error:', e);
       }
 
       await sendPayslipWhatsApp({
-        phone: modalConfig.waPhone || targetPhone,
+        phone: targetPhone,
         trainerName: tr.trainerName,
         month: selectedMonth,
         basicPay: bPay,
@@ -501,16 +487,18 @@ const TrainerSalaryReportPage = () => {
       setModalConfig(prev => ({
         ...prev,
         sendingWa: false,
-        waSuccess: `✅ Payslip sent to ${modalConfig.waPhone || targetPhone}! WhatsApp chat opened.`,
+        waPhone: targetPhone,
+        waSuccess: `✅ Payslip sent successfully to ${targetPhone} via WhatsApp!`,
+        showSuccessPopup: true,
         waError: ''
       }));
     } catch (err) {
-      console.warn('Backend API WhatsApp dispatch notice:', err);
+      console.error('Backend WhatsApp dispatch error:', err);
       setModalConfig(prev => ({
         ...prev,
         sendingWa: false,
-        waSuccess: `✅ WhatsApp chat opened for ${modalConfig.waPhone || targetPhone}!`,
-        waError: ''
+        waError: `❌ ${err.message || 'Failed to send WhatsApp message.'}`,
+        waSuccess: ''
       }));
     }
   };
@@ -997,6 +985,43 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Success Popup Modal */}
+      {modalConfig.showSuccessPopup && (
+        <div className="payslip-modal-overlay animated-fade-in" style={{ zIndex: 1200 }}>
+          <div className="payslip-modal-card" style={{ maxWidth: '420px', textAlign: 'center', padding: '2rem 1.5rem', background: '#ffffff', borderRadius: '16px' }}>
+            <div style={{
+              width: '64px',
+              height: '64px',
+              background: 'linear-gradient(135deg, #059669, #10b981)',
+              color: '#ffffff',
+              borderRadius: '50%',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '2.2rem',
+              fontWeight: '900',
+              margin: '0 auto 1.25rem auto',
+              boxShadow: '0 8px 24px rgba(16, 185, 129, 0.35)'
+            }}>
+              ✓
+            </div>
+            <h3 style={{ margin: '0 0 0.5rem 0', color: '#0f172a', fontSize: '1.3rem', fontWeight: '800' }}>
+              Payslip Sent Successfully!
+            </h3>
+            <p style={{ color: '#475569', fontSize: '0.93rem', lineHeight: '1.5', margin: '0 0 1.5rem 0' }}>
+              The salary payslip PDF for <strong>{modalConfig.trainer?.trainerName}</strong> ({selectedMonth}) has been generated and delivered directly to <strong>+{modalConfig.waPhone}</strong> via WhatsApp in the background.
+            </p>
+            <button
+              className="btn-primary-modal"
+              style={{ width: '100%', padding: '0.75rem', fontSize: '0.98rem', fontWeight: '800', background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none', borderRadius: '10px', color: '#ffffff', cursor: 'pointer' }}
+              onClick={() => setModalConfig(prev => ({ ...prev, isOpen: false, showSuccessPopup: false }))}
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

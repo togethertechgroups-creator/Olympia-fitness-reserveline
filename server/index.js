@@ -116,9 +116,15 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
     number: phone,
     type: 'document',
     message: message || '',
+    media_url: documentUrl || '',
+    url: documentUrl || '',
+    documentUrl: documentUrl || '',
+    filename: fileName || 'document.pdf',
+    fileName: fileName || 'document.pdf',
     variables: {
       documentUrl: documentUrl || '',
-      fileName: fileName || 'document.pdf'
+      fileName: fileName || 'document.pdf',
+      media_url: documentUrl || ''
     }
   };
 
@@ -142,7 +148,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   }
 
   // Fallback to GET endpoint
-  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&document_url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
+  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&media_url=${encodeURIComponent(documentUrl || '')}&document_url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
   try {
     const getResp = await fetch(getUrl);
     const getData = await getResp.json().catch(() => ({}));
