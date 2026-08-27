@@ -1462,18 +1462,34 @@ const calculatePlanExpiryDate = (startDateStr, planType, customDurationDays = nu
   const planClean = (planType || '').toLowerCase().replace(/[-_]/g, ' ').trim();
 
   let monthsToAdd = 0;
-  if (planClean.includes('2 year') || planClean.includes('2 yr') || planClean.includes('24 m')) {
+  if (planClean.includes('3 year') || planClean.includes('3 yr') || planClean.includes('36 m') || planClean.includes('3year') || planClean.includes('3yr')) {
+    monthsToAdd = 36;
+  } else if (planClean.includes('2 year') || planClean.includes('2 yr') || planClean.includes('24 m') || planClean.includes('2year') || planClean.includes('2yr')) {
     monthsToAdd = 24;
-  } else if (planClean.includes('annual') || planClean.includes('yearly') || planClean.includes('1 year') || planClean.includes('1 yr') || planClean.includes('12 m')) {
+  } else if (planClean.includes('annual') || planClean.includes('yearly') || planClean.includes('1 year') || planClean.includes('1 yr') || planClean.includes('12 m') || planClean.includes('1year') || planClean.includes('1yr')) {
     monthsToAdd = 12;
-  } else if (planClean.includes('half') || planClean.includes('semi') || planClean.includes('6 m')) {
+  } else if (planClean.includes('half') || planClean.includes('semi') || planClean.includes('6 m') || planClean.includes('6 month')) {
     monthsToAdd = 6;
-  } else if (planClean.includes('quarter') || planClean.includes('3 m')) {
+  } else if (planClean.includes('quarter') || planClean.includes('3 m') || planClean.includes('3 month')) {
     monthsToAdd = 3;
-  } else if (planClean.includes('2 m')) {
+  } else if (planClean.includes('2 m') || planClean.includes('2 month')) {
     monthsToAdd = 2;
-  } else if (planClean.includes('month') || planClean.includes('1 m')) {
+  } else if (planClean.includes('month') || planClean.includes('1 m') || planClean.includes('1 month')) {
     monthsToAdd = 1;
+  }
+
+  // Fallback: infer months from customDurationDays if plan name did not match
+  if (monthsToAdd === 0 && customDurationDays) {
+    const dNum = parseInt(customDurationDays, 10);
+    if (!isNaN(dNum)) {
+      if (dNum >= 1050 && dNum <= 1120) monthsToAdd = 36;
+      else if (dNum >= 700 && dNum <= 750) monthsToAdd = 24;
+      else if (dNum >= 350 && dNum <= 380) monthsToAdd = 12;
+      else if (dNum >= 170 && dNum <= 190) monthsToAdd = 6;
+      else if (dNum >= 80 && dNum <= 100) monthsToAdd = 3;
+      else if (dNum >= 55 && dNum <= 65) monthsToAdd = 2;
+      else if (dNum >= 25 && dNum <= 35) monthsToAdd = 1;
+    }
   }
 
   if (monthsToAdd > 0) {
