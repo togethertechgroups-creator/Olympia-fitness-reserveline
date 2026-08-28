@@ -1718,10 +1718,10 @@ const ManageClientsPage = () => {
 
         // Bookings and Services
         const clientGenBookings = (advanceBookings.general || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled' && b.status !== 'Active'
         );
         const clientPtBookings = (advanceBookings.pt || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled' && b.status !== 'Active'
         );
         const otherServices = viewClientModal.otherServices || [];
 
