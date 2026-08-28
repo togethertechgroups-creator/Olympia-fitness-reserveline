@@ -277,6 +277,8 @@ CREATE TABLE IF NOT EXISTS other_service_tariffs (
 CREATE TABLE IF NOT EXISTS other_service_sales (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   client_id      TEXT REFERENCES clients(id),
+  walkin_name    TEXT,
+  walkin_phone   TEXT,
   service_id     INTEGER REFERENCES other_service_tariffs(id),
   price_snapshot REAL NOT NULL,
   sale_date      DATE NOT NULL,
@@ -320,6 +322,7 @@ CREATE TABLE IF NOT EXISTS pt_assignments (
   assigned_date           DATE NOT NULL,
   expiry_date             DATE NOT NULL,
   invoice_id              TEXT REFERENCES bills(id),
+  timing                  TEXT,
   created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

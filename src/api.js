@@ -30,11 +30,34 @@ const handleResponse = async (response) => {
 
 let _clientsCache = null;
 let _clientsCacheTime = 0;
-const CLIENTS_CACHE_TTL = 30000; // 30s cache
+const CLIENTS_CACHE_TTL = 15000; // 15s cache
 
-export const invalidateClientsCache = () => {
+const _apiCache = new Map();
+const DEFAULT_CACHE_TTL = 10000; // 10s cache
+
+export const clearApiCache = () => {
+  _apiCache.clear();
   _clientsCache = null;
   _clientsCacheTime = 0;
+};
+
+export const invalidateClientsCache = () => {
+  clearApiCache();
+};
+
+const fetchWithCache = async (url, options = {}, forceRefresh = false, ttl = DEFAULT_CACHE_TTL) => {
+  const cacheKey = url;
+  const now = Date.now();
+  if (!forceRefresh && _apiCache.has(cacheKey)) {
+    const item = _apiCache.get(cacheKey);
+    if (now - item.time < ttl) {
+      return item.data;
+    }
+  }
+  const response = await fetch(url, options);
+  const data = await handleResponse(response);
+  _apiCache.set(cacheKey, { data, time: Date.now() });
+  return data;
 };
 
 export const getClients = async (forceRefresh = false) => {
@@ -469,11 +492,10 @@ export const deletePtPackage = async (id) => {
 };
 
 // PT Assignments
-export const getPtAssignments = async (params = {}) => {
+export const getPtAssignments = async (params = {}, forceRefresh = false) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/pt-assignments?${query}` : `${BASE_URL}/pt-assignments`;
-  const response = await fetch(url);
-  return handleResponse(response);
+  return fetchWithCache(url, {}, forceRefresh, 10000);
 };
 
 export const getClientPtAssignments = async (clientId) => {
@@ -482,6 +504,7 @@ export const getClientPtAssignments = async (clientId) => {
 };
 
 export const addPtAssignment = async (assignmentData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-assignments`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -491,6 +514,7 @@ export const addPtAssignment = async (assignmentData) => {
 };
 
 export const updatePtAssignment = async (id, updateData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-assignments/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -500,6 +524,7 @@ export const updatePtAssignment = async (id, updateData) => {
 };
 
 export const deletePtAssignment = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-assignments/${id}`, {
     method: 'DELETE',
     headers: { 'x-user-role': localStorage.getItem('userRole') || '' },
@@ -514,6 +539,7 @@ export const getPtClassLogsToday = async () => {
 };
 
 export const logPtClass = async (logData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-class-log`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -523,6 +549,7 @@ export const logPtClass = async (logData) => {
 };
 
 export const deletePtClassLog = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-class-log/${id}`, {
     method: 'DELETE',
     headers: { 'x-user-role': localStorage.getItem('userRole') || '' }

@@ -389,6 +389,50 @@ async function initDb() {
   CREATE INDEX IF NOT EXISTS idx_clients_clientId ON clients(clientId);
   CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
   CREATE INDEX IF NOT EXISTS idx_clients_expiryDate ON clients(expiryDate);
+  CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
+
+  CREATE INDEX IF NOT EXISTS idx_pt_assign_client ON pt_assignments(client_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_assign_trainer ON pt_assignments(trainer_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_assign_status ON pt_assignments(status);
+  CREATE INDEX IF NOT EXISTS idx_pt_assign_expiry ON pt_assignments(expiry_date);
+  CREATE INDEX IF NOT EXISTS idx_pt_assign_invoice ON pt_assignments(invoice_id);
+
+  CREATE INDEX IF NOT EXISTS idx_pt_log_assign ON pt_class_log(pt_assignment_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_log_trainer ON pt_class_log(trainer_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_log_client ON pt_class_log(client_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_log_date ON pt_class_log(class_date);
+
+  CREATE INDEX IF NOT EXISTS idx_bills_client ON bills(clientId);
+  CREATE INDEX IF NOT EXISTS idx_bills_date ON bills(invoiceDate);
+  CREATE INDEX IF NOT EXISTS idx_bills_expiry ON bills(expiryDate);
+  CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(paymentStatus);
+  CREATE INDEX IF NOT EXISTS idx_bills_cat ON bills(invoice_category);
+
+  CREATE INDEX IF NOT EXISTS idx_tx_client ON transactions(clientId);
+  CREATE INDEX IF NOT EXISTS idx_tx_bill ON transactions(billId);
+  CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
+
+  CREATE INDEX IF NOT EXISTS idx_other_sales_client ON other_service_sales(client_id);
+  CREATE INDEX IF NOT EXISTS idx_other_sales_service ON other_service_sales(service_id);
+  CREATE INDEX IF NOT EXISTS idx_other_sales_invoice ON other_service_sales(invoice_id);
+  CREATE INDEX IF NOT EXISTS idx_other_sales_date ON other_service_sales(sale_date);
+
+  CREATE INDEX IF NOT EXISTS idx_supp_sales_client ON supplement_sales(client_id);
+  CREATE INDEX IF NOT EXISTS idx_supp_sales_supp ON supplement_sales(supplement_id);
+  CREATE INDEX IF NOT EXISTS idx_supp_sales_date ON supplement_sales(sale_date);
+
+  CREATE INDEX IF NOT EXISTS idx_att_client ON attendance(clientId);
+  CREATE INDEX IF NOT EXISTS idx_att_date ON attendance(date);
+
+  CREATE INDEX IF NOT EXISTS idx_inq_status ON inquiries(status);
+  CREATE INDEX IF NOT EXISTS idx_inq_date ON inquiries(InquiryDate);
+  CREATE INDEX IF NOT EXISTS idx_inq_followup ON inquiries(nextFollowUp);
+
+  CREATE INDEX IF NOT EXISTS idx_followup_inq ON follow_ups(InquiryId);
+  CREATE INDEX IF NOT EXISTS idx_followup_date ON follow_ups(date);
+
+  CREATE INDEX IF NOT EXISTS idx_trainer_status_date ON trainer_daily_status(trainer_id, status_date);
+  CREATE INDEX IF NOT EXISTS idx_trainer_payroll_month ON trainer_payroll_adjustments(trainer_id, month);
 
   CREATE TABLE IF NOT EXISTS transactions (
     id        TEXT PRIMARY KEY,
@@ -891,21 +935,22 @@ async function initDb() {
         status TEXT CHECK(status IN ('Active','Completed','Cancelled','Expired')) DEFAULT 'Active',
         assigned_date DATE NOT NULL,
         expiry_date DATE NOT NULL,
+        timing TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
       try {
-        db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
+        await db.prepare("ALTER TABLE pt_assignments ADD COLUMN expiry_date DATE").run();
       } catch (e) { }
 
       try {
-        db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
+        await db.prepare("ALTER TABLE pt_assignments ADD COLUMN invoice_id TEXT REFERENCES bills(id)").run();
         console.log('✅ Added invoice_id column to pt_assignments table');
       } catch (e) { }
 
       try {
-        db.prepare("ALTER TABLE pt_assignments ADD COLUMN timing TEXT").run();
+        await db.prepare("ALTER TABLE pt_assignments ADD COLUMN timing TEXT").run();
         console.log('✅ Added timing column to pt_assignments table');
       } catch (e) { }
 
@@ -4621,9 +4666,11 @@ app.get('/api/other-services/sales', async (req, res) => {
         s.sale_date,
         s.invoice_id,
         s.created_at,
-        COALESCE(c.name, b.clientName, 'Unknown Client') AS clientName,
-        COALESCE(c.clientId, c.id, s.client_id) AS clientCode,
-        COALESCE(c.phone, '') AS clientPhone,
+        COALESCE(c.name, s.walkin_name, b.clientName, 'Unknown Client') AS clientName,
+        COALESCE(c.clientId, c.id, CASE WHEN s.walkin_name IS NOT NULL THEN 'WALKIN' ELSE s.client_id END) AS clientCode,
+        COALESCE(c.phone, s.walkin_phone, '') AS clientPhone,
+        s.walkin_name,
+        s.walkin_phone,
         COALESCE(t.name, 'Other Service') AS serviceName,
         COALESCE(t.price, s.price_snapshot + COALESCE(b.discount_amount, 0)) AS original_price,
         COALESCE(t.duration_days, 30) AS duration_days,
@@ -4830,9 +4877,9 @@ app.post('/api/other-services/sell', async (req, res) => {
     const invoiceDateStr = toDateLabel();
     const expiryDateStr = calculateExpiryDate(saleDateStr, service.duration_days);
 
-    const clientNameVal = isWalkin ? walkin_name.trim() : client.name;
-    const clientIdVal = isWalkin ? 'WALKIN' : (client.id || client_id);
-    const clientPhoneVal = isWalkin ? (walkin_phone || '').trim() : (client.phone || client.mobile || '');
+    const clientNameVal = isWalkin ? walkin_name.trim() : (client ? client.name : 'Walk-in Client');
+    const clientIdVal = isWalkin ? 'WALKIN' : (client ? (client.id || client_id) : 'WALKIN');
+    const clientPhoneVal = isWalkin ? (walkin_phone || '').trim() : (client ? (client.phone || client.mobile || '') : '');
 
     await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, client_gstin_snapshot, discount_amount)
@@ -4865,9 +4912,9 @@ app.post('/api/other-services/sell', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
         txId,
-        client.id || client_id,
+        clientIdVal,
         billId,
-        `${client.name} - ${service.name}`,
+        `${clientNameVal} - ${service.name}`,
         payMethodVal,
         paidAmountVal,
         invoiceDateStr
@@ -4875,24 +4922,26 @@ app.post('/api/other-services/sell', async (req, res) => {
     }
 
     // Update client due amount if there is any due from discounted price
-    if (dueAmountVal > 0) {
+    if (!isWalkin && client && dueAmountVal > 0) {
       const currentDue = client.dueAmount || 0;
       const updatedDue = currentDue + dueAmountVal;
       await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedDue, 'Due', client.id || client_id);
     }
 
-
-
     // 2. Insert into other_service_sales
+    const walkinNameVal = isWalkin ? walkin_name.trim() : null;
+    const walkinPhoneVal = isWalkin ? (walkin_phone || '').trim() : null;
+    const finalClientId = isWalkin ? null : String(client ? (client.id || client_id) : '');
+
     const result = await db.prepare(`
-      INSERT INTO other_service_sales (client_id, service_id, price_snapshot, sale_date, invoice_id)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(String(client.id || client_id), service.id, discountedPrice, saleDateStr, billId);
+      INSERT INTO other_service_sales (client_id, walkin_name, walkin_phone, service_id, price_snapshot, sale_date, invoice_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(finalClientId, walkinNameVal, walkinPhoneVal, service.id, discountedPrice, saleDateStr, billId);
 
     const saleRecord = await db.prepare(`
-      SELECT s.*, c.name as clientName, t.name as serviceName
+      SELECT s.*, COALESCE(c.name, s.walkin_name) as clientName, COALESCE(c.phone, s.walkin_phone) as clientPhone, t.name as serviceName
       FROM other_service_sales s
-      LEFT JOIN clients c ON (s.client_id = c.id OR s.client_id = c.clientId)
+      LEFT JOIN clients c ON (s.client_id IS NOT NULL AND (s.client_id = c.id OR s.client_id = c.clientId))
       LEFT JOIN other_service_tariffs t ON s.service_id = t.id
       WHERE s.id = ?
     `).get(result.lastInsertRowid);
@@ -4901,9 +4950,9 @@ app.post('/api/other-services/sell', async (req, res) => {
     const invoiceBillObj = {
       id: billId,
       billNo: nextBillNo,
-      clientId: client.clientId || client.id || client_id,
-      clientName: client.name,
-      mobile: client.phone || client.mobile || '',
+      clientId: clientIdVal,
+      clientName: clientNameVal,
+      mobile: clientPhoneVal,
       invoiceDate: invoiceDateStr,
       joinDate: saleDateStr,
       expiryDate: expiryDateStr,

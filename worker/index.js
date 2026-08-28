@@ -19,6 +19,7 @@ const ensureDb = (env, ctx) => {
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
       try {
+        if (typeof app.initDb === 'function') await app.initDb();
         if (typeof app.autoActivateAdvanceBookings === 'function') await app.autoActivateAdvanceBookings();
         if (typeof app.autoExpireAssignments === 'function') await app.autoExpireAssignments();
       } catch (err) {
@@ -78,7 +79,15 @@ export default {
       if (env.ASSETS) {
         const assetResponse = await env.ASSETS.fetch(request);
         if (assetResponse.status !== 404) {
-          return assetResponse;
+          const resHeaders = new Headers(assetResponse.headers);
+          if (/\.(js|css|woff2?|png|jpe?g|svg|ico|webp)$/i.test(url.pathname)) {
+            resHeaders.set('Cache-Control', 'public, max-age=31536000, immutable');
+          }
+          return new Response(assetResponse.body, {
+            status: assetResponse.status,
+            statusText: assetResponse.statusText,
+            headers: resHeaders
+          });
         }
         // SPA Fallback for client-side routing (e.g. /clients, /dashboard -> /index.html)
         const indexRequest = new Request(new URL('/index.html', request.url), request);
