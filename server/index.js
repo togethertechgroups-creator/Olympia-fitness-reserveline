@@ -615,6 +615,8 @@ async function initDb() {
   CREATE TABLE IF NOT EXISTS other_service_sales (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id TEXT REFERENCES clients(id),
+    walkin_name TEXT,
+    walkin_phone TEXT,
     service_id INTEGER REFERENCES other_service_tariffs(id),
     price_snapshot REAL NOT NULL,
     sale_date DATE NOT NULL,
@@ -714,6 +716,8 @@ async function initDb() {
       try { db.prepare("ALTER TABLE bills ADD COLUMN gst_rate_snapshot REAL").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE bills ADD COLUMN client_gstin_snapshot TEXT").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE bills ADD COLUMN discount_amount REAL DEFAULT 0").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_name TEXT").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_phone TEXT").run(); } catch (e) { }
 
       try {
         db.prepare(`
@@ -4775,18 +4779,29 @@ app.patch('/api/other-services/:id/active', async (req, res) => {
 
 app.post('/api/other-services/sell', async (req, res) => {
   try {
-    const { client_id, service_id, sale_date, paid_amount, payment_method, hasGst, gstin, discount_amount = 0 } = req.body;
-    if (!client_id || !service_id) {
-      return res.status(400).json({ error: 'Client and Service tariff selections are required.' });
+    const { is_walkin, walkin_name, walkin_phone, client_id, service_id, sale_date, paid_amount, payment_method, hasGst, gstin, discount_amount = 0 } = req.body;
+    
+    let client = null;
+    const isWalkin = Boolean(is_walkin || (walkin_name && (!client_id || client_id === 'WALKIN')));
+
+    if (isWalkin) {
+      if (!walkin_name || !walkin_name.trim()) {
+        return res.status(400).json({ error: 'Walk-in Client Name is required.' });
+      }
+    } else {
+      if (!client_id) {
+        return res.status(400).json({ error: 'Client or Walk-in Client selection is required.' });
+      }
+      client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(client_id, client_id);
+      if (!client) return res.status(404).json({ error: 'Client not found.' });
     }
 
-    const client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(client_id, client_id);
-    if (!client) return res.status(404).json({ error: 'Client not found.' });
-
     let gstinSnapshot = null;
-    if ((hasGst === true || hasGst === 'yes' || hasGst === 'true') && gstin && gstin.trim()) {
+    if (client && (hasGst === true || hasGst === 'yes' || hasGst === 'true') && gstin && gstin.trim()) {
       gstinSnapshot = gstin.trim().toUpperCase();
       await db.prepare('UPDATE clients SET gstin = ? WHERE id = ?').run(gstinSnapshot, client.id || client_id);
+    } else if (isWalkin && gstin && gstin.trim()) {
+      gstinSnapshot = gstin.trim().toUpperCase();
     }
 
     const service = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(service_id);
@@ -4815,14 +4830,18 @@ app.post('/api/other-services/sell', async (req, res) => {
     const invoiceDateStr = toDateLabel();
     const expiryDateStr = calculateExpiryDate(saleDateStr, service.duration_days);
 
+    const clientNameVal = isWalkin ? walkin_name.trim() : client.name;
+    const clientIdVal = isWalkin ? 'WALKIN' : (client.id || client_id);
+    const clientPhoneVal = isWalkin ? (walkin_phone || '').trim() : (client.phone || client.mobile || '');
+
     await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, client_gstin_snapshot, discount_amount)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OtherService', ?, ?)
     `).run(
       billId,
       nextBillNo,
-      client.id || client_id,
-      client.name,
+      clientIdVal,
+      clientNameVal,
       invoiceDateStr,
       saleDateStr,
       expiryDateStr,

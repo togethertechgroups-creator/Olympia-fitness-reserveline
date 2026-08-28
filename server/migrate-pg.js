@@ -327,6 +327,8 @@ async function run() {
       CREATE TABLE IF NOT EXISTS other_service_sales (
         id             SERIAL PRIMARY KEY,
         client_id      TEXT REFERENCES clients(id),
+        walkin_name    TEXT,
+        walkin_phone   TEXT,
         service_id     INTEGER REFERENCES other_service_tariffs(id),
         price_snapshot REAL NOT NULL,
         sale_date      DATE NOT NULL,

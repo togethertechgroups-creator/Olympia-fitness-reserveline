@@ -259,8 +259,10 @@ const AdvanceBookingPage = () => {
     const pStart = searchParams.get('startDate');
     const tabParam = searchParams.get('tab');
 
-    if (tabParam === 'pt' || pTrainer || pPackage || pStart) {
+    if (tabParam === 'pt' || pTrainer || pPackage) {
       setActiveTab('pt');
+    } else if (tabParam === 'general' || !tabParam) {
+      setActiveTab('general');
     }
 
     const key = `${pClient || ''}_${pTrainer || ''}_${pPackage || ''}_${pStart || ''}`;

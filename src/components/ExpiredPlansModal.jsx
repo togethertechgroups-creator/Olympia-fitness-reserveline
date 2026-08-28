@@ -37,8 +37,9 @@ const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) =>
       await sendWhatsAppText(phone, text, client.name, client.id || client.clientId, isExpiring ? 'expiring_soon' : 'expired');
       showToast(`✅ WhatsApp reminder sent to ${client.name} (${phone})!`, 'success');
     } catch (err) {
-      console.error('Failed to send WhatsApp message:', err);
-      showToast(`❌ ${err.message || 'Failed to send WhatsApp message'}`, 'error');
+      console.warn('Direct WhatsApp API notice, attempting web fallback:', err);
+      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
+      showToast(`✅ WhatsApp message opened for ${client.name} (${phone})!`, 'success');
     }
   };
 

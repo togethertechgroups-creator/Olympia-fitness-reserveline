@@ -16,11 +16,14 @@ const OtherServicesPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Section Tabs: 'member' | 'walkin' | 'all'
+  const [activeSection, setActiveSection] = useState('member');
+
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Sell / Renew Modal State
+  // Member Sell / Renew Modal State
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
   const [clientSearchText, setClientSearchText] = useState('');
   const [sellFormData, setSellFormData] = useState({
@@ -31,6 +34,19 @@ const OtherServicesPage = () => {
     discount_amount: 0,
     payment_method: 'UPI'
   });
+
+  // Walk-in Sell Modal State
+  const [isWalkinModalOpen, setIsWalkinModalOpen] = useState(false);
+  const [walkinFormData, setWalkinFormData] = useState({
+    walkin_name: '',
+    walkin_phone: '',
+    service_id: '',
+    sale_date: new Date().toISOString().split('T')[0],
+    paid_amount: 0,
+    discount_amount: 0,
+    payment_method: 'UPI'
+  });
+
   const [isSubmittingSell, setIsSubmittingSell] = useState(false);
 
   // Pay Due Modal State
@@ -73,7 +89,7 @@ const OtherServicesPage = () => {
       });
 
       setPayDueModal({ isOpen: false, sale: null, amount: '', payment_method: 'UPI', payment_date: '', submitting: false });
-      await loadData();
+      await fetchData();
 
       if (res?.sale) {
         const item = res.sale;
@@ -175,7 +191,34 @@ const OtherServicesPage = () => {
     }
   };
 
+  const handleOpenSellWalkinModal = async (svc = null) => {
+    try {
+      const freshServices = await getOtherServices();
+      const currentServices = freshServices || [];
+      setServices(currentServices);
+
+      const selectedSvc = svc || (currentServices.length > 0 ? currentServices[0] : null);
+      setWalkinFormData({
+        walkin_name: '',
+        walkin_phone: '',
+        service_id: selectedSvc ? selectedSvc.id : '',
+        sale_date: new Date().toISOString().split('T')[0],
+        paid_amount: selectedSvc ? selectedSvc.price : 0,
+        discount_amount: 0,
+        payment_method: 'UPI'
+      });
+      setIsWalkinModalOpen(true);
+    } catch (err) {
+      console.error("Error loading walk-in modal data:", err);
+      setIsWalkinModalOpen(true);
+    }
+  };
+
   const handleOpenRenewModal = async (item) => {
+    if (item.is_walkin || item.walkin_name) {
+      handleOpenSellWalkinModal();
+      return;
+    }
     setClientSearchText('');
     try {
       const [freshServices, freshClients] = await Promise.all([
@@ -288,6 +331,30 @@ const OtherServicesPage = () => {
     }));
   };
 
+  const handleWalkinServiceSelectionChange = (serviceId) => {
+    const foundSvc = services.find(s => String(s.id) === String(serviceId));
+    const price = foundSvc ? foundSvc.price : 0;
+    const disc = parseFloat(walkinFormData.discount_amount) || 0;
+    const net = Math.max(0, price - disc);
+    setWalkinFormData(prev => ({
+      ...prev,
+      service_id: serviceId,
+      paid_amount: net
+    }));
+  };
+
+  const handleWalkinDiscountChange = (discVal) => {
+    const disc = parseFloat(discVal) || 0;
+    const foundSvc = services.find(s => String(s.id) === String(walkinFormData.service_id));
+    const price = foundSvc ? foundSvc.price : 0;
+    const net = Math.max(0, price - disc);
+    setWalkinFormData(prev => ({
+      ...prev,
+      discount_amount: discVal,
+      paid_amount: net
+    }));
+  };
+
   const handleConfirmSell = async (e) => {
     e.preventDefault();
     if (!sellFormData.client_id || !sellFormData.service_id) {
@@ -313,6 +380,44 @@ const OtherServicesPage = () => {
     }
   };
 
+  const handleConfirmSellWalkin = async (e) => {
+    e.preventDefault();
+    if (!walkinFormData.walkin_name.trim()) {
+      alert("Please enter the Walk-in Client Name.");
+      return;
+    }
+    if (!walkinFormData.service_id) {
+      alert("Please select a service tariff.");
+      return;
+    }
+    setIsSubmittingSell(true);
+    try {
+      const resp = await sellOtherService({
+        is_walkin: true,
+        walkin_name: walkinFormData.walkin_name.trim(),
+        walkin_phone: walkinFormData.walkin_phone.trim(),
+        service_id: walkinFormData.service_id,
+        sale_date: walkinFormData.sale_date,
+        paid_amount: walkinFormData.paid_amount,
+        discount_amount: walkinFormData.discount_amount,
+        payment_method: walkinFormData.payment_method
+      });
+      setToastMessage(`Invoice ${resp.billNo} generated! Walk-in client sale completed.`);
+      setIsWalkinModalOpen(false);
+      await fetchData();
+
+      if (resp.bill) {
+        setInvoiceModal({ isOpen: true, data: resp.bill });
+      }
+
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err) {
+      alert(err.message || "Failed to complete walk-in client service sale");
+    } finally {
+      setIsSubmittingSell(false);
+    }
+  };
+
   // Helper calculation for validity days remaining
   const calculateDaysLeft = (expiryDateStr) => {
     if (!expiryDateStr) return null;
@@ -324,8 +429,18 @@ const OtherServicesPage = () => {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   };
 
-  // Filtering sales list
-  const filteredSales = salesList.filter(item => {
+  const isItemWalkin = (item) => Boolean(item.is_walkin || item.walkin_name || item.clientCode === 'WALKIN');
+
+  // Scoped sales list for current active section tab
+  const sectionSalesList = salesList.filter(item => {
+    const walkin = isItemWalkin(item);
+    if (activeSection === 'walkin') return walkin;
+    if (activeSection === 'member') return !walkin;
+    return true;
+  });
+
+  // Filtering sales list by search & status
+  const filteredSales = sectionSalesList.filter(item => {
     const daysLeft = calculateDaysLeft(item.expiryDate);
     const isExpired = daysLeft !== null && daysLeft < 0;
 
@@ -337,26 +452,30 @@ const OtherServicesPage = () => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
       (item.clientName || '').toLowerCase().includes(searchLower) ||
+      (item.walkin_name || '').toLowerCase().includes(searchLower) ||
       (item.clientCode || '').toLowerCase().includes(searchLower) ||
-      (item.clientPhone || item.clientMobile || '').toLowerCase().includes(searchLower) ||
+      (item.clientPhone || item.walkin_phone || item.clientMobile || '').toLowerCase().includes(searchLower) ||
       (item.serviceName || '').toLowerCase().includes(searchLower) ||
       (item.billNo || '').toLowerCase().includes(searchLower);
 
     return matchesStatus && matchesSearch;
   });
 
-  // Summary Metrics
-  const totalSalesCount = salesList.length;
-  const totalRevenue = salesList.reduce((sum, item) => {
+  // Summary Metrics scoped to active tab
+  const totalSalesCount = sectionSalesList.length;
+  const totalRevenue = sectionSalesList.reduce((sum, item) => {
     const paid = parseFloat(item.paidAmount);
     const snap = parseFloat(item.price_snapshot) || 0;
     return sum + (!isNaN(paid) ? paid : snap);
   }, 0);
-  const activeCount = salesList.filter(item => {
+  const activeCount = sectionSalesList.filter(item => {
     const days = calculateDaysLeft(item.expiryDate);
     return days === null || days >= 0;
   }).length;
   const expiredCount = totalSalesCount - activeCount;
+
+  const walkinSalesCount = salesList.filter(isItemWalkin).length;
+  const memberSalesCount = salesList.filter(s => !isItemWalkin(s)).length;
 
   const formatCurrency = (val) => `₹${(parseFloat(val) || 0).toLocaleString('en-IN')}`;
 
@@ -377,7 +496,17 @@ const OtherServicesPage = () => {
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            Sell Service to Client
+            Sell to Member Client
+          </button>
+
+          <button className="btn-sell-walkin-primary" onClick={() => handleOpenSellWalkinModal()}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+              <circle cx="8.5" cy="7" r="4"></circle>
+              <line x1="20" y1="8" x2="20" y2="14"></line>
+              <line x1="17" y1="11" x2="23" y2="11"></line>
+            </svg>
+            Sell to Walk-in Client
           </button>
 
           {isSuperAdmin && (
@@ -386,7 +515,7 @@ const OtherServicesPage = () => {
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
               </svg>
-              Manage Service Tariffs
+              Manage Tariffs
             </button>
           )}
         </div>
@@ -397,6 +526,36 @@ const OtherServicesPage = () => {
           ✓ {toastMessage}
         </div>
       )}
+
+      {/* Main Section Navigation Tabs */}
+      <div className="os-section-tabs-bar">
+        <button
+          className={`os-section-tab-btn ${activeSection === 'member' ? 'active' : ''}`}
+          onClick={() => setActiveSection('member')}
+        >
+          <span className="tab-icon">👥</span>
+          <span>Member Clients</span>
+          <span className="tab-count-pill">{memberSalesCount}</span>
+        </button>
+
+        <button
+          className={`os-section-tab-btn ${activeSection === 'walkin' ? 'active' : ''}`}
+          onClick={() => setActiveSection('walkin')}
+        >
+          <span className="tab-icon">🚶</span>
+          <span>Walk-in Clients</span>
+          <span className="tab-count-pill">{walkinSalesCount}</span>
+        </button>
+
+        <button
+          className={`os-section-tab-btn ${activeSection === 'all' ? 'active' : ''}`}
+          onClick={() => setActiveSection('all')}
+        >
+          <span className="tab-icon">📋</span>
+          <span>All Service Sales</span>
+          <span className="tab-count-pill">{salesList.length}</span>
+        </button>
+      </div>
 
       {/* Summary Stat Cards */}
       <div className="os-stats-grid">
@@ -508,10 +667,15 @@ const OtherServicesPage = () => {
                     <td className="col-id">{formatShortId(item.clientCode || item.client_id)}</td>
                     <td className="col-client">
                       <div className="client-cell-box">
-                        <div className="client-avatar-circle">{clientInitial}</div>
+                        <div className="client-avatar-circle" style={isItemWalkin(item) ? { background: 'linear-gradient(135deg, #059669, #10b981)', boxShadow: '0 3px 8px rgba(16, 185, 129, 0.3)' } : {}}>
+                          {clientInitial}
+                        </div>
                         <div>
                           <div className="client-name-text">{item.clientName}</div>
-                          <div className="client-phone-sub">{item.clientPhone || item.clientMobile || 'No Phone'}</div>
+                          <div className="client-phone-sub">{item.clientPhone || item.walkin_phone || item.clientMobile || 'No Phone'}</div>
+                          {isItemWalkin(item) && (
+                            <span className="walkin-badge">🚶 Walk-in</span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1048,6 +1212,146 @@ const OtherServicesPage = () => {
                   style={{ background: 'linear-gradient(135deg, #ea580c 0%, #c2410c 100%)' }}
                 >
                   {payDueModal.submitting ? 'Recording...' : 'Record Payment & Generate Invoice'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Sell Service to Walk-in Client Modal */}
+      {isWalkinModalOpen && (
+        <div className="os-modal-overlay">
+          <div className="os-modal-card">
+            <div className="os-modal-header" style={{ background: 'linear-gradient(135deg, #059669, #047857)' }}>
+              <h3>Sell Service to Walk-in Client</h3>
+              <button onClick={() => setIsWalkinModalOpen(false)} className="btn-close-modal">✕</button>
+            </div>
+
+            <form onSubmit={handleConfirmSellWalkin} className="os-modal-body">
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Walk-in Client Name *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Rajesh Kumar"
+                    value={walkinFormData.walkin_name}
+                    onChange={(e) => setWalkinFormData({ ...walkinFormData, walkin_name: e.target.value })}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Phone / Mobile Number</label>
+                  <input
+                    type="tel"
+                    placeholder="e.g. 9876543210"
+                    value={walkinFormData.walkin_phone}
+                    onChange={(e) => setWalkinFormData({ ...walkinFormData, walkin_phone: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Select Service Tariff *</label>
+                <select
+                  value={walkinFormData.service_id}
+                  onChange={(e) => handleWalkinServiceSelectionChange(e.target.value)}
+                  required
+                >
+                  <option value="">-- Choose Service --</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} — ₹{s.price} ({s.duration_days} Days)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Paid Amount (₹) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={walkinFormData.paid_amount}
+                    onChange={(e) => setWalkinFormData({ ...walkinFormData, paid_amount: e.target.value })}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Discount Amount (₹)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={walkinFormData.discount_amount}
+                    onChange={(e) => handleWalkinDiscountChange(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              <div className="form-grid-2">
+                <div className="form-group">
+                  <label>Payment Method *</label>
+                  <select
+                    value={walkinFormData.payment_method}
+                    onChange={(e) => setWalkinFormData({ ...walkinFormData, payment_method: e.target.value })}
+                    required
+                  >
+                    <option value="UPI">UPI</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Card">Card</option>
+                    <option value="Net Banking">Net Banking</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Sale Date *</label>
+                  <input
+                    type="date"
+                    value={walkinFormData.sale_date}
+                    onChange={(e) => setWalkinFormData({ ...walkinFormData, sale_date: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Due Amount Summary Breakdown */}
+              {(() => {
+                const foundSvc = services.find(s => String(s.id) === String(walkinFormData.service_id));
+                const gross = foundSvc ? parseFloat(foundSvc.price || 0) : 0;
+                const disc = parseFloat(walkinFormData.discount_amount) || 0;
+                const net = Math.max(0, gross - disc);
+                const paid = walkinFormData.paid_amount !== '' && walkinFormData.paid_amount !== undefined ? parseFloat(walkinFormData.paid_amount) || 0 : net;
+                const due = Math.max(0, net - paid);
+                return (
+                  <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>TOTAL PAYABLE:</span>
+                      <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>PAID NOW:</span>
+                      <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                      <span style={{ fontWeight: '700', color: due > 0 ? '#ea580c' : '#64748b' }}>DUE BALANCE:</span>
+                      <strong style={{ color: due > 0 ? '#ea580c' : '#10b981', fontSize: '1.05rem' }}>
+                        ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Partial Payment)' : '(Full Paid)'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="os-modal-actions">
+                <button type="button" className="btn-modal-cancel" onClick={() => setIsWalkinModalOpen(false)} disabled={isSubmittingSell}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-modal-confirm" style={{ background: 'linear-gradient(135deg, #059669, #047857)' }} disabled={isSubmittingSell}>
+                  {isSubmittingSell ? 'Processing Sale...' : 'Process Walk-in Sale & Generate Invoice'}
                 </button>
               </div>
             </form>

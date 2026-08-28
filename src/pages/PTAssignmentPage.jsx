@@ -6,7 +6,7 @@ import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import './PTAssignmentPage.css';
 
-const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) => {
+const SingleTimePickerInput = ({ label, value, onChange, placeholder, autoFocus, alignRight }) => {
   const [showPicker, setShowPicker] = useState(false);
   const containerRef = React.useRef(null);
 
@@ -57,8 +57,13 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
   const minutesList = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
   return (
-    <div className="timing-picker-container" ref={containerRef} style={{ position: 'relative', width: '100%' }}>
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
+    <div className="single-time-picker-container" ref={containerRef} style={{ position: 'relative', width: '100%', boxSizing: 'border-box' }}>
+      {label && (
+        <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', display: 'block', marginBottom: '4px', textTransform: 'uppercase' }}>
+          {label}
+        </label>
+      )}
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
         <input
           type="text"
           placeholder={placeholder || "e.g. 10:00 AM"}
@@ -66,14 +71,14 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
           onChange={e => onChange(e.target.value)}
           style={{
             width: '100%',
-            padding: '0.65rem 7.2rem 0.65rem 0.85rem',
+            padding: '0.6rem 4.4rem 0.6rem 0.75rem',
             borderRadius: '8px',
             border: '1px solid #cbd5e1',
-            fontSize: '0.9rem',
+            fontSize: '0.88rem',
             fontWeight: '600',
             boxSizing: 'border-box',
             outline: 'none',
-            ...style
+            background: '#ffffff'
           }}
           autoFocus={autoFocus}
         />
@@ -84,27 +89,27 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
           title="Open 12-Hour AM/PM Time Picker"
           style={{
             position: 'absolute',
-            right: '6px',
+            right: '4px',
             background: 'linear-gradient(135deg, #f97316, #ea580c)',
             color: '#ffffff',
             border: 'none',
             borderRadius: '6px',
-            padding: '5px 10px',
+            padding: '4px 7px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '5px',
-            fontSize: '0.78rem',
+            gap: '3px',
+            fontSize: '0.75rem',
             fontWeight: '800',
             transition: 'all 0.15s ease',
             boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)'
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          <span>Time Picker</span>
+          <span>Picker</span>
         </button>
       </div>
 
@@ -112,24 +117,25 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
         <div style={{
           position: 'absolute',
           top: 'calc(100% + 6px)',
-          right: 0,
+          ...(alignRight ? { right: 0 } : { left: 0 }),
           zIndex: 1000,
           background: '#ffffff',
           border: '1px solid #cbd5e1',
           borderRadius: '12px',
           boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)',
-          padding: '1rem',
-          width: '310px',
+          padding: '0.85rem',
+          width: '265px',
+          maxWidth: '85vw',
           boxSizing: 'border-box'
         }}>
-          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>SELECT 12-HOUR TIME</span>
+          <div style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{label || 'SELECT TIME'}</span>
             <span style={{ color: '#ea580c', fontWeight: '900', fontSize: '0.85rem' }}>{selHour}:{selMin} {selAmPm}</span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '0.4rem', alignItems: 'flex-end', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '0.4rem', alignItems: 'flex-end', marginBottom: '0.75rem' }}>
             <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>HOUR</label>
+              <label style={{ fontSize: '0.7rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>HOUR</label>
               <select
                 value={selHour}
                 onChange={e => {
@@ -139,11 +145,11 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
                 }}
                 style={{
                   width: '100%',
-                  padding: '0.45rem 0.2rem',
+                  padding: '0.4rem 0.2rem',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   fontWeight: '700',
-                  fontSize: '0.88rem',
+                  fontSize: '0.85rem',
                   background: '#f8fafc',
                   color: '#0f172a',
                   cursor: 'pointer'
@@ -156,7 +162,7 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
             </div>
 
             <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>MINUTE</label>
+              <label style={{ fontSize: '0.7rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>MINUTE</label>
               <select
                 value={selMin}
                 onChange={e => {
@@ -166,11 +172,11 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
                 }}
                 style={{
                   width: '100%',
-                  padding: '0.45rem 0.2rem',
+                  padding: '0.4rem 0.2rem',
                   borderRadius: '6px',
                   border: '1px solid #cbd5e1',
                   fontWeight: '700',
-                  fontSize: '0.88rem',
+                  fontSize: '0.85rem',
                   background: '#f8fafc',
                   color: '#0f172a',
                   cursor: 'pointer'
@@ -183,8 +189,8 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
             </div>
 
             <div>
-              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>AM / PM</label>
-              <div style={{ display: 'flex', background: '#f1f5f9', padding: '2px', borderRadius: '6px', height: '35px', boxSizing: 'border-box' }}>
+              <label style={{ fontSize: '0.7rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '3px' }}>AM / PM</label>
+              <div style={{ display: 'flex', background: '#f1f5f9', padding: '2px', borderRadius: '6px', height: '33px', boxSizing: 'border-box' }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -246,6 +252,79 @@ const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) =
           >
             Done
           </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TimingPickerInput = ({ value, onChange, style, autoFocus }) => {
+  const parseRange = (val) => {
+    if (!val) return { from: '', to: '' };
+    const str = String(val).trim();
+    if (!str) return { from: '', to: '' };
+    const parts = str.split(/\s*(?:[-–—]|(?:\bto\b))\s*/i).map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      return { from: parts[0], to: parts[1] };
+    } else if (parts.length === 1) {
+      return { from: parts[0], to: '' };
+    }
+    return { from: '', to: '' };
+  };
+
+  const parsed = parseRange(value);
+  const [fromTime, setFromTime] = useState(parsed.from);
+  const [toTime, setToTime] = useState(parsed.to);
+
+  useEffect(() => {
+    const p = parseRange(value);
+    setFromTime(p.from);
+    setToTime(p.to);
+  }, [value]);
+
+  const updateRange = (newFrom, newTo) => {
+    setFromTime(newFrom);
+    setToTime(newTo);
+    const cleanFrom = newFrom ? newFrom.trim() : '';
+    const cleanTo = newTo ? newTo.trim() : '';
+    if (cleanFrom && cleanTo) {
+      onChange(`${cleanFrom} - ${cleanTo}`);
+    } else if (cleanFrom) {
+      onChange(cleanFrom);
+    } else if (cleanTo) {
+      onChange(cleanTo);
+    } else {
+      onChange('');
+    }
+  };
+
+  return (
+    <div className="time-range-picker-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', width: '100%', boxSizing: 'border-box', ...style }}>
+      <div style={{ display: 'flex', gap: '0.75rem', width: '100%', flexWrap: 'wrap', boxSizing: 'border-box' }}>
+        <div style={{ flex: '1 1 180px', minWidth: '0', boxSizing: 'border-box' }}>
+          <SingleTimePickerInput
+            label="From Time"
+            value={fromTime}
+            onChange={val => updateRange(val, toTime)}
+            placeholder="e.g. 10:00 AM"
+            autoFocus={autoFocus}
+            alignRight={false}
+          />
+        </div>
+        <div style={{ flex: '1 1 180px', minWidth: '0', boxSizing: 'border-box' }}>
+          <SingleTimePickerInput
+            label="To Time"
+            value={toTime}
+            onChange={val => updateRange(fromTime, val)}
+            placeholder="e.g. 11:00 AM"
+            alignRight={true}
+          />
+        </div>
+      </div>
+      {(fromTime || toTime) && (
+        <div style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: '600', background: '#f8fafc', padding: '0.4rem 0.75rem', borderRadius: '6px', border: '1px solid #cbd5e1', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', boxSizing: 'border-box' }}>
+          <span style={{ color: '#ea580c', fontWeight: '800' }}>Slot Range:</span>
+          <span>{fromTime || '—'} to {toTime || '—'}</span>
         </div>
       )}
     </div>
@@ -1698,32 +1777,33 @@ const PTAssignmentPage = () => {
       {/* Edit Workout Timing Modal (Timing Only) */}
       {timingModal.isOpen && timingModal.assignment && (
         <div className="trainer-modal-overlay">
-          <div className="trainer-modal-content animated-scale-in" style={{ maxWidth: '480px' }}>
-            <div className="trainer-modal-header">
-              <h2>Edit Workout Timing</h2>
+          <div className="trainer-modal-content animated-scale-in" style={{ maxWidth: '540px', width: '92vw', boxSizing: 'border-box', overflow: 'visible', maxHeight: 'none' }}>
+            <div className="trainer-modal-header" style={{ padding: '0.9rem 1.25rem' }}>
+              <h2 style={{ fontSize: '1.35rem' }}>Edit Workout Timing</h2>
               <button className="btn-close" onClick={() => setTimingModal({ isOpen: false, assignment: null, timing: '' })}>&times;</button>
             </div>
 
-            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.88rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-              <div><strong>Client:</strong> {timingModal.assignment.clientName}</div>
-              <div><strong>Package:</strong> {timingModal.assignment.packageName}</div>
-              <div><strong>Trainer:</strong> {timingModal.assignment.trainerName}</div>
-            </div>
+            <form onSubmit={handleSaveTiming} className="trainer-form" style={{ padding: '1rem 1.25rem', gap: '0.85rem', boxSizing: 'border-box', overflow: 'visible', flex: 'none' }}>
+              {/* Compact Summary Cards Row */}
+              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '0.55rem 0.85rem', borderRadius: '10px', fontSize: '0.82rem', color: '#334155', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem', boxSizing: 'border-box', width: '100%' }}>
+                <div><span style={{ color: '#64748b', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>CLIENT</span><strong>{timingModal.assignment.clientName}</strong></div>
+                <div><span style={{ color: '#64748b', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>PACKAGE</span><strong>{timingModal.assignment.packageName}</strong></div>
+                <div><span style={{ color: '#64748b', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: '700', display: 'block' }}>TRAINER</span><strong>{timingModal.assignment.trainerName}</strong></div>
+              </div>
 
-            <form onSubmit={handleSaveTiming} className="trainer-form">
-              <div className="trainer-form-group">
-                <label style={{ fontWeight: '700', color: '#0f172a' }}>Workout Timing / Slot</label>
+              <div className="trainer-form-group" style={{ boxSizing: 'border-box', width: '100%', gap: '0.35rem' }}>
+                <label style={{ fontWeight: '800', color: '#0f172a', fontSize: '0.75rem', letterSpacing: '0.05em' }}>WORKOUT TIMING RANGE</label>
                 <TimingPickerInput
                   value={timingModal.timing}
                   onChange={val => setTimingModal(prev => ({ ...prev, timing: val }))}
-                  placeholder="e.g. 10:00 AM or select time picker →"
+                  placeholder="e.g. 10:00 AM"
                   autoFocus
                 />
               </div>
 
-              <div className="trainer-modal-footer" style={{ marginTop: '1.5rem' }}>
-                <button type="button" className="trainer-btn-cancel" onClick={() => setTimingModal({ isOpen: false, assignment: null, timing: '' })}>Cancel</button>
-                <button type="submit" className="trainer-btn-save">Save Timing</button>
+              <div className="trainer-modal-footer" style={{ marginTop: '0.5rem', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <button type="button" className="trainer-btn-cancel" style={{ padding: '0.55rem 1.35rem', fontSize: '0.9rem' }} onClick={() => setTimingModal({ isOpen: false, assignment: null, timing: '' })}>Cancel</button>
+                <button type="submit" className="trainer-btn-save" style={{ padding: '0.55rem 1.85rem', fontSize: '0.95rem' }}>Save Timing</button>
               </div>
             </form>
           </div>
@@ -1875,11 +1955,23 @@ const PTAssignmentPage = () => {
       {customPopup.isOpen && (
         <div className="alert-modal-overlay" style={{ zIndex: 999999 }}>
           <div className="alert-modal-card" style={{ maxWidth: '440px', textAlign: 'center', padding: '2rem', background: '#ffffff', borderRadius: '20px', boxShadow: '0 20px 40px rgba(0,0,0,0.25)' }}>
-            <div style={{ width: '60px', height: '60px', background: customPopup.type === 'confirm' ? '#fee2e2' : '#e0e7ff', border: customPopup.type === 'confirm' ? '1px solid #fca5a5' : '1px solid #c7d2fe', borderRadius: '50%', color: customPopup.type === 'confirm' ? '#dc2626' : '#4338ca', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '1.8rem' }}>
-              {customPopup.type === 'confirm' ? '🗑️' : 'ℹ️'}
-            </div>
+            {customPopup.type === 'confirm' ? (
+              <div style={{ width: '64px', height: '64px', background: '#fee2e2', border: '1.5px solid #fca5a5', borderRadius: '50%', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '1.8rem', boxShadow: '0 4px 12px rgba(220, 38, 38, 0.15)' }}>
+                🗑️
+              </div>
+            ) : (customPopup.type === 'error' || (customPopup.title || '').toLowerCase().includes('error')) ? (
+              <div style={{ width: '64px', height: '64px', background: '#fee2e2', border: '1.5px solid #fca5a5', borderRadius: '50%', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', fontSize: '1.8rem', boxShadow: '0 4px 12px rgba(220, 38, 38, 0.15)' }}>
+                ⚠️
+              </div>
+            ) : (
+              <div style={{ width: '64px', height: '64px', background: '#dcfce7', border: '2px solid #86efac', borderRadius: '50%', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', boxShadow: '0 4px 14px rgba(22, 163, 74, 0.25)' }}>
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            )}
 
-            <h3 style={{ fontSize: '1.25rem', fontWeight: '900', color: '#1e1b4b', marginBottom: '0.75rem' }}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: '900', color: '#1e1b4b', marginBottom: '0.75rem' }}>
               {customPopup.title}
             </h3>
 
@@ -1904,7 +1996,18 @@ const PTAssignmentPage = () => {
                   setCustomPopup(prev => ({ ...prev, isOpen: false }));
                   if (onConf) onConf();
                 }}
-                style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '10px', border: 'none', background: customPopup.type === 'confirm' ? '#dc2626' : '#4f46e5', color: '#ffffff', fontWeight: '800', cursor: 'pointer' }}
+                style={{
+                  flex: 1,
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: customPopup.type === 'confirm' ? '#dc2626' : ((customPopup.type === 'error' || (customPopup.title || '').toLowerCase().includes('error')) ? '#dc2626' : 'linear-gradient(135deg, #16a34a, #15803d)'),
+                  color: '#ffffff',
+                  fontWeight: '800',
+                  fontSize: '0.95rem',
+                  cursor: 'pointer',
+                  boxShadow: (customPopup.type === 'error' || customPopup.type === 'confirm' || (customPopup.title || '').toLowerCase().includes('error')) ? '0 4px 12px rgba(220, 38, 38, 0.25)' : '0 4px 12px rgba(22, 163, 74, 0.25)'
+                }}
               >
                 {customPopup.type === 'confirm' ? 'Yes, Delete' : 'OK'}
               </button>

@@ -466,38 +466,65 @@ const TrainerSalaryReportPage = () => {
         console.error('PDF generation error:', e);
       }
 
-      await sendPayslipWhatsApp({
-        phone: targetPhone,
-        trainerName: tr.trainerName,
-        month: selectedMonth,
-        basicPay: bPay,
-        bonus: bBonus,
-        bonusNote: form.bonusNote || '',
-        incentiveAmount: incAmt,
-        incentiveType: incType,
-        otherAmount: othAmt,
-        otherType: othType,
-        otherLabel: othLabel,
-        commissionSalary: commSalary,
-        totalPayable: total,
-        pdfBase64: pdfBase64,
-        user_role: localStorage.getItem('userRole') || 'superadmin'
-      });
+      try {
+        await sendPayslipWhatsApp({
+          phone: targetPhone,
+          trainerName: tr.trainerName,
+          month: selectedMonth,
+          basicPay: bPay,
+          bonus: bBonus,
+          bonusNote: form.bonusNote || '',
+          incentiveAmount: incAmt,
+          incentiveType: incType,
+          otherAmount: othAmt,
+          otherType: othType,
+          otherLabel: othLabel,
+          commissionSalary: commSalary,
+          totalPayable: total,
+          pdfBase64: pdfBase64,
+          user_role: localStorage.getItem('userRole') || 'superadmin'
+        });
 
+        setModalConfig(prev => ({
+          ...prev,
+          sendingWa: false,
+          waPhone: targetPhone,
+          waSuccess: `✅ Payslip sent successfully to ${targetPhone} via WhatsApp!`,
+          showSuccessPopup: true,
+          waError: ''
+        }));
+      } catch (backendErr) {
+        console.warn('Direct WhatsApp payslip notice, attempting web fallback:', backendErr);
+        const incSign = incType === 'Subtract' ? '-' : '+';
+        const othSign = othType === 'Subtract' ? '-' : '+';
+        const caption =
+          `Hi ${tr.trainerName || 'Trainer'}! 👋\n\n` +
+          `Here is your Payslip breakdown for *${selectedMonth}*:\n` +
+          `• PT Commission Salary: ₹${(commSalary || 0).toLocaleString('en-IN')}\n` +
+          `• Basic Pay: +₹${(bPay || 0).toLocaleString('en-IN')}\n` +
+          `• Bonus: +₹${(bBonus || 0).toLocaleString('en-IN')}${form.bonusNote ? ` (${form.bonusNote})` : ''}\n` +
+          `• Incentives: ${incSign}₹${(incAmt || 0).toLocaleString('en-IN')}\n` +
+          `• ${othLabel}: ${othSign}₹${(othAmt || 0).toLocaleString('en-IN')}\n` +
+          `---------------------------\n` +
+          `*TOTAL PAYABLE: ₹${(total || 0).toLocaleString('en-IN')}*\n\n` +
+          `*OLYMPIA FITNESS* 🏋️‍♂️`;
+
+        window.open(`https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodeURIComponent(caption)}`, '_blank');
+        setModalConfig(prev => ({
+          ...prev,
+          sendingWa: false,
+          waPhone: targetPhone,
+          waSuccess: `✅ Payslip message opened for ${targetPhone} via WhatsApp!`,
+          showSuccessPopup: true,
+          waError: ''
+        }));
+      }
+    } catch (outerErr) {
+      console.error('WhatsApp send error:', outerErr);
       setModalConfig(prev => ({
         ...prev,
         sendingWa: false,
-        waPhone: targetPhone,
-        waSuccess: `✅ Payslip sent successfully to ${targetPhone} via WhatsApp!`,
-        showSuccessPopup: true,
-        waError: ''
-      }));
-    } catch (err) {
-      console.error('Backend WhatsApp dispatch error:', err);
-      setModalConfig(prev => ({
-        ...prev,
-        sendingWa: false,
-        waError: `❌ ${err.message || 'Failed to send WhatsApp message.'}`,
+        waError: `❌ ${outerErr.message || 'Failed to send WhatsApp message.'}`,
         waSuccess: ''
       }));
     }

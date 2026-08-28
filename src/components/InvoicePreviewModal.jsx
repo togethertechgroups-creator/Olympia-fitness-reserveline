@@ -170,10 +170,17 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         `\nThank you for training with Olympia Fitness! 💪🏋️‍♂️`;
 
       // Send PDF invoice via Backend Metamerged WhatsApp API
-      await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text);
-
-      setToastType('success');
-      setToastMsg(`✅ Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`);
+      try {
+        await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text);
+        setToastType('success');
+        setToastMsg(`✅ Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`);
+      } catch (backendErr) {
+        console.warn('Direct WhatsApp API notice, attempting web fallback:', backendErr);
+        const encodedText = encodeURIComponent(text);
+        window.open(`https://api.whatsapp.com/send?phone=${phoneNum}&text=${encodedText}`, '_blank');
+        setToastType('success');
+        setToastMsg(`✅ Invoice message opened for ${phoneNum} via WhatsApp!`);
+      }
     } catch (err) {
       console.error('Failed to send WhatsApp:', err);
       setToastType('error');

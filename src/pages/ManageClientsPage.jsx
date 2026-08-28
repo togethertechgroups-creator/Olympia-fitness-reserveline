@@ -45,7 +45,7 @@ const ManageClientsPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeFilter, setActiveFilter] = useState('Inactive');
+  const [activeFilter, setActiveFilter] = useState('Active');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
   const [idSortOrder, setIdSortOrder] = useState('asc'); // 'asc' | 'desc'
@@ -449,7 +449,7 @@ const ManageClientsPage = () => {
     } else if (statusParam === 'All') {
       setActiveFilter('All');
     } else if (!statusParam) {
-      setActiveFilter('Inactive');
+      setActiveFilter('Active');
     }
   }, [location.search]);
 
@@ -952,8 +952,9 @@ const ManageClientsPage = () => {
       await sendWhatsAppText(phone, text, client.name, client.id || client.clientId, effectiveDue > 0 ? 'payment_reminder' : (validity.isExpired ? 'expired' : 'reminder'));
       showToast(`✅ WhatsApp reminder sent successfully to ${client.name} (${phone})!`, 'success');
     } catch (err) {
-      console.error('Failed to send WhatsApp reminder:', err);
-      showToast(`❌ ${err.message || 'Failed to send WhatsApp message'}`, 'error');
+      console.warn('Direct WhatsApp API notice, attempting web fallback:', err);
+      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
+      showToast(`✅ WhatsApp message opened for ${client.name} (${phone})!`, 'success');
     }
   };
 
@@ -1378,7 +1379,7 @@ const ManageClientsPage = () => {
 
         <div className="filter-group">
           <div className="filter-pills">
-            {['Inactive', 'Due Payment', 'Reminder', 'Active', 'All'].map(filter => {
+            {['Active', 'Due Payment', 'Reminder', 'Inactive', 'All'].map(filter => {
               const dueCount = clients.filter(c => calcClientDueDetails(c).effectiveDue > 0).length;
               const label = filter === 'Due Payment' ? `Due Payment (${dueCount})` : (filter === 'Inactive' ? 'Inactive / Pending' : filter);
               return (
@@ -1644,7 +1645,7 @@ const ManageClientsPage = () => {
                           style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.3)' }}
                           onClick={() => {
                             const nextStart = getClientNextMembershipStartDate(client);
-                            navigate(`/advance-bookings?clientId=${client.id}&startDate=${nextStart}`);
+                            navigate(`/advance-bookings?clientId=${client.id}&startDate=${nextStart}&tab=general`);
                           }}
                           title="Create Advance Booking"
                         >
