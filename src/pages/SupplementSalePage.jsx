@@ -5,6 +5,7 @@ import { formatShortId } from '../utils/formatShortId';
 import './SupplementSalePage.css';
 
 const SupplementSalePage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [activeSupplements, setActiveSupplements] = useState([]);
   const [clientsList, setClientsList] = useState([]);
   const [sales, setSales] = useState([]);
@@ -451,6 +452,7 @@ const SupplementSalePage = () => {
                 <table className="sales-table">
                   <thead>
                     <tr>
+                      <th style={{ width: '60px' }}>S.No</th>
                       <th>Date</th>
                       <th>Supplement Item</th>
                       <th>Buyer</th>
@@ -464,12 +466,13 @@ const SupplementSalePage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {sales.map(s => {
+                    {sales.map((s, idx) => {
                       const cogs = s.quantity * (s.cost_price_snapshot || 0);
                       const margin = s.total_amount - cogs;
                       const isProfit = margin >= 0;
                       return (
                         <tr key={s.id}>
+                          <td style={{ fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
                           <td>{formatDateDDMMYYYY(s.sale_date)}</td>
                           <td>
                             <strong>{s.supplement_name}</strong>
@@ -494,13 +497,15 @@ const SupplementSalePage = () => {
                             <span className="mode-badge">{s.payment_mode}</span>
                           </td>
                           <td>
-                            <button
-                              className="btn-delete-sale"
-                              onClick={() => handleDeleteSale(s)}
-                              title="Delete sale & restore inventory stock"
-                            >
-                              🗑️
-                            </button>
+                            {isSuperAdmin && (
+                              <button
+                                className="btn-delete-sale"
+                                onClick={() => handleDeleteSale(s)}
+                                title="Delete sale & restore inventory stock"
+                              >
+                                🗑️
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

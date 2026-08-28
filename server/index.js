@@ -6530,17 +6530,17 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
 
 
 
-// ─── Middleware: SuperAdmin ONLY Access for Supplements ───────────────────────
-const requireSuperAdmin = (req, res, next) => {
+// ─── Middleware: Supplement Access Control (Admin & SuperAdmin) ───────────────
+const requireSupplementAccess = (req, res, next) => {
   const role = req.headers['x-user-role'];
-  if (role !== 'superadmin') {
-    return res.status(403).json({ error: 'Access denied: Master/SuperAdmin privileges required' });
+  if (!role || (role !== 'admin' && role !== 'superadmin')) {
+    return res.status(403).json({ error: 'Access denied: Admin or SuperAdmin privileges required' });
   }
   next();
 };
 
-// Apply requireSuperAdmin to all /api/supplements routes
-app.use('/api/supplements', requireSuperAdmin);
+// Apply requireSupplementAccess to all /api/supplements routes
+app.use('/api/supplements', requireSupplementAccess);
 
 // ─── CATALOG ENDPOINTS ────────────────────────────────────────────────────────
 

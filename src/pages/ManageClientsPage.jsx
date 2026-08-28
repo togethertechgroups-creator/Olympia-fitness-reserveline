@@ -41,6 +41,7 @@ const calcClientDueDetails = (client) => {
 const ManageClientsPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -505,20 +506,93 @@ const ManageClientsPage = () => {
     return 30;
   };
 
-  const handleOpenRenewModal = (client) => {
-    const today = new Date().toISOString().split('T')[0];
-    let startDate = today;
-    if (client.expiryDate) {
-      const expStr = client.expiryDate.split('T')[0];
-      if (expStr >= today) {
-        const d = new Date(expStr);
-        if (!isNaN(d.getTime())) {
-          d.setDate(d.getDate() + 1);
-          startDate = d.toISOString().split('T')[0];
-        }
+  const parseClientExpiryDate = (dateVal) => {
+    if (!dateVal) return null;
+    if (dateVal instanceof Date) return isNaN(dateVal.getTime()) ? null : dateVal;
+    if (typeof dateVal === 'number') {
+      const d = new Date(dateVal);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    let str = String(dateVal).trim();
+    if (!str) return null;
+
+    if (!isNaN(str) && str.length >= 10 && !str.includes('-') && !str.includes('/') && !str.includes('.')) {
+      const num = Number(str);
+      if (!isNaN(num)) {
+        const d = new Date(num);
+        if (!isNaN(d.getTime())) return d;
       }
     }
 
+    if (str.includes('T')) str = str.split('T')[0];
+    if (str.includes(' ')) str = str.split(' ')[0];
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    const ymdMatch = str.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1;
+      const day = parseInt(ymdMatch[3], 10);
+      const d = new Date(year, month, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    // DD/MM/YYYY or DD-MM-YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1;
+      const year = parseInt(dmyMatch[3], 10);
+      const d = new Date(year, month, day);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const getClientNextMembershipStartDate = (client) => {
+    if (!client) return new Date().toISOString().split('T')[0];
+
+    const rawExpiry = client.expiryDate || client.expiry_date || client.currentPlanExpiry;
+    let latestExpiryDate = rawExpiry ? parseClientExpiryDate(rawExpiry) : null;
+
+    // Check if client has any advance general bookings extending further
+    const clientGenB = (advanceBookings.general || []).filter(b =>
+      (String(b.client_id) === String(client.id) || String(b.clientId) === String(client.id) || String(b.clientCode) === String(client.clientId)) &&
+      ['Scheduled', 'ReadyToActivate', 'Active'].includes(b.status)
+    );
+
+    clientGenB.forEach(b => {
+      if (b.booking_end_date) {
+        const bEnd = parseClientExpiryDate(b.booking_end_date);
+        if (bEnd && (!latestExpiryDate || bEnd > latestExpiryDate)) {
+          latestExpiryDate = bEnd;
+        }
+      }
+    });
+
+    if (latestExpiryDate) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const expClean = new Date(latestExpiryDate);
+      expClean.setHours(0, 0, 0, 0);
+
+      if (expClean >= today) {
+        expClean.setDate(expClean.getDate() + 1);
+        const yyyy = expClean.getFullYear();
+        const mm = String(expClean.getMonth() + 1).padStart(2, '0');
+        const dd = String(expClean.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const handleOpenRenewModal = (client) => {
+    const startDate = getClientNextMembershipStartDate(client);
     const initialPlan = client.plan || 'MONTHLY';
     const initialPrice = getTariffPrice(initialPlan) || parseFloat(client.amount) || 0;
     const initialDuration = getTariffDuration(initialPlan);
@@ -1568,7 +1642,10 @@ const ManageClientsPage = () => {
                         <button
                           className="btn-action-edit"
                           style={{ background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1', borderColor: 'rgba(99, 102, 241, 0.3)' }}
-                          onClick={() => navigate(`/advance-bookings?clientId=${client.id}`)}
+                          onClick={() => {
+                            const nextStart = getClientNextMembershipStartDate(client);
+                            navigate(`/advance-bookings?clientId=${client.id}&startDate=${nextStart}`);
+                          }}
                           title="Create Advance Booking"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2468,24 +2545,26 @@ const ManageClientsPage = () => {
                               <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
                             </div>
                             <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
-                            <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
-                              <button
-                                type="button"
-                                style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
-                                onClick={async () => {
-                                  if (!window.confirm(`Delete service "${svc.serviceName}"?`)) return;
-                                  try {
-                                    await deleteOtherServiceSale(svc.id);
-                                    setOtherServices(prev => prev.filter(s => s.id !== svc.id));
-                                    alert('Service deleted successfully.');
-                                  } catch (e) {
-                                    alert(e.message || 'Failed to delete service');
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </div>
+                            {isSuperAdmin && (
+                              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                                <button
+                                  type="button"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                  onClick={async () => {
+                                    if (!window.confirm(`Delete service "${svc.serviceName}"?`)) return;
+                                    try {
+                                      await deleteOtherServiceSale(svc.id);
+                                      setOtherServices(prev => prev.filter(s => s.id !== svc.id));
+                                      alert('Service deleted successfully.');
+                                    } catch (e) {
+                                      alert(e.message || 'Failed to delete service');
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )) : <div className="mini-empty">No Other Services</div>}
                       </div>

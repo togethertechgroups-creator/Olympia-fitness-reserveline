@@ -11,6 +11,7 @@ import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './SupplementPurchasePage.css';
 
 const SupplementPurchasePage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [searchParams] = useSearchParams();
   const preselectedSuppId = searchParams.get('supplementId');
 
@@ -425,6 +426,7 @@ const SupplementPurchasePage = () => {
                 <table className="purchases-table">
                   <thead>
                     <tr>
+                      <th style={{ width: '60px' }}>S.No</th>
                       <th>Date</th>
                       <th>Supplement Item</th>
                       <th>Vendor Name</th>
@@ -437,8 +439,9 @@ const SupplementPurchasePage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {purchases.map(p => (
+                    {purchases.map((p, idx) => (
                       <tr key={p.id}>
+                        <td style={{ fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
                         <td><strong>{formatDateDDMMYYYY(p.purchase_date)}</strong></td>
                         <td>
                           <strong>{p.supplement_name}</strong>
@@ -451,29 +454,31 @@ const SupplementPurchasePage = () => {
                         <td>{p.invoice_ref || '—'}</td>
                         <td>{p.notes || '—'}</td>
                         <td style={{ textAlign: 'right' }}>
-                          <div className="purchase-actions-group">
-                            <button
-                              className="btn-action-edit-purchase"
-                              onClick={() => handleOpenEdit(p)}
-                              title="Edit Purchase Log"
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                                <path d="m15 5 4 4" />
-                              </svg>
-                            </button>
-                            <button
-                              className="btn-action-delete-purchase"
-                              onClick={() => handleOpenDelete(p)}
-                              title="Delete Purchase Log"
-                            >
-                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M3 6h18" />
-                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                              </svg>
-                            </button>
-                          </div>
+                          {isSuperAdmin && (
+                            <div className="purchase-actions-group">
+                              <button
+                                className="btn-action-edit-purchase"
+                                onClick={() => handleOpenEdit(p)}
+                                title="Edit Purchase Log"
+                              >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                                  <path d="m15 5 4 4" />
+                                </svg>
+                              </button>
+                              <button
+                                className="btn-action-delete-purchase"
+                                onClick={() => handleOpenDelete(p)}
+                                title="Delete Purchase Log"
+                              >
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                </svg>
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}

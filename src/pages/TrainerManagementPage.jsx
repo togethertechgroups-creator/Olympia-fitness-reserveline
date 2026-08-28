@@ -408,9 +408,11 @@ const TrainerManagementPage = () => {
                     {isAbsentToday ? 'Mark Present' : 'Mark Absent Today'}
                   </button>
                   <div className="trainer-card-actions-sub">
-                    <button className="btn-edit" onClick={() => handleOpenModal(trainer)}>
-                      EDIT
-                    </button>
+                    {isSuperAdmin && (
+                      <button className="btn-edit" onClick={() => handleOpenModal(trainer)}>
+                        EDIT
+                      </button>
+                    )}
                     {isSuperAdmin && (
                       <button className="btn-delete" onClick={() => handleDelete(trainer.id)}>
                         DELETE

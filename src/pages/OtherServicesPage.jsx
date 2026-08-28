@@ -579,30 +579,32 @@ const OtherServicesPage = () => {
                           </button>
                         )}
 
-                        <button
-                          className="btn-action-edit-service"
-                          onClick={() => handleOpenEditSaleModal(item)}
-                          title="Edit Service Subscription"
-                          style={{
-                            background: '#fef3c7',
-                            color: '#b45309',
-                            border: '1px solid #fde68a',
-                            padding: '6px 11px',
-                            borderRadius: '8px',
-                            fontWeight: '800',
-                            cursor: 'pointer',
-                            fontSize: '0.78rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 20h9"></path>
-                            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
-                          </svg>
-                          Edit
-                        </button>
+                        {isSuperAdmin && (
+                          <button
+                            className="btn-action-edit-service"
+                            onClick={() => handleOpenEditSaleModal(item)}
+                            title="Edit Service Subscription"
+                            style={{
+                              background: '#fef3c7',
+                              color: '#b45309',
+                              border: '1px solid #fde68a',
+                              padding: '6px 11px',
+                              borderRadius: '8px',
+                              fontWeight: '800',
+                              cursor: 'pointer',
+                              fontSize: '0.78rem',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 20h9"></path>
+                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                            </svg>
+                            Edit
+                          </button>
+                        )}
 
                         <button
                           className="btn-action-view-invoice"
@@ -616,16 +618,18 @@ const OtherServicesPage = () => {
                           Invoice
                         </button>
 
-                        <button
-                          className="btn-action-delete-service"
-                          onClick={() => handleDeleteSale(item)}
-                          title="Delete Subscription Record"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                          </svg>
-                        </button>
+                        {isSuperAdmin && (
+                          <button
+                            className="btn-action-delete-service"
+                            onClick={() => handleDeleteSale(item)}
+                            title="Delete Subscription Record"
+                          >
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -6,6 +6,252 @@ import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import './PTAssignmentPage.css';
 
+const TimingPickerInput = ({ value, onChange, placeholder, style, autoFocus }) => {
+  const [showPicker, setShowPicker] = useState(false);
+  const containerRef = React.useRef(null);
+
+  const parse12Hour = (str) => {
+    if (!str) return { hour: '10', minute: '00', ampm: 'AM' };
+    const match = str.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?$/i);
+    if (match) {
+      let h = parseInt(match[1], 10);
+      if (h < 1) h = 12;
+      if (h > 12) h = h % 12 || 12;
+      const hStr = String(h).padStart(2, '0');
+      const mStr = match[2];
+      const ap = (match[3] || 'AM').toUpperCase();
+      return { hour: hStr, minute: mStr, ampm: ap };
+    }
+    return { hour: '10', minute: '00', ampm: 'AM' };
+  };
+
+  const currentParsed = parse12Hour(value);
+  const [selHour, setSelHour] = useState(currentParsed.hour);
+  const [selMin, setSelMin] = useState(currentParsed.minute);
+  const [selAmPm, setSelAmPm] = useState(currentParsed.ampm);
+
+  const handleOpenPicker = () => {
+    const parsed = parse12Hour(value);
+    setSelHour(parsed.hour);
+    setSelMin(parsed.minute);
+    setSelAmPm(parsed.ampm);
+    setShowPicker(prev => !prev);
+  };
+
+  const handleApply = (h = selHour, m = selMin, ap = selAmPm) => {
+    const formatted = `${h}:${m} ${ap}`;
+    onChange(formatted);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setShowPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const hoursList = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
+  const minutesList = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+
+  return (
+    <div className="timing-picker-container" ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
+        <input
+          type="text"
+          placeholder={placeholder || "e.g. 10:00 AM"}
+          value={value || ''}
+          onChange={e => onChange(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '0.65rem 7.2rem 0.65rem 0.85rem',
+            borderRadius: '8px',
+            border: '1px solid #cbd5e1',
+            fontSize: '0.9rem',
+            fontWeight: '600',
+            boxSizing: 'border-box',
+            outline: 'none',
+            ...style
+          }}
+          autoFocus={autoFocus}
+        />
+        
+        <button
+          type="button"
+          onClick={handleOpenPicker}
+          title="Open 12-Hour AM/PM Time Picker"
+          style={{
+            position: 'absolute',
+            right: '6px',
+            background: 'linear-gradient(135deg, #f97316, #ea580c)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '6px',
+            padding: '5px 10px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            fontSize: '0.78rem',
+            fontWeight: '800',
+            transition: 'all 0.15s ease',
+            boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)'
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>Time Picker</span>
+        </button>
+      </div>
+
+      {showPicker && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 6px)',
+          right: 0,
+          zIndex: 1000,
+          background: '#ffffff',
+          border: '1px solid #cbd5e1',
+          borderRadius: '12px',
+          boxShadow: '0 12px 30px rgba(0, 0, 0, 0.18)',
+          padding: '1rem',
+          width: '310px',
+          boxSizing: 'border-box'
+        }}>
+          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>SELECT 12-HOUR TIME</span>
+            <span style={{ color: '#ea580c', fontWeight: '900', fontSize: '0.85rem' }}>{selHour}:{selMin} {selAmPm}</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '0.4rem', alignItems: 'flex-end', marginBottom: '1rem' }}>
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>HOUR</label>
+              <select
+                value={selHour}
+                onChange={e => {
+                  const h = e.target.value;
+                  setSelHour(h);
+                  handleApply(h, selMin, selAmPm);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '0.45rem 0.2rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  background: '#f8fafc',
+                  color: '#0f172a',
+                  cursor: 'pointer'
+                }}
+              >
+                {hoursList.map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>MINUTE</label>
+              <select
+                value={selMin}
+                onChange={e => {
+                  const m = e.target.value;
+                  setSelMin(m);
+                  handleApply(selHour, m, selAmPm);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '0.45rem 0.2rem',
+                  borderRadius: '6px',
+                  border: '1px solid #cbd5e1',
+                  fontWeight: '700',
+                  fontSize: '0.88rem',
+                  background: '#f8fafc',
+                  color: '#0f172a',
+                  cursor: 'pointer'
+                }}
+              >
+                {minutesList.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.72rem', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '4px' }}>AM / PM</label>
+              <div style={{ display: 'flex', background: '#f1f5f9', padding: '2px', borderRadius: '6px', height: '35px', boxSizing: 'border-box' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelAmPm('AM');
+                    handleApply(selHour, selMin, 'AM');
+                  }}
+                  style={{
+                    flex: 1,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: selAmPm === 'AM' ? '#ea580c' : 'transparent',
+                    color: selAmPm === 'AM' ? '#ffffff' : '#64748b',
+                    fontWeight: '800',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  AM
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelAmPm('PM');
+                    handleApply(selHour, selMin, 'PM');
+                  }}
+                  style={{
+                    flex: 1,
+                    borderRadius: '4px',
+                    border: 'none',
+                    background: selAmPm === 'PM' ? '#ea580c' : 'transparent',
+                    color: selAmPm === 'PM' ? '#ffffff' : '#64748b',
+                    fontWeight: '800',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  PM
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPicker(false)}
+            style={{
+              width: '100%',
+              padding: '0.5rem',
+              background: '#0f172a',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: '800',
+              fontSize: '0.82rem',
+              cursor: 'pointer'
+            }}
+          >
+            Done
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const PTAssignmentPage = () => {
   const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const navigate = useNavigate();
@@ -921,73 +1167,52 @@ const PTAssignmentPage = () => {
 
                             {/* Edit & Delete Actions */}
                             {(() => {
-                              const classesStarted = parseInt(item.classes_completed || 0, 10) > 0;
+                              const isActive = displayStatus === 'ACTIVE' || (item.status || '').toLowerCase() === 'active' || parseInt(item.classes_completed || 0, 10) > 0;
                               return (
                                 <>
-                                  {classesStarted ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenTimingModal(item)}
-                                      style={{
-                                        padding: '0.35rem 0.65rem',
-                                        fontSize: '0.78rem',
-                                        fontWeight: '700',
-                                        borderRadius: '6px',
-                                        border: '1px solid #6366f1',
-                                        background: '#e0e7ff',
-                                        color: '#4338ca',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px'
-                                      }}
-                                      title={`Edit Workout Timing (${item.classes_completed} classes conducted)`}
-                                    >
-                                      ⏱️ Edit Timing
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleOpenEditModal(item)}
-                                      style={{
-                                        padding: '0.35rem 0.65rem',
-                                        fontSize: '0.78rem',
-                                        fontWeight: '700',
-                                        borderRadius: '6px',
-                                        border: '1px solid #cbd5e1',
-                                        background: '#ffffff',
-                                        color: '#334155',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '4px'
-                                      }}
-                                      title="Edit PT Assignment Details"
-                                    >
-                                      ✏️ Edit
-                                    </button>
-                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditModal(item)}
+                                    disabled={isActive}
+                                    style={{
+                                      padding: '0.35rem 0.65rem',
+                                      fontSize: '0.78rem',
+                                      fontWeight: '700',
+                                      borderRadius: '6px',
+                                      border: isActive ? '1px solid #cbd5e1' : '1px solid #cbd5e1',
+                                      background: isActive ? '#f1f5f9' : '#ffffff',
+                                      color: isActive ? '#94a3b8' : '#334155',
+                                      cursor: isActive ? 'not-allowed' : 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                      opacity: isActive ? 0.6 : 1
+                                    }}
+                                    title={isActive ? 'Cannot edit: PT assignment is currently Active' : 'Edit PT Assignment Details'}
+                                  >
+                                    ✏️ Edit
+                                  </button>
 
                                   {isSuperAdmin && (
                                     <button
                                       type="button"
                                       onClick={() => handleDeleteAssignment(item)}
-                                      disabled={classesStarted}
+                                      disabled={isActive}
                                       style={{
                                         padding: '0.35rem 0.65rem',
                                         fontSize: '0.78rem',
                                         fontWeight: '700',
                                         borderRadius: '6px',
-                                        border: classesStarted ? '1px solid #cbd5e1' : '1px solid #fca5a5',
-                                        background: classesStarted ? '#f8fafc' : '#fef2f2',
-                                        color: classesStarted ? '#cbd5e1' : '#dc2626',
-                                        cursor: classesStarted ? 'not-allowed' : 'pointer',
-                                        display: classesStarted ? 'none' : 'flex',
+                                        border: isActive ? '1px solid #cbd5e1' : '1px solid #fca5a5',
+                                        background: isActive ? '#f1f5f9' : '#fef2f2',
+                                        color: isActive ? '#94a3b8' : '#dc2626',
+                                        cursor: isActive ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
                                         alignItems: 'center',
                                         gap: '4px',
-                                        opacity: classesStarted ? 0.45 : 1
+                                        opacity: isActive ? 0.6 : 1
                                       }}
-                                      title={classesStarted ? `Cannot delete: ${item.classes_completed} classes already conducted.` : 'Delete PT Assignment'}
+                                      title={isActive ? 'Cannot delete: PT assignment is currently Active' : 'Delete PT Assignment'}
                                     >
                                       🗑️ Delete
                                     </button>
@@ -1182,11 +1407,10 @@ const PTAssignmentPage = () => {
               {/* Workout Timing */}
               <div className="trainer-form-group">
                 <label>Workout Timing / Slot (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                <TimingPickerInput
                   value={formData.timing}
-                  onChange={e => { setFormData({ ...formData, timing: e.target.value }); setIsDirty(true); }}
+                  onChange={val => { setFormData({ ...formData, timing: val }); setIsDirty(true); }}
+                  placeholder="e.g. 10:00 AM or select time picker →"
                 />
               </div>
 
@@ -1489,12 +1713,10 @@ const PTAssignmentPage = () => {
             <form onSubmit={handleSaveTiming} className="trainer-form">
               <div className="trainer-form-group">
                 <label style={{ fontWeight: '700', color: '#0f172a' }}>Workout Timing / Slot</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                <TimingPickerInput
                   value={timingModal.timing}
-                  onChange={e => setTimingModal(prev => ({ ...prev, timing: e.target.value }))}
-                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600' }}
+                  onChange={val => setTimingModal(prev => ({ ...prev, timing: val }))}
+                  placeholder="e.g. 10:00 AM or select time picker →"
                   autoFocus
                 />
               </div>
@@ -1531,11 +1753,10 @@ const PTAssignmentPage = () => {
               {/* Workout Timing (Always Editable) */}
               <div className="trainer-form-group">
                 <label>Workout Timing / Slot</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 6:00 AM - 7:00 AM or Morning"
+                <TimingPickerInput
                   value={editFormData.timing}
-                  onChange={e => setEditFormData({ ...editFormData, timing: e.target.value })}
+                  onChange={val => setEditFormData({ ...editFormData, timing: val })}
+                  placeholder="e.g. 10:00 AM or select time picker →"
                 />
               </div>
 

@@ -6,10 +6,12 @@ const CATEGORIES = ['Protein', 'Creatine', 'Vitamins', 'Pre-Workout', 'Mass Gain
 const UNITS = ['bottle', 'kg', 'pack', 'box', 'tub', 'scoop', 'sachet', 'piece'];
 
 const SupplementCatalogPage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [stockFilter, setStockFilter] = useState('ALL');
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -134,11 +136,38 @@ const SupplementCatalogPage = () => {
     }
   };
 
+  const lowStockCount = supplements.filter(item => {
+    const stock = Number(item.current_stock || 0);
+    const thresh = Number(item.low_stock_threshold ?? 5);
+    return stock > 0 && stock <= thresh;
+  }).length;
+
+  const availableCount = supplements.filter(item => {
+    const stock = Number(item.current_stock || 0);
+    const thresh = Number(item.low_stock_threshold ?? 5);
+    return stock > thresh;
+  }).length;
+
+  const outOfStockCount = supplements.filter(item => Number(item.current_stock || 0) === 0).length;
+
   const filteredSupplements = supplements.filter(item => {
     const matchesSearch = (item.name || '').toLowerCase().includes(search.toLowerCase()) ||
                           (item.brand || '').toLowerCase().includes(search.toLowerCase());
     const matchesCat = categoryFilter === 'ALL' || item.category === categoryFilter;
-    return matchesSearch && matchesCat;
+
+    let matchesStock = true;
+    const stock = Number(item.current_stock || 0);
+    const thresh = Number(item.low_stock_threshold ?? 5);
+
+    if (stockFilter === 'AVAILABLE') {
+      matchesStock = stock > thresh;
+    } else if (stockFilter === 'LOW_STOCK') {
+      matchesStock = stock > 0 && stock <= thresh;
+    } else if (stockFilter === 'OUT_OF_STOCK') {
+      matchesStock = stock === 0;
+    }
+
+    return matchesSearch && matchesCat && matchesStock;
   });
 
   const formatCurrency = (val) => {
@@ -157,13 +186,15 @@ const SupplementCatalogPage = () => {
               <h1 className="catalog-title">Supplement Catalog</h1>
               <p className="catalog-subtitle">Manage sellable supplement items, pricing, and threshold alerts</p>
             </div>
-            <button className="btn-add-supplement" onClick={() => handleOpenModal(null)}>
-              + Add Supplement
-            </button>
+            {isSuperAdmin && (
+              <button className="btn-add-supplement" onClick={() => handleOpenModal(null)}>
+                + Add Supplement
+              </button>
+            )}
           </div>
 
           {/* Controls / Filter Bar */}
-          <div className="catalog-filter-bar">
+          <div className="catalog-filter-bar" style={{ flexWrap: 'wrap' }}>
             <div className="search-input-wrapper">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <input
@@ -173,6 +204,21 @@ const SupplementCatalogPage = () => {
                 onChange={(e) => setSearch(e.target.value)}
                 className="catalog-search-input"
               />
+            </div>
+
+            <div className="filter-select-wrapper">
+              <label>Stock Filter:</label>
+              <select
+                value={stockFilter}
+                onChange={(e) => setStockFilter(e.target.value)}
+                className="catalog-select"
+                style={{ fontWeight: '700' }}
+              >
+                <option value="AVAILABLE">Available ({availableCount})</option>
+                <option value="LOW_STOCK">Low Stock ({lowStockCount})</option>
+                <option value="OUT_OF_STOCK">Out of Stock ({outOfStockCount})</option>
+                <option value="ALL">All Items ({supplements.length})</option>
+              </select>
             </div>
 
             <div className="filter-select-wrapper">
@@ -186,6 +232,109 @@ const SupplementCatalogPage = () => {
             </div>
           </div>
 
+          {/* Quick Stock Filter Pills */}
+          <div className="stock-filter-pills" style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setStockFilter('AVAILABLE')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'AVAILABLE' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                background: stockFilter === 'AVAILABLE' ? '#dcfce7' : '#ffffff',
+                color: stockFilter === 'AVAILABLE' ? '#15803d' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'AVAILABLE' ? '0 2px 8px rgba(22, 163, 74, 0.2)' : 'none'
+              }}
+            >
+              <span>Available</span>
+              <span style={{ background: stockFilter === 'AVAILABLE' ? '#16a34a' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {availableCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStockFilter('LOW_STOCK')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'LOW_STOCK' ? '1.5px solid #ea580c' : '1px solid #cbd5e1',
+                background: stockFilter === 'LOW_STOCK' ? '#fff7ed' : '#ffffff',
+                color: stockFilter === 'LOW_STOCK' ? '#c2410c' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'LOW_STOCK' ? '0 2px 8px rgba(234, 88, 12, 0.2)' : 'none'
+              }}
+            >
+              <span>Low Stock</span>
+              <span style={{ background: stockFilter === 'LOW_STOCK' ? '#ea580c' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {lowStockCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStockFilter('OUT_OF_STOCK')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'OUT_OF_STOCK' ? '1.5px solid #dc2626' : '1px solid #cbd5e1',
+                background: stockFilter === 'OUT_OF_STOCK' ? '#fef2f2' : '#ffffff',
+                color: stockFilter === 'OUT_OF_STOCK' ? '#b91c1c' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'OUT_OF_STOCK' ? '0 2px 8px rgba(220, 38, 38, 0.2)' : 'none'
+              }}
+            >
+              <span>Out of Stock</span>
+              <span style={{ background: stockFilter === 'OUT_OF_STOCK' ? '#dc2626' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {outOfStockCount}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStockFilter('ALL')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'ALL' ? '1.5px solid #6366f1' : '1px solid #cbd5e1',
+                background: stockFilter === 'ALL' ? '#e0e7ff' : '#ffffff',
+                color: stockFilter === 'ALL' ? '#4338ca' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'ALL' ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
+              }}
+            >
+              <span>All Items</span>
+              <span style={{ background: stockFilter === 'ALL' ? '#6366f1' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {supplements.length}
+              </span>
+            </button>
+          </div>
+
           {/* Table Container */}
           <div className="catalog-table-container">
             {loading ? (
@@ -196,6 +345,7 @@ const SupplementCatalogPage = () => {
               <table className="catalog-table">
                 <thead>
                   <tr>
+                    <th style={{ width: '60px' }}>S.No</th>
                     <th>Item Name</th>
                     <th>Brand</th>
                     <th>Category</th>
@@ -208,10 +358,11 @@ const SupplementCatalogPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredSupplements.map(item => {
+                  {filteredSupplements.map((item, idx) => {
                     const isLowStock = item.current_stock <= item.low_stock_threshold;
                     return (
                       <tr key={item.id} className={!item.active ? 'row-inactive' : ''}>
+                        <td style={{ fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
                         <td className="item-name-cell">
                           <strong>{item.name}</strong>
                         </td>
@@ -233,31 +384,39 @@ const SupplementCatalogPage = () => {
                         <td>{formatCurrency(item.default_purchase_price)}</td>
                         <td>{formatCurrency(item.default_sale_price)}</td>
                         <td>
-                          <button
-                            className={`status-toggle-btn ${item.active ? 'active' : 'inactive'}`}
-                            onClick={() => handleToggleActive(item.id)}
-                            title="Click to toggle status"
-                          >
-                            {item.active ? 'Active' : 'Inactive'}
-                          </button>
+                          {isSuperAdmin ? (
+                            <button
+                              className={`status-toggle-btn ${item.active ? 'active' : 'inactive'}`}
+                              onClick={() => handleToggleActive(item.id)}
+                              title="Click to toggle status"
+                            >
+                              {item.active ? 'Active' : 'Inactive'}
+                            </button>
+                          ) : (
+                            <span className={`status-toggle-btn ${item.active ? 'active' : 'inactive'}`} style={{ cursor: 'default' }}>
+                              {item.active ? 'Active' : 'Inactive'}
+                            </span>
+                          )}
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <div className="catalog-actions-group">
-                            <button
-                              className="btn-edit-catalog"
-                              onClick={() => handleOpenModal(item)}
-                              title="Edit Supplement"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="btn-delete-catalog"
-                              onClick={() => handleOpenDelete(item)}
-                              title="Delete Supplement"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                          {isSuperAdmin && (
+                            <div className="catalog-actions-group">
+                              <button
+                                className="btn-edit-catalog"
+                                onClick={() => handleOpenModal(item)}
+                                title="Edit Supplement"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                className="btn-delete-catalog"
+                                onClick={() => handleOpenDelete(item)}
+                                title="Delete Supplement"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );

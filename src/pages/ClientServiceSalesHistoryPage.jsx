@@ -212,24 +212,28 @@ const ClientServiceSalesHistoryPage = () => {
                       </td>
                       <td style={{ textAlign: 'right' }}>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', alignItems: 'center' }}>
-                          <button
-                            onClick={() => handleOpenEdit(sale)}
-                            style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', padding: '5px 10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
-                          >
-                            Edit
-                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => handleOpenEdit(sale)}
+                              style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', padding: '5px 10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
+                            >
+                              Edit
+                            </button>
+                          )}
                           <button
                             onClick={() => handleViewInvoice(sale)}
                             style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', padding: '5px 10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
                           >
                             Invoice
                           </button>
-                          <button
-                            onClick={() => handleDeleteSale(sale.id)}
-                            style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', padding: '5px 10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
-                          >
-                            Delete
-                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => handleDeleteSale(sale.id)}
+                              style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', padding: '5px 10px', borderRadius: '8px', fontWeight: '800', cursor: 'pointer', fontSize: '0.78rem' }}
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

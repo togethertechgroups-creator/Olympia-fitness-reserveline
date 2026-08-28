@@ -278,6 +278,7 @@ const SupplementRevenuePage = () => {
                     <table className="breakdown-table">
                       <thead>
                         <tr>
+                          <th style={{ width: '60px' }}>S.No</th>
                           <th onClick={() => handleSort('name')} className="sortable">
                             Item {sortField === 'name' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
                           </th>
@@ -303,10 +304,11 @@ const SupplementRevenuePage = () => {
                       </thead>
                       <tbody>
                         {sortedBreakdown.length === 0 ? (
-                          <tr><td colSpan="7" className="td-empty">No supplement sales logged in this period.</td></tr>
+                          <tr><td colSpan="8" className="td-empty">No supplement sales logged in this period.</td></tr>
                         ) : (
-                          sortedBreakdown.map(item => (
+                          sortedBreakdown.map((item, idx) => (
                             <tr key={item.id}>
+                              <td style={{ fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
                               <td><strong>{item.name}</strong></td>
                               <td><span className="cat-pill">{item.category}</span></td>
                               <td><strong>{item.units_sold}</strong> {item.unit}s</td>
