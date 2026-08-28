@@ -1720,9 +1720,12 @@ const ManageClientsPage = () => {
         const clientGenBookings = (advanceBookings.general || []).filter(b => 
           (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
         );
-        const clientPtBookings = (advanceBookings.pt || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
-        );
+        const clientPtBookings = (advanceBookings.pt || []).filter(b => {
+          const isMatchClient = b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId;
+          const statusLower = (b.status || '').toLowerCase().replace(/\s+/g, '');
+          const isScheduledOrReady = statusLower === 'scheduled' || statusLower === 'readytoactivate' || statusLower === 'readytoactive';
+          return isMatchClient && isScheduledOrReady;
+        });
         const otherServices = viewClientModal.otherServices || [];
 
         // Historic Plans Timeline & Records
