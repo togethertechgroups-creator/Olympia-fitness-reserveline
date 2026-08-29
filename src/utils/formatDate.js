@@ -7,14 +7,14 @@ export const formatDateDDMMYYYY = (dateString) => {
   const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (isoMatch) {
     const [, y, m, d] = isoMatch;
-    return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
   }
 
   // 2. Matches DD-MM-YYYY or DD/MM/YYYY e.g. "08-09-2026" or "08/09/2026"
   const ddmmMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
   if (ddmmMatch) {
     const [, d, m, y] = ddmmMatch;
-    return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
   }
 
   // 3. Fallback for JS Date object timestamp
@@ -23,7 +23,7 @@ export const formatDateDDMMYYYY = (dateString) => {
   const day = String(dObj.getDate()).padStart(2, '0');
   const month = String(dObj.getMonth() + 1).padStart(2, '0');
   const year = dObj.getFullYear();
-  return `${day}-${month}-${year}`;
+  return `${day}/${month}/${year}`;
 };
 
 export const calculatePlanExpiryDate = (startDateStr, planType, customDurationDays = null) => {

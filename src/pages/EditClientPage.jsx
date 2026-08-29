@@ -26,10 +26,14 @@ const EditClientPage = () => {
     ptToDate: '',
     diet: false,
     amount: 0,
+    paidAmount: '',
+    dueAmount: 0,
+    discount: '',
     status: 'Active',
     admissionDate: '',
     hasGst: false,
-    gstin: ''
+    gstin: '',
+    paymentMethod: 'CASH'
   });
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -71,15 +75,10 @@ const EditClientPage = () => {
     }
   };
 
-
   useEffect(() => {
     fetchClient();
     fetchSettings();
     fetchTrainers();
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = 'auto';
-    };
   }, [id]);
 
   useEffect(() => {
@@ -148,25 +147,32 @@ const EditClientPage = () => {
       };
       setInitialPlanDetails(details);
       setProfileImage(data.profileImage || null);
+      const baseAmount = data.amount || 0;
+      const initialDiscount = data.discount !== undefined && data.discount !== null ? data.discount : (data.discount_amount || '');
+      const initialPaid = data.paidAmount !== undefined && data.paidAmount !== null ? data.paidAmount : '';
+
       setFormData({
         clientId: data.clientId || data.id,
         name: data.name,
         gender: data.gender || 'Male',
-        phone: data.phone.replace('+91', '').trim(),
+        phone: data.phone ? data.phone.replace('+91', '').trim() : '',
         ...details,
         fromDate: data.fromDate || '',
         personalTraining: !!data.personalTraining,
         ptFromDate: data.ptFromDate || '',
         ptToDate: data.ptToDate || '',
-        amount: data.amount || 0,
+        amount: baseAmount,
+        paidAmount: initialPaid,
+        dueAmount: data.dueAmount || 0,
+        discount: initialDiscount,
+        paymentMethod: data.paymentMethod || 'CASH',
         status: data.status || 'Active',
         trainerId: data.trainerId || '',
         admissionDate: data.admissionDate || '',
         hasGst: !!data.gstin,
         gstin: data.gstin || ''
       });
-      // Store initial amount and expiry date natively
-      setSummary({ toDate: data.expiryDate || '', totalAmount: data.amount || 0 });
+      setSummary({ toDate: data.expiryDate || '', totalAmount: baseAmount });
     } catch (error) {
       alert('Failed to fetch client data');
     } finally {
@@ -200,14 +206,15 @@ const EditClientPage = () => {
     const startStr = formData.fromDate || '';
     const expiryDateStr = calculatePlanExpiryDate(startStr, formData.plan, settings[`${formData.plan}_duration`]);
 
+    const subtotal = hasPlanChanged ? currentCalculatedTotal : (formData.amount || currentCalculatedTotal);
+    const discountVal = parseFloat(formData.discount || 0);
+    const netTotal = Math.max(0, subtotal - discountVal);
+
     setSummary(prev => ({ 
       toDate: hasPlanChanged ? expiryDateStr : (prev.toDate || expiryDateStr), 
-      totalAmount: hasPlanChanged ? currentCalculatedTotal : (formData.amount || prev.totalAmount)
+      totalAmount: netTotal
     }));
-  }, [formData.plan, formData.programType, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, settings, initialPlanDetails]);
-
-  // Removed PT date calculation useEffect
-
+  }, [formData.plan, formData.programType, formData.fromDate, formData.ptCategory, formData.ptPackage, formData.diet, formData.discount, formData.amount, settings, initialPlanDetails]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -222,6 +229,10 @@ const EditClientPage = () => {
         return;
       }
     }
+
+    const discountVal = parseFloat(formData.discount || 0);
+    const effectivePaid = formData.paidAmount !== '' && formData.paidAmount !== undefined && formData.paidAmount !== null ? parseFloat(formData.paidAmount) : summary.totalAmount;
+    const effectiveDue = Math.max(0, summary.totalAmount - effectivePaid);
     
     setIsSubmitting(true);
     try {
@@ -232,6 +243,11 @@ const EditClientPage = () => {
         personalTraining: formData.ptCategory !== 'None',
         expiryDate: summary.toDate,
         amount: summary.totalAmount,
+        paidAmount: effectivePaid,
+        dueAmount: effectiveDue,
+        discount: discountVal,
+        discount_amount: discountVal,
+        paymentStatus: effectiveDue <= 0 ? 'Paid' : (effectivePaid > 0 ? 'Partial' : 'Due'),
         gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null
       });
       setShowSuccess(true);
@@ -250,7 +266,6 @@ const EditClientPage = () => {
         alert(errorMsg);
       }
     } finally {
-
       setIsSubmitting(false);
     }
   };
@@ -389,7 +404,7 @@ const EditClientPage = () => {
                             />
                             {errors.gstin && (
                               <div style={{ color: '#dc2626', fontSize: '0.78rem', fontWeight: '700', marginTop: '4px' }}>
-                                ?? {errors.gstin}
+                                ⚠️ {errors.gstin}
                               </div>
                             )}
                           </div>
@@ -473,7 +488,7 @@ const EditClientPage = () => {
                   </div>
 
                   <div className="bento-panel summary-panel-v">
-                       <h3 className="col-heading">Activation Scope</h3>
+                       <h3 className="col-heading">Activation & Overview</h3>
                        <div className="activation-area-v">
                            <div className="input-group">
                                <label className="input-label">Join Date</label>
@@ -483,15 +498,62 @@ const EditClientPage = () => {
                                <label className="input-label">Expires On</label>
                                <input type="date" className="input-field readonly" value={summary.toDate} readOnly />
                            </div>
+                           <div className="input-group">
+                               <label className="input-label">Discount Amount (₹)</label>
+                               <input
+                                 type="number"
+                                 name="discount"
+                                 className="input-field"
+                                 placeholder="Optional Discount (₹)"
+                                 value={formData.discount}
+                                 onChange={handleInputChange}
+                                 min="0"
+                               />
+                           </div>
 
-                          <div className="summary-box-mini">
+                          <div className="summary-box">
                               <div className="summary-row">
                                   <span>{formData.plan || 'No Plan'}</span>
                                   <span> ₹ {(formData.plan ? settings[`${formData.plan}_Strengthening`] : 0)?.toLocaleString() || 0}</span>
                               </div>
-                              <div className="summary-total-mini">
-                                  <span>TOTAL:</span>
-                                  <span className="total-green">₹ {summary.totalAmount.toLocaleString()}</span>
+                              <div className="summary-total">
+                                  <span>TOTAL AMOUNT:</span>
+                                  <span className="total-green">
+                                    <span className="currency-symbol">₹</span> {summary.totalAmount.toLocaleString()}
+                                  </span>
+                              </div>
+                              <div className="summary-total" style={{ marginTop: '0.5rem', borderTop: 'none', paddingTop: 0 }}>
+                                  <span style={{ whiteSpace: 'nowrap' }}>PAID AMOUNT:</span>
+                                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                                    <span className="currency-symbol">₹</span>
+                                    <input
+                                      type="number"
+                                      name="paidAmount"
+                                      style={{
+                                        width: '90px',
+                                        textAlign: 'right',
+                                        background: 'transparent',
+                                        color: 'var(--primary-neon)',
+                                        border: 'none',
+                                        borderBottom: '1px solid var(--primary-neon)',
+                                        borderRadius: 0,
+                                        padding: '2px 4px',
+                                        fontSize: '1.25rem',
+                                        fontFamily: 'var(--font-display)',
+                                        fontWeight: '700',
+                                        outline: 'none'
+                                      }}
+                                      placeholder={summary.totalAmount}
+                                      value={formData.paidAmount}
+                                      onChange={handleInputChange}
+                                    />
+                                  </div>
+                              </div>
+                              <div className="summary-total" style={{ marginTop: '0.5rem', borderTop: 'none', paddingTop: 0 }}>
+                                  <span style={{ whiteSpace: 'nowrap' }}>DUE AMOUNT:</span>
+                                  <span className="text-orange" style={{ color: '#ff9800', fontWeight: 'bold', fontSize: '1.25rem', fontFamily: 'var(--font-display)' }}>
+                                    <span className="currency-symbol">₹</span> {Math.max(0, summary.totalAmount - (formData.paidAmount !== '' && formData.paidAmount !== undefined && formData.paidAmount !== null ? parseFloat(formData.paidAmount) : summary.totalAmount)).toLocaleString()}
+                                  </span>
                               </div>
                           </div>
                        </div>

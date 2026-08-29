@@ -2891,7 +2891,7 @@ const ManageClientsPage = () => {
 
                 {/* COMPUTED END DATE */}
                 <div className="renew-form-group">
-                  <label className="renew-form-label">COMPUTED END DATE (DD-MM-YYYY)</label>
+                  <label className="renew-form-label">COMPUTED END DATE (DD/MM/YYYY)</label>
                   <input
                     type="text"
                     className="renew-form-input readonly"

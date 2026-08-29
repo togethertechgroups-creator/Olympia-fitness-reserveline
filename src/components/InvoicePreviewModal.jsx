@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { generateInvoice } from '../utils/generateInvoice';
 import { getGstSettings, sendInvoiceWhatsApp } from '../api';
+import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './InvoicePreviewModal.css';
 
 const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
@@ -166,7 +167,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         `💰 *Final Total Amount:* ₹${totalAmt.toLocaleString()}\n` +
         `✅ *Paid Amount:* ₹${paidAmt.toLocaleString()}\n` +
         (dueAmt > 0 ? `⚠️ *Due Amount:* ₹${dueAmt.toLocaleString()}\n` : '') +
-        (client.expiryDate ? `📅 *Valid Until:* ${client.expiryDate}\n` : '') +
+        (client.expiryDate ? `📅 *Valid Until:* ${formatDateDDMMYYYY(client.expiryDate)}\n` : '') +
         `\nThank you for training with Olympia Fitness! 💪🏋️‍♂️`;
 
       // Send PDF invoice via Backend Metamerged WhatsApp API
