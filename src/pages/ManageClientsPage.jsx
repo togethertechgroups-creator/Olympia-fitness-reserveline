@@ -45,6 +45,15 @@ const ManageClientsPage = () => {
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const [activeFilter, setActiveFilter] = useState('Active');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(25);
@@ -1038,7 +1047,7 @@ const ManageClientsPage = () => {
   };
 
   const baseFilteredClients = useMemo(() => {
-    const searchLower = searchTerm.trim().toLowerCase();
+    const searchLower = debouncedSearchTerm.trim().toLowerCase();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -1074,7 +1083,7 @@ const ManageClientsPage = () => {
 
       return true;
     });
-  }, [clients, searchTerm, trainerFilter, activeFilter]);
+  }, [clients, debouncedSearchTerm, trainerFilter, activeFilter]);
 
   const dynamicGenderCounts = useMemo(() => {
     let male = 0;
@@ -1149,7 +1158,7 @@ const ManageClientsPage = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, activeFilter, trainerFilter, genderFilter, idSortOrder, itemsPerPage]);
+  }, [debouncedSearchTerm, activeFilter, trainerFilter, genderFilter, idSortOrder, itemsPerPage]);
 
   const totalItems = filteredClients.length;
   const totalPages = itemsPerPage > 0 ? Math.max(1, Math.ceil(totalItems / itemsPerPage)) : 1;

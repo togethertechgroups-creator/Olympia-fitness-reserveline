@@ -1,37 +1,63 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import AddClientPage from './pages/AddClientPage';
-import EditClientPage from './pages/EditClientPage';
-import ManageClientsPage from './pages/ManageClientsPage';
-import TransactionsPage from './pages/TransactionsPage';
-import CreateInvoicePage from './pages/CreateInvoicePage';
-import TariffManagementPage from './pages/TariffManagementPage';
-import PricingSettingsPage from './pages/PricingSettingsPage';
-import TrainerManagementPage from './pages/TrainerManagementPage';
-import AdminCredentialsPage from './pages/AdminCredentialsPage';
-import WhatsAppRemindersPage from './pages/WhatsAppRemindersPage';
-import InquiryManagementPage from './pages/InquiryManagementPage';
-import ExpensesPage from './pages/ExpensesPage';
-import StaffEnrollmentPage from './pages/StaffEnrollmentPage';
-import StaffDirectoryPage from './pages/StaffDirectoryPage';
-import ClientMeasurementsPage from './pages/ClientMeasurementsPage';
-import PTPackageManagementPage from './pages/PTPackageManagementPage';
-import PTAssignmentPage from './pages/PTAssignmentPage';
-import PTClassLogPage from './pages/PTClassLogPage';
-import TrainerSalaryReportPage from './pages/TrainerSalaryReportPage';
-import AdvanceBookingPage from './pages/AdvanceBookingPage';
-import GSTReportPage from './pages/GSTReportPage';
-import ClientServiceSalesHistoryPage from './pages/ClientServiceSalesHistoryPage';
-import SupplementManagementPage from './pages/SupplementManagementPage';
-import SupplementCatalogPage from './pages/SupplementCatalogPage';
-import SupplementPurchasePage from './pages/SupplementPurchasePage';
-import SupplementSalePage from './pages/SupplementSalePage';
-import SupplementRevenuePage from './pages/SupplementRevenuePage';
-import OtherServicesPage from './pages/OtherServicesPage';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
+
+// Lazy-loaded route components for high-speed initial bundle delivery
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const AddClientPage = lazy(() => import('./pages/AddClientPage'));
+const EditClientPage = lazy(() => import('./pages/EditClientPage'));
+const ManageClientsPage = lazy(() => import('./pages/ManageClientsPage'));
+const TransactionsPage = lazy(() => import('./pages/TransactionsPage'));
+const CreateInvoicePage = lazy(() => import('./pages/CreateInvoicePage'));
+const TariffManagementPage = lazy(() => import('./pages/TariffManagementPage'));
+const PricingSettingsPage = lazy(() => import('./pages/PricingSettingsPage'));
+const TrainerManagementPage = lazy(() => import('./pages/TrainerManagementPage'));
+const AdminCredentialsPage = lazy(() => import('./pages/AdminCredentialsPage'));
+const WhatsAppRemindersPage = lazy(() => import('./pages/WhatsAppRemindersPage'));
+const InquiryManagementPage = lazy(() => import('./pages/InquiryManagementPage'));
+const ExpensesPage = lazy(() => import('./pages/ExpensesPage'));
+const StaffEnrollmentPage = lazy(() => import('./pages/StaffEnrollmentPage'));
+const StaffDirectoryPage = lazy(() => import('./pages/StaffDirectoryPage'));
+const ClientMeasurementsPage = lazy(() => import('./pages/ClientMeasurementsPage'));
+const PTPackageManagementPage = lazy(() => import('./pages/PTPackageManagementPage'));
+const PTAssignmentPage = lazy(() => import('./pages/PTAssignmentPage'));
+const PTClassLogPage = lazy(() => import('./pages/PTClassLogPage'));
+const TrainerSalaryReportPage = lazy(() => import('./pages/TrainerSalaryReportPage'));
+const AdvanceBookingPage = lazy(() => import('./pages/AdvanceBookingPage'));
+const GSTReportPage = lazy(() => import('./pages/GSTReportPage'));
+const ClientServiceSalesHistoryPage = lazy(() => import('./pages/ClientServiceSalesHistoryPage'));
+const SupplementManagementPage = lazy(() => import('./pages/SupplementManagementPage'));
+const SupplementCatalogPage = lazy(() => import('./pages/SupplementCatalogPage'));
+const SupplementPurchasePage = lazy(() => import('./pages/SupplementPurchasePage'));
+const SupplementSalePage = lazy(() => import('./pages/SupplementSalePage'));
+const SupplementRevenuePage = lazy(() => import('./pages/SupplementRevenuePage'));
+const OtherServicesPage = lazy(() => import('./pages/OtherServicesPage'));
+
+const PageLoadingFallback = () => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '60vh',
+    gap: '1rem',
+    color: '#38bdf8',
+    fontSize: '0.95rem',
+    fontWeight: '600'
+  }}>
+    <div style={{
+      width: '32px',
+      height: '32px',
+      border: '3px solid rgba(56, 189, 248, 0.2)',
+      borderTopColor: '#38bdf8',
+      borderRadius: '50%',
+      animation: 'spin 0.8s linear infinite'
+    }} />
+    <span>Loading module...</span>
+  </div>
+);
 
 const RoleProtectedRoute = ({ children, isLoggedIn, userRole, allowedRoles }) => {
   const location = useLocation();
@@ -89,11 +115,12 @@ function App() {
         )}
 
         <div className="app-main-content">
-          <Routes>
-            <Route
-              path="/login"
-              element={auth.isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} />}
-            />
+          <Suspense fallback={<PageLoadingFallback />}>
+            <Routes>
+              <Route
+                path="/login"
+                element={auth.isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} />}
+              />
 
             <Route
               path="/dashboard"
@@ -329,6 +356,7 @@ function App() {
               }
             />
           </Routes>
+          </Suspense>
         </div>
 
         {/* Global Floating Powered By Credit Badge */}

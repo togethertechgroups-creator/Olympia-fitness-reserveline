@@ -391,6 +391,22 @@ async function initDb() {
   CREATE INDEX IF NOT EXISTS idx_clients_expiryDate ON clients(expiryDate);
   CREATE INDEX IF NOT EXISTS idx_clients_status ON clients(status);
 
+  CREATE INDEX IF NOT EXISTS idx_gen_bookings_client ON general_package_bookings(client_id);
+  CREATE INDEX IF NOT EXISTS idx_gen_bookings_status ON general_package_bookings(status);
+  CREATE INDEX IF NOT EXISTS idx_gen_bookings_due ON general_package_bookings(due_amount);
+  CREATE INDEX IF NOT EXISTS idx_gen_bookings_start ON general_package_bookings(booking_start_date);
+  CREATE INDEX IF NOT EXISTS idx_gen_bookings_invoice ON general_package_bookings(invoice_id);
+
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_client ON pt_advance_bookings(client_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_trainer ON pt_advance_bookings(trainer_id);
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_status ON pt_advance_bookings(status);
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_due ON pt_advance_bookings(due_amount);
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_start ON pt_advance_bookings(booking_start_date);
+  CREATE INDEX IF NOT EXISTS idx_pt_adv_invoice ON pt_advance_bookings(invoice_id);
+
+  CREATE INDEX IF NOT EXISTS idx_trainers_code ON trainers(trainerId);
+  CREATE INDEX IF NOT EXISTS idx_trainers_status ON trainers(status);
+
   CREATE INDEX IF NOT EXISTS idx_pt_assign_client ON pt_assignments(client_id);
   CREATE INDEX IF NOT EXISTS idx_pt_assign_trainer ON pt_assignments(trainer_id);
   CREATE INDEX IF NOT EXISTS idx_pt_assign_status ON pt_assignments(status);
@@ -407,10 +423,15 @@ async function initDb() {
   CREATE INDEX IF NOT EXISTS idx_bills_expiry ON bills(expiryDate);
   CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(paymentStatus);
   CREATE INDEX IF NOT EXISTS idx_bills_cat ON bills(invoice_category);
+  CREATE INDEX IF NOT EXISTS idx_bills_timestamp ON bills(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_bills_billNo ON bills(billNo);
 
   CREATE INDEX IF NOT EXISTS idx_tx_client ON transactions(clientId);
   CREATE INDEX IF NOT EXISTS idx_tx_bill ON transactions(billId);
   CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
+
+  CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date);
+  CREATE INDEX IF NOT EXISTS idx_expenses_timestamp ON expenses(timestamp);
 
   CREATE INDEX IF NOT EXISTS idx_other_sales_client ON other_service_sales(client_id);
   CREATE INDEX IF NOT EXISTS idx_other_sales_service ON other_service_sales(service_id);
@@ -1735,23 +1756,37 @@ const runThrottledAutoActivate = () => {
   }
 };
 
-// GET all clients (including R2 profileImage URL) - Highly optimized parallel query
+// GET all clients (including R2 profileImage URL) - Highly optimized parallel query with pagination support
 app.get('/api/clients', async (req, res) => {
   try {
-    runThrottledAutoActivate();
+    // Non-blocking auto-activation
+    setTimeout(() => runThrottledAutoActivate(), 0);
+
+    const { page, limit, search } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const isPaginated = !isNaN(pageNum) && !isNaN(limitNum) && pageNum > 0 && limitNum > 0;
+
+    let baseQuery = `
+      SELECT 
+        c.id, c.clientId, c.name, c.phone, c.plan, c.fromDate, c.expiryDate, 
+        c.amount, c.paidAmount, c.dueAmount, c.paymentStatus, c.personalTraining, 
+        c.status, c.gender, c.ptCategory, c.ptFromDate, c.ptToDate, c.ptPackage, 
+        c.programType, c.diet, c.trainerId, c.admissionDate, c.profileImage, c.gstin, c.dateAdded,
+        t.name as trainerName 
+      FROM clients c 
+      LEFT JOIN trainers t ON c.trainerId = t.id
+    `;
+    const params = [];
+    if (search && search.trim()) {
+      baseQuery += ` WHERE (c.name LIKE ? OR c.phone LIKE ? OR c.clientId LIKE ? OR c.id LIKE ?)`;
+      const s = `%${search.trim()}%`;
+      params.push(s, s, s, s);
+    }
+    baseQuery += ` ORDER BY c.dateAdded DESC`;
 
     const [clients, genAdvanceDues, ptAdvanceDues, otherServiceDues] = await Promise.all([
-      db.prepare(`
-        SELECT 
-          c.id, c.clientId, c.name, c.phone, c.plan, c.fromDate, c.expiryDate, 
-          c.amount, c.paidAmount, c.dueAmount, c.paymentStatus, c.personalTraining, 
-          c.status, c.gender, c.ptCategory, c.ptFromDate, c.ptToDate, c.ptPackage, 
-          c.programType, c.diet, c.trainerId, c.admissionDate, c.profileImage, c.gstin, c.dateAdded,
-          t.name as trainerName 
-        FROM clients c 
-        LEFT JOIN trainers t ON c.trainerId = t.id 
-        ORDER BY c.dateAdded DESC
-      `).all(),
+      db.prepare(baseQuery).all(...params),
       db.prepare(`
         SELECT client_id, SUM(due_amount) as totalGenDue 
         FROM general_package_bookings 
@@ -1771,12 +1806,11 @@ app.get('/api/clients', async (req, res) => {
         GROUP BY clientId
       `).all()
     ]);
-
     const genDueMap = new Map((genAdvanceDues || []).map(r => [String(r.client_id), Number(r.totalGenDue || 0)]));
     const ptDueMap = new Map((ptAdvanceDues || []).map(r => [String(r.client_id), Number(r.totalPtDue || 0)]));
     const otherDueMap = new Map((otherServiceDues || []).map(r => [String(r.clientId), Number(r.totalOtherDue || 0)]));
 
-    res.json(clients.map(c => {
+    const enriched = clients.map(c => {
       const cidStr = String(c.id);
       const cCodeStr = String(c.clientId || '');
 
@@ -1801,7 +1835,21 @@ app.get('/api/clients', async (req, res) => {
         dueAmount: totalDue,
         paymentStatus: status
       };
-    }));
+    });
+
+    if (isPaginated) {
+      const total = enriched.length;
+      const offset = (pageNum - 1) * limitNum;
+      const paginatedData = enriched.slice(offset, offset + limitNum);
+      return res.json({
+        data: paginatedData,
+        total,
+        page: pageNum,
+        totalPages: Math.ceil(total / limitNum)
+      });
+    }
+
+    res.json(enriched);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2593,25 +2641,23 @@ app.delete('/api/pt-packages/:id', async (req, res) => {
 // ─── PT ASSIGNMENTS Routes ───────────────────────────────────────────────────
 app.get('/api/pt-assignments', async (req, res) => {
   try {
-    autoExpireAssignments();
-    await backfillPtAssignmentTransactions();
     const { client_id, trainer_id, status } = req.query;
     let query = `
       SELECT a.*, 
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
              t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
-             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
-             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
+             COALESCE(a.discount_amount, 0) as billDiscount,
+             COALESCE(a.discount_amount, 0) as advDiscount
       FROM pt_assignments a
-      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
-      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
-      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
+      JOIN trainers t ON a.trainer_id = t.id
+      JOIN pt_packages p ON a.pt_package_id = p.id
       WHERE 1=1
     `;
     const params = [];
-    if (client_id) { query += ' AND (CAST(a.client_id AS TEXT) = CAST(? AS TEXT) OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT))'; params.push(client_id, client_id); }
-    if (trainer_id) { query += ' AND CAST(a.trainer_id AS TEXT) = CAST(? AS TEXT)'; params.push(trainer_id); }
+    if (client_id) { query += ' AND (a.client_id = ? OR c.clientId = ?)'; params.push(client_id, client_id); }
+    if (trainer_id) { query += ' AND a.trainer_id = ?'; params.push(trainer_id); }
     if (status) { query += ' AND a.status = ?'; params.push(status); }
 
     query += ' ORDER BY a.created_at DESC';
@@ -2625,20 +2671,18 @@ app.get('/api/pt-assignments', async (req, res) => {
 
 app.get('/api/clients/:clientId/pt-assignments', async (req, res) => {
   try {
-    autoExpireAssignments();
     const assignments = await db.prepare(`
       SELECT a.*, 
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
              t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
-             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
-             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
+             COALESCE(a.discount_amount, 0) as billDiscount,
+             COALESCE(a.discount_amount, 0) as advDiscount
       FROM pt_assignments a
-      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
-      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
-      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
-      WHERE CAST(a.client_id AS TEXT) = CAST(? AS TEXT)
-         OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT)
+      JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
+      JOIN trainers t ON a.trainer_id = t.id
+      JOIN pt_packages p ON a.pt_package_id = p.id
+      WHERE a.client_id = ? OR c.clientId = ?
       ORDER BY a.created_at DESC
     `).all(req.params.clientId, req.params.clientId);
     res.json(assignments);
@@ -2650,25 +2694,24 @@ app.get('/api/clients/:clientId/pt-assignments', async (req, res) => {
 
 app.get('/api/pt-assignments/client/:clientId', async (req, res) => {
   try {
-    autoExpireAssignments();
     const { clientId } = req.params;
     const assignments = await db.prepare(`
       SELECT a.*, 
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
              t.name as trainerName, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
-             (SELECT discount_amount FROM bills WHERE (CAST(id AS TEXT) = CAST(a.invoice_id AS TEXT) OR (CAST(clientId AS TEXT) = CAST(c.id AS TEXT) AND planName LIKE '%PT%')) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as billDiscount,
-             (SELECT discount_amount FROM pt_advance_bookings WHERE (CAST(client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(client_id AS TEXT) = CAST(c.clientId AS TEXT)) AND CAST(pt_package_id AS TEXT) = CAST(a.pt_package_id AS TEXT) AND discount_amount > 0 ORDER BY rowid DESC LIMIT 1) as advDiscount
+             COALESCE(a.discount_amount, 0) as billDiscount,
+             COALESCE(a.discount_amount, 0) as advDiscount
       FROM pt_assignments a
-      JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT)
-      JOIN trainers t ON CAST(a.trainer_id AS TEXT) = CAST(t.id AS TEXT)
-      JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
-      WHERE CAST(a.client_id AS TEXT) = CAST(? AS TEXT)
-         OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT)
+      JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
+      JOIN trainers t ON a.trainer_id = t.id
+      JOIN pt_packages p ON a.pt_package_id = p.id
+      WHERE a.client_id = ? OR c.clientId = ?
       ORDER BY a.created_at DESC
     `).all(clientId, clientId);
     res.json(assignments);
   } catch (err) {
+    console.error('Error fetching client pt-assignments:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4443,20 +4486,39 @@ app.post('/api/restore', async (req, res) => {
 
 // ─── TRANSACTION Routes ───────────────────────────────────────────────────────
 
-// GET all transactions
+// GET all transactions with pagination support
 app.get('/api/transactions', async (req, res) => {
   try {
-    await backfillPtAssignmentTransactions();
-    const txns = await db.prepare(`
+    const { page, limit } = req.query;
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    const isPaginated = !isNaN(pageNum) && !isNaN(limitNum) && pageNum > 0 && limitNum > 0;
+
+    let sql = `
       SELECT 
-        t.*,
+        t.id, t.clientId, t.billId, t.name, t.method, t.date, t.amount, t.status, t.timestamp,
         b.discount_amount as discount_amount,
         b.planAmount as bill_plan_amount,
         b.totalPlanAmount as bill_total_amount
       FROM transactions t
       LEFT JOIN bills b ON t.billId = b.id
       ORDER BY t.timestamp DESC
-    `).all();
+    `;
+
+    if (isPaginated) {
+      const offset = (pageNum - 1) * limitNum;
+      const countRes = await db.prepare('SELECT COUNT(*) as count FROM transactions').get();
+      const total = countRes ? countRes.count : 0;
+      const txns = await db.prepare(`${sql} LIMIT ? OFFSET ?`).all(limitNum, offset);
+      return res.json({
+        data: txns,
+        total,
+        page: pageNum,
+        totalPages: Math.ceil(total / limitNum)
+      });
+    }
+
+    const txns = await db.prepare(sql).all();
     res.json(txns);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -5235,7 +5297,6 @@ app.get('/api/backfill-pt', async (req, res) => {
 // ─── DASHBOARD DATE-RANGE STATS Route ──────────────────────────────────────
 app.get('/api/dashboard/stats', async (req, res) => {
   try {
-    await backfillPtAssignmentTransactions();
     const { startDate, endDate } = req.query;
 
     const startObj = parseAnyDate(startDate) || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
@@ -5244,17 +5305,22 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const endObj = parseAnyDate(endDate) || new Date();
     endObj.setHours(23, 59, 59, 999);
 
-    const allTxns = await db.prepare('SELECT * FROM transactions').all();
-    const otherSales = await db.prepare('SELECT * FROM other_service_sales').all();
-    const suppSales = await db.prepare('SELECT * FROM supplement_sales').all();
-    const genBookingsAll = await db.prepare("SELECT * FROM general_package_bookings WHERE status != 'Cancelled'").all();
-    const ptBookingsAll = await db.prepare("SELECT * FROM pt_advance_bookings WHERE status != 'Cancelled'").all();
-    const allExpenses = await db.prepare('SELECT * FROM expenses').all();
+    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, allExpenses, ptAssignmentsAll, allBillsInRange, inactivePtCountRes] = await Promise.all([
+      db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
+      db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
+      db.prepare('SELECT id, invoice_id, total_amount, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
+      db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
+      db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all(),
+      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get()
+    ]);
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
 
     // 1. Transactions collection in range
-    let rangeRevenue = allTxns.reduce((sum, t) => {
+    let rangeRevenue = (allTxns || []).reduce((sum, t) => {
       const d = parseAnyDate(t.date || t.timestamp);
       if (d && d >= startObj && d <= endObj) {
         return sum + (t.amount || 0);
@@ -5299,7 +5365,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
     });
 
     // 6. PT Package Assignments in range (only if not already in transactions table)
-    const ptAssignmentsAll = await db.prepare("SELECT * FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all();
     (ptAssignmentsAll || []).forEach(a => {
       if (a.invoice_id && txnBillIds.has(a.invoice_id)) return;
       const d = parseAnyDate(a.assigned_date || a.created_at);
@@ -5312,30 +5377,27 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
     // Calculate total discount in range
     let rangeDiscount = 0;
-    try {
-      const allBillsInRange = await db.prepare('SELECT * FROM bills').all();
-      (allBillsInRange || []).forEach(b => {
-        const d = parseAnyDate(b.invoiceDate || b.timestamp);
-        if (d && d >= startObj && d <= endObj) {
-          rangeDiscount += (parseFloat(b.discount_amount) || 0);
-        }
-      });
-      (genBookingsAll || []).forEach(b => {
-        const d = parseAnyDate(b.created_at || b.booking_start_date);
-        if (d && d >= startObj && d <= endObj) {
-          rangeDiscount += (parseFloat(b.discount_amount) || 0);
-        }
-      });
-      (ptBookingsAll || []).forEach(b => {
-        const d = parseAnyDate(b.created_at || b.booking_start_date);
-        if (d && d >= startObj && d <= endObj) {
-          rangeDiscount += (parseFloat(b.discount_amount) || 0);
-        }
-      });
-    } catch (e) {}
+    (allBillsInRange || []).forEach(b => {
+      const d = parseAnyDate(b.invoiceDate || b.timestamp);
+      if (d && d >= startObj && d <= endObj) {
+        rangeDiscount += (parseFloat(b.discount_amount) || 0);
+      }
+    });
+    (genBookingsAll || []).forEach(b => {
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d && d >= startObj && d <= endObj) {
+        rangeDiscount += (parseFloat(b.discount_amount) || 0);
+      }
+    });
+    (ptBookingsAll || []).forEach(b => {
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d && d >= startObj && d <= endObj) {
+        rangeDiscount += (parseFloat(b.discount_amount) || 0);
+      }
+    });
 
     // 7. Operational Expenses in range (includes synced payroll lock expenses)
-    const rangeExpenses = allExpenses.reduce((sum, e) => {
+    const rangeExpenses = (allExpenses || []).reduce((sum, e) => {
       const d = parseAnyDate(e.date || e.timestamp);
       if (d && d >= startObj && d <= endObj) {
         return sum + (e.amount || 0);
@@ -5343,9 +5405,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
       return sum;
     }, 0);
 
-    const inactivePtCount = (await db.prepare(
-      "SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')"
-    ).get())?.cnt || 0;
+    const inactivePtCount = inactivePtCountRes?.cnt || 0;
 
     res.json({
       rangeRevenue,
@@ -5362,7 +5422,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
 // ─── STATS Route ──────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
-    await backfillPtAssignmentTransactions();
     const { month } = req.query;
     const targetMonth = month || new Date().toLocaleDateString('en-GB', { month: 'short' });
     const monthMapping = {

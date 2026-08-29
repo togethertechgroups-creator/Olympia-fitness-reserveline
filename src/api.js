@@ -32,11 +32,13 @@ let _clientsCache = null;
 let _clientsCacheTime = 0;
 const CLIENTS_CACHE_TTL = 15000; // 15s cache
 
+const _inFlightRequests = new Map();
 const _apiCache = new Map();
-const DEFAULT_CACHE_TTL = 10000; // 10s cache
+const DEFAULT_CACHE_TTL = 15000; // 15s cache
 
 export const clearApiCache = () => {
   _apiCache.clear();
+  _inFlightRequests.clear();
   _clientsCache = null;
   _clientsCacheTime = 0;
 };
@@ -46,30 +48,44 @@ export const invalidateClientsCache = () => {
 };
 
 const fetchWithCache = async (url, options = {}, forceRefresh = false, ttl = DEFAULT_CACHE_TTL) => {
+  const method = (options.method || 'GET').toUpperCase();
+  if (method !== 'GET') {
+    clearApiCache();
+    const response = await fetch(url, options);
+    return handleResponse(response);
+  }
+
   const cacheKey = url;
   const now = Date.now();
+
   if (!forceRefresh && _apiCache.has(cacheKey)) {
     const item = _apiCache.get(cacheKey);
     if (now - item.time < ttl) {
       return item.data;
     }
   }
-  const response = await fetch(url, options);
-  const data = await handleResponse(response);
-  _apiCache.set(cacheKey, { data, time: Date.now() });
-  return data;
+
+  if (!forceRefresh && _inFlightRequests.has(cacheKey)) {
+    return _inFlightRequests.get(cacheKey);
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const response = await fetch(url, options);
+      const data = await handleResponse(response);
+      _apiCache.set(cacheKey, { data, time: Date.now() });
+      return data;
+    } finally {
+      _inFlightRequests.delete(cacheKey);
+    }
+  })();
+
+  _inFlightRequests.set(cacheKey, fetchPromise);
+  return fetchPromise;
 };
 
 export const getClients = async (forceRefresh = false) => {
-  const now = Date.now();
-  if (!forceRefresh && _clientsCache && (now - _clientsCacheTime < CLIENTS_CACHE_TTL)) {
-    return _clientsCache;
-  }
-  const response = await fetch(`${BASE_URL}/clients`);
-  const data = await handleResponse(response);
-  _clientsCache = data;
-  _clientsCacheTime = Date.now();
-  return data;
+  return fetchWithCache(`${BASE_URL}/clients`, {}, forceRefresh, CLIENTS_CACHE_TTL);
 };
 
 export const getNextClientId = async () => {
@@ -126,8 +142,7 @@ export const restoreData = async (backupData) => {
 };
 
 export const getBills = async () => {
-  const response = await fetch(`${BASE_URL}/bills`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/bills`, {}, false, 15000);
 };
 
 export const addClientPayment = async (id, paymentData) => {
@@ -142,31 +157,27 @@ export const addClientPayment = async (id, paymentData) => {
 
 export const fetchStats = async (month) => {
   const url = month ? `${BASE_URL}/stats?month=${month}` : `${BASE_URL}/stats`;
-  const response = await fetch(url);
-  return handleResponse(response);
+  return fetchWithCache(url, {}, false, 15000);
 };
 
 export const fetchRevenue = async () => {
-  const response = await fetch(`${BASE_URL}/revenue`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/revenue`, {}, false, 15000);
 };
 
 export const fetchPerformance = async () => {
-  const response = await fetch(`${BASE_URL}/performance`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/performance`, {}, false, 15000);
 };
 
 export const fetchTransactions = async () => {
-  const response = await fetch(`${BASE_URL}/transactions`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/transactions`, {}, false, 15000);
 };
 
 export const getSettings = async () => {
-  const response = await fetch(`${BASE_URL}/settings`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/settings`, {}, false, 60000);
 };
 
 export const updateSettings = async (settingsData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -178,11 +189,11 @@ export const updateSettings = async (settingsData) => {
 // ─── EXPENSES API ──────────────────────────────────────────────────────────
 
 export const getExpenses = async () => {
-  const response = await fetch(`${BASE_URL}/expenses`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/expenses`, {}, false, 15000);
 };
 
 export const addExpense = async (expenseData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/expenses`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -192,6 +203,7 @@ export const addExpense = async (expenseData) => {
 };
 
 export const deleteExpense = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/expenses/${id}`, {
     method: 'DELETE',
     headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
@@ -211,11 +223,11 @@ export const loginUser = async (credentials) => {
 };
 
 export const getCredentials = async () => {
-  const response = await fetch(`${BASE_URL}/auth/credentials`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/auth/credentials`, {}, false, 60000);
 };
 
 export const updateCredentials = async (credentials) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/auth/credentials`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -227,8 +239,7 @@ export const updateCredentials = async (credentials) => {
 // ─── TRAINER API ───────────────────────────────────────────────────────────
 
 export const getTrainers = async () => {
-  const response = await fetch(`${BASE_URL}/trainers`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/trainers`, {}, false, 60000);
 };
 
 export const getNextTrainerId = async () => {
@@ -453,11 +464,11 @@ export const deleteClientMeasurement = async (clientId, id) => {
 
 // PT Packages
 export const getPtPackages = async () => {
-  const response = await fetch(`${BASE_URL}/pt-packages`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/pt-packages`, {}, false, 60000);
 };
 
 export const addPtPackage = async (packageData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-packages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -467,6 +478,7 @@ export const addPtPackage = async (packageData) => {
 };
 
 export const updatePtPackage = async (id, packageData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-packages/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -476,6 +488,7 @@ export const updatePtPackage = async (id, packageData) => {
 };
 
 export const togglePtPackageActive = async (id, active) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-packages/${id}/active`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -485,6 +498,7 @@ export const togglePtPackageActive = async (id, active) => {
 };
 
 export const deletePtPackage = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/pt-packages/${id}`, {
     method: 'DELETE',
   });
@@ -495,12 +509,11 @@ export const deletePtPackage = async (id) => {
 export const getPtAssignments = async (params = {}, forceRefresh = false) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/pt-assignments?${query}` : `${BASE_URL}/pt-assignments`;
-  return fetchWithCache(url, {}, forceRefresh, 10000);
+  return fetchWithCache(url, {}, forceRefresh, 15000);
 };
 
 export const getClientPtAssignments = async (clientId) => {
-  const response = await fetch(`${BASE_URL}/clients/${clientId}/pt-assignments`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/clients/${clientId}/pt-assignments`, {}, false, 15000);
 };
 
 export const addPtAssignment = async (assignmentData) => {
@@ -763,27 +776,25 @@ export const getSupplementRevenueReport = async (startDate = '', endDate = '') =
 };
 
 export const getSupplementDashboardSummary = async () => {
-  const response = await fetch(`${BASE_URL}/supplements/dashboard-summary`, {
+  return fetchWithCache(`${BASE_URL}/supplements/dashboard-summary`, {
     headers: getAuthHeaders()
-  });
-  return handleResponse(response);
+  }, false, 15000);
 };
 
 export const fetchDynamicDashboardStats = async (params = {}) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/dashboard/dynamic-stats?${query}` : `${BASE_URL}/dashboard/dynamic-stats`;
-  const response = await fetch(url);
-  return handleResponse(response);
+  return fetchWithCache(url, {}, false, 15000);
 };
 
 // ─── ADVANCE BOOKINGS API ───────────────────────────────────────────────────
 
 export const getGeneralBookings = async () => {
-  const response = await fetch(`${BASE_URL}/general-bookings`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/general-bookings`, {}, false, 15000);
 };
 
 export const addGeneralBooking = async (bookingData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/general-bookings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -793,6 +804,7 @@ export const addGeneralBooking = async (bookingData) => {
 };
 
 export const cancelGeneralBooking = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/general-bookings/${id}/cancel`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', 'x-user-role': localStorage.getItem('userRole') || '' },
@@ -801,6 +813,7 @@ export const cancelGeneralBooking = async (id) => {
 };
 
 export const deleteGeneralBooking = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/general-bookings/${id}`, {
     method: 'DELETE',
   });
@@ -808,6 +821,7 @@ export const deleteGeneralBooking = async (id) => {
 };
 
 export const updateGeneralBooking = async (id, bookingData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/general-bookings/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -817,6 +831,7 @@ export const updateGeneralBooking = async (id, bookingData) => {
 };
 
 export const activateGeneralBooking = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/general-bookings/${id}/activate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -825,8 +840,7 @@ export const activateGeneralBooking = async (id) => {
 };
 
 export const getPtAdvanceBookings = async () => {
-  const response = await fetch(`${BASE_URL}/pt-advance-bookings`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/pt-advance-bookings`, {}, false, 15000);
 };
 
 export const addPtAdvanceBooking = async (bookingData) => {
@@ -903,11 +917,11 @@ export const renewExpiredClient = async (clientId, planData) => {
 // ─── OTHER SERVICES TARIFF & SALES API ───────────────────────────────────────
 
 export const getOtherServices = async () => {
-  const response = await fetch(`${BASE_URL}/other-services`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/other-services`, {}, false, 60000);
 };
 
 export const addOtherService = async (serviceData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -917,6 +931,7 @@ export const addOtherService = async (serviceData) => {
 };
 
 export const updateOtherService = async (id, serviceData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -926,6 +941,7 @@ export const updateOtherService = async (id, serviceData) => {
 };
 
 export const deleteOtherService = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/${id}`, {
     method: 'DELETE'
   });
@@ -933,6 +949,7 @@ export const deleteOtherService = async (id) => {
 };
 
 export const toggleOtherServiceHide = async (id, is_hidden) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/${id}/hide`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -942,6 +959,7 @@ export const toggleOtherServiceHide = async (id, is_hidden) => {
 };
 
 export const toggleOtherServiceActive = async (id, active) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/${id}/active`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -951,6 +969,7 @@ export const toggleOtherServiceActive = async (id, active) => {
 };
 
 export const sellOtherService = async (saleData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/sell`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -960,13 +979,13 @@ export const sellOtherService = async (saleData) => {
 };
 
 export const getOtherServicesSales = async () => {
-  const response = await fetch(`${BASE_URL}/other-services/sales`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/other-services/sales`, {}, false, 15000);
 };
 
 export const getOtherServiceSales = getOtherServicesSales;
 
 export const updateOtherServiceSale = async (id, data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
     method: 'PUT',
     headers: {
@@ -979,6 +998,7 @@ export const updateOtherServiceSale = async (id, data) => {
 };
 
 export const deleteOtherServiceSale = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}`, {
     method: 'DELETE',
     headers: { 'x-user-role': localStorage.getItem('userRole') || '' }
@@ -987,6 +1007,7 @@ export const deleteOtherServiceSale = async (id) => {
 };
 
 export const payOtherServiceDue = async (id, paymentData) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/other-services/sales/${id}/payment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -997,11 +1018,11 @@ export const payOtherServiceDue = async (id, paymentData) => {
 
 // ─── GST API Functions ────────────────────────────────────────────────────────
 export const getGstSettings = async () => {
-  const response = await fetch(`${BASE_URL}/gst/settings`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/gst/settings`, {}, false, 60000);
 };
 
 export const updateGstSettings = async (data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/gst/settings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1012,11 +1033,11 @@ export const updateGstSettings = async (data) => {
 
 export const getGstReport = async (month) => {
   const query = month ? `?month=${encodeURIComponent(month)}` : '';
-  const response = await fetch(`${BASE_URL}/gst/report${query}`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/gst/report${query}`, {}, false, 15000);
 };
 
 export const runGstBackfill = async () => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/gst/backfill`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1026,24 +1047,20 @@ export const runGstBackfill = async () => {
 
 // ─── ADMIN PANEL 17-ITEM ENHANCEMENT API HELPERS ────────────────────────────────
 export const getPtAssignmentsByClient = async (clientId) => {
-  const response = await fetch(`${BASE_URL}/pt-assignments/client/${encodeURIComponent(clientId)}`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/pt-assignments/client/${encodeURIComponent(clientId)}`, {}, false, 15000);
 };
 
 export const getOtherServiceSalesByClient = async (clientId) => {
-  const response = await fetch(`${BASE_URL}/other-services/sales/client/${encodeURIComponent(clientId)}`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/other-services/sales/client/${encodeURIComponent(clientId)}`, {}, false, 15000);
 };
 
 export const getPtClassLogsByAssignment = async (assignmentId) => {
-  const response = await fetch(`${BASE_URL}/pt-class-logs/assignment/${encodeURIComponent(assignmentId)}`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/pt-class-logs/assignment/${encodeURIComponent(assignmentId)}`, {}, false, 15000);
 };
 
 export const getDashboardStats = async (startDate, endDate) => {
   const query = (startDate && endDate) ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : '';
-  const response = await fetch(`${BASE_URL}/dashboard/stats${query}`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/dashboard/stats${query}`, {}, false, 15000);
 };
 
 
