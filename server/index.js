@@ -721,7 +721,8 @@ async function initDb() {
 
     // ─── Initialize Default Other Services Tariffs if empty ────────────────────
     try {
-      const serviceCount = db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get().count;
+      const serviceCountRes = await db.prepare('SELECT COUNT(*) as count FROM other_service_tariffs').get();
+      const serviceCount = serviceCountRes?.count || 0;
       if (serviceCount === 0) {
         const defaultOtherServices = [
           { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
@@ -2109,7 +2110,8 @@ app.post('/api/clients/:id/payment', async (req, res) => {
     const billId = randomUUID();
 
     // Count existing bills for this client to assign due sequence number
-    const existingBillCount = await db.prepare('SELECT COUNT(*) as cnt FROM bills WHERE clientId = ?').get(clientId).cnt;
+    const existingBillCountRes = await db.prepare('SELECT COUNT(*) as cnt FROM bills WHERE clientId = ?').get(clientId);
+    const existingBillCount = existingBillCountRes?.cnt || 0;
     const dueNumber = existingBillCount; // 1st due payment = Due 1, 2nd = Due 2, etc.
 
     // Create a new invoice for this payment
@@ -5575,18 +5577,21 @@ app.get('/api/stats', async (req, res) => {
       }
     });
 
-    const inactivePtCount = await db.prepare(
+    const inactivePtCountRes = await db.prepare(
       "SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')"
-    ).get().cnt;
+    ).get();
+    const inactivePtCount = inactivePtCountRes?.cnt || 0;
 
     // --- New Metrics ---
-    const newClientsMonthCount = await db.prepare(
+    const newClientsMonthCountRes = await db.prepare(
       "SELECT COUNT(*) as cnt FROM clients WHERE admissionDate LIKE ?"
-    ).get(`%-${mm}-%`).cnt;
+    ).get(`%-${mm}-%`);
+    const newClientsMonthCount = newClientsMonthCountRes?.cnt || 0;
 
-    const monthlySalesVal = await db.prepare(
+    const monthlySalesValRes = await db.prepare(
       "SELECT SUM(amount) as total FROM clients WHERE admissionDate LIKE ?"
-    ).get(`%-${mm}-%`).total || 0;
+    ).get(`%-${mm}-%`);
+    const monthlySalesVal = monthlySalesValRes?.total || 0;
 
     const monthlyTxnsCount = allTxns.filter(t => {
       const d = parseAnyDate(t.date || t.timestamp);
@@ -6163,15 +6168,22 @@ app.get('/api/inquiries/next-id', async (req, res) => {
 app.get('/api/inquiries/stats', async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const stats = {
-      total: await db.prepare('SELECT COUNT(*) as cnt FROM inquiries').get().cnt,
-      today: await db.prepare('SELECT COUNT(*) as cnt FROM inquiries WHERE InquiryDate = ?').get(today).cnt,
-      interested: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Interested'").get().cnt,
-      joined: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Joined'").get().cnt,
-      pending: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Follow Up Pending'").get().cnt,
-      notInterested: await db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Not Interested'").get().cnt,
-    };
-    res.json(stats);
+    const [totalRes, todayRes, interestedRes, joinedRes, pendingRes, notInterestedRes] = await Promise.all([
+      db.prepare('SELECT COUNT(*) as cnt FROM inquiries').get(),
+      db.prepare('SELECT COUNT(*) as cnt FROM inquiries WHERE InquiryDate = ?').get(today),
+      db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Interested'").get(),
+      db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Joined'").get(),
+      db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Follow Up Pending'").get(),
+      db.prepare("SELECT COUNT(*) as cnt FROM inquiries WHERE status = 'Not Interested'").get()
+    ]);
+    res.json({
+      total: totalRes?.cnt || 0,
+      today: todayRes?.cnt || 0,
+      interested: interestedRes?.cnt || 0,
+      joined: joinedRes?.cnt || 0,
+      pending: pendingRes?.cnt || 0,
+      notInterested: notInterestedRes?.cnt || 0,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

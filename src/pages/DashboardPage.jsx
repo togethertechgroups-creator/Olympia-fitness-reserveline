@@ -69,7 +69,7 @@ const DashboardPage = () => {
       setLoading(true);
       try {
         const dates = getFilterDates();
-        const [statsData, revenueData, perfData, clientsData, ptData, suppSummaryData, ptAssignData, dateStatsRes] = await Promise.all([
+        const results = await Promise.allSettled([
           fetchStats(selectedMonth),
           fetchRevenue(),
           fetchPerformance(),
@@ -79,6 +79,18 @@ const DashboardPage = () => {
           getPtAssignments({ status: 'Active' }),
           getDashboardStats(dates.start, dates.end)
         ]);
+
+        const statsData = results[0].status === 'fulfilled' ? results[0].value : null;
+        const revenueData = results[1].status === 'fulfilled' ? (Array.isArray(results[1].value) ? results[1].value : []) : [];
+        const perfData = results[2].status === 'fulfilled' ? (Array.isArray(results[2].value) ? results[2].value : []) : [];
+        const rawClients = results[3].status === 'fulfilled' ? results[3].value : [];
+        const clientsData = Array.isArray(rawClients) ? rawClients : (rawClients?.data || []);
+        const ptData = results[4].status === 'fulfilled' ? results[4].value : null;
+        const suppSummaryData = results[5].status === 'fulfilled' ? results[5].value : null;
+        const rawPtAssign = results[6].status === 'fulfilled' ? results[6].value : [];
+        const ptAssignData = Array.isArray(rawPtAssign) ? rawPtAssign : (rawPtAssign?.data || []);
+        const dateStatsRes = results[7].status === 'fulfilled' ? results[7].value : null;
+
         setStats(statsData);
         setRevenue(revenueData);
         setPerformance(perfData);
