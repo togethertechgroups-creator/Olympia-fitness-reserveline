@@ -490,6 +490,7 @@ const TrainerSalaryReportPage = () => {
       try {
         await sendPayslipWhatsApp({
           phone: targetPhone,
+          trainerId: tr.trainerId || tr.id,
           trainerName: tr.trainerName,
           month: selectedMonth,
           basicPay: bPay,
@@ -505,6 +506,11 @@ const TrainerSalaryReportPage = () => {
           pdfBase64: pdfBase64,
           user_role: localStorage.getItem('userRole') || 'superadmin'
         });
+
+        if (reportData && reportData.trainers) {
+          const found = reportData.trainers.find(t => (t.trainerId && t.trainerId === tr.trainerId) || (t.id && t.id === tr.id));
+          if (found) found.trainerPhone = modalConfig.waPhone;
+        }
 
         setModalConfig(prev => ({
           ...prev,

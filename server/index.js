@@ -54,17 +54,20 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const payload = {
     number: phone,
     type: 'text',
-    message: message
+    message: message,
+    access_token: waKey,
+    token: waKey
   };
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Access-Token': waKey
+        'X-Access-Token': waKey,
+        'Authorization': `Bearer ${waKey}`
       },
       body: JSON.stringify(payload),
       signal: controller.signal
@@ -72,7 +75,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
     clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true)) {
+    if (resp.ok && (data.success === true || data.status === true || data.status === 'success')) {
       console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST`);
       return data;
     }
@@ -84,12 +87,12 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=text&message=${encodeURIComponent(message)}&access_token=${encodeURIComponent(waKey)}`;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
     const getResp = await fetch(getUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
     const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true)) {
+    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success')) {
       console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET`);
       return getData;
     }
@@ -122,13 +125,17 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   const endpoint = 'https://api.metamerged.com/api/send';
   const payload = {
     number: phone,
-    type: 'document',
+    type: 'media',
+    media_type: 'document',
     message: message || '',
+    caption: message || '',
     media_url: documentUrl || '',
     url: documentUrl || '',
     documentUrl: documentUrl || '',
     filename: fileName || 'document.pdf',
     fileName: fileName || 'document.pdf',
+    access_token: waKey,
+    token: waKey,
     variables: {
       documentUrl: documentUrl || '',
       fileName: fileName || 'document.pdf',
@@ -138,12 +145,13 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Access-Token': waKey
+        'X-Access-Token': waKey,
+        'Authorization': `Bearer ${waKey}`
       },
       body: JSON.stringify(payload),
       signal: controller.signal
@@ -151,7 +159,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
     clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true)) {
+    if (resp.ok && (data.success === true || data.status === true || data.status === 'success')) {
       console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST`);
       return data;
     }
@@ -160,15 +168,15 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   }
 
   // Fallback to GET endpoint
-  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&media_url=${encodeURIComponent(documentUrl || '')}&document_url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
+  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=media&message=${encodeURIComponent(message || '')}&caption=${encodeURIComponent(message || '')}&media_url=${encodeURIComponent(documentUrl || '')}&url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&filename=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
     const getResp = await fetch(getUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
     const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true)) {
+    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success')) {
       console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET`);
       return getData;
     }
@@ -2541,10 +2549,10 @@ app.put('/api/trainers/:id', async (req, res) => {
     await db.prepare(`
       UPDATE trainers SET
         trainerId = ?, name = ?, phone = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?
-      WHERE id = ?
-    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id);
+      WHERE id = ? OR trainerId = ?
+    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id, req.params.id);
 
-    const updated = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM trainers WHERE id = ? OR trainerId = ?').get(req.params.id, req.params.id);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -4159,7 +4167,7 @@ app.post('/api/trainer-payroll-adjustments', async (req, res) => {
 app.post('/api/whatsapp/send-payslip', async (req, res) => {
   try {
     const {
-      phone, trainerName, month, basicPay, bonus, bonusNote,
+      phone, trainerId, trainerName, month, basicPay, bonus, bonusNote,
       incentiveAmount, incentiveType, otherAmount, otherType, otherLabel,
       commissionSalary, totalPayable, pdfBase64, user_role
     } = req.body;
@@ -4172,6 +4180,19 @@ app.post('/api/whatsapp/send-payslip', async (req, res) => {
 
     if (!phone) {
       return res.status(400).json({ error: 'Trainer phone number is required to send WhatsApp message.' });
+    }
+
+    // Automatically update & persist trainer's phone number in DB
+    try {
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      const dbPhone = cleanPhone.length === 12 && cleanPhone.startsWith('91') ? cleanPhone.slice(2) : (cleanPhone.length === 10 ? cleanPhone : phone);
+      if (trainerId) {
+        await db.prepare('UPDATE trainers SET phone = ? WHERE id = ? OR trainerId = ?').run(dbPhone, String(trainerId), String(trainerId));
+      } else if (trainerName) {
+        await db.prepare('UPDATE trainers SET phone = ? WHERE name = ?').run(dbPhone, String(trainerName));
+      }
+    } catch (updateErr) {
+      console.warn('Trainer phone sync notice:', updateErr.message);
     }
 
     const incSign = incentiveType === 'Subtract' ? '-' : '+';
