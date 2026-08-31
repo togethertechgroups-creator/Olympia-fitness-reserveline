@@ -3,51 +3,169 @@
 .transactions-actions-bar {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.85rem;
     padding: 0 2rem;
     margin-bottom: 1.5rem;
+    flex-wrap: wrap;
 }
 
 .btn-export, .btn-import {
-    box-shadow: 0 4px 10px rgba(0,0,0,0.03);
+    height: 42px;
+    padding: 0 1.1rem !important;
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 10px !important;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #334155 !important;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     transition: var(--dash-transition);
+    box-sizing: border-box;
 }
+
 .btn-export:hover, .btn-import:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 15px rgba(0,0,0,0.06);
-    border-color: var(--dash-purple) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    border-color: #ea580c !important;
+    color: #ea580c !important;
+}
+
+.txn-payment-filter {
+    height: 42px;
+    padding: 0 1rem;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    color: #1e293b;
+    font-size: 0.88rem;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.txn-payment-filter:focus, .txn-payment-filter:hover {
+    border-color: #ea580c;
+}
+
+.txn-month-filter, .txn-date-filters {
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.65rem;
+    background: #ffffff;
+    padding: 0 0.85rem;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+    box-sizing: border-box;
+}
+
+.txn-date-input-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.txn-date-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #64748b;
+    white-space: nowrap;
+}
+
+.txn-month-input, .txn-date-input {
+    height: 28px;
+    padding: 0 0.4rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #1e293b;
+    outline: none;
+    background: #f8fafc;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.txn-month-input:focus, .txn-date-input:focus {
+    border-color: #ea580c;
+    background: #ffffff;
+    box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.1);
+}
+
+.btn-clear-date {
+    height: 26px;
+    padding: 0 0.55rem;
+    background: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.btn-clear-date:hover {
+    background: #dc2626;
+    color: #ffffff;
 }
 
 .txn-search-bar {
     margin-left: auto;
     position: relative;
-    width: 350px;
+    width: 100%;
+    max-width: 320px;
+    flex: 1 1 200px;
 }
 
 .txn-search-bar svg {
     position: absolute;
-    left: 1rem;
+    left: 0.85rem;
     top: 50%;
     transform: translateY(-50%);
     color: #94a3b8;
+    pointer-events: none;
 }
 
 .txn-search-bar input {
     width: 100%;
-    padding: 0.85rem 1rem 0.85rem 2.75rem;
-    border-radius: 12px;
-    border: 1px solid rgba(0,0,0,0.05);
+    height: 42px;
+    padding: 0 1rem 0 2.5rem;
+    border-radius: 10px;
+    border: 1px solid #cbd5e1;
     background: #ffffff;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
     color: var(--dash-text);
     outline: none;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.02);
-    transition: var(--dash-transition);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+    transition: all 0.2s ease;
+    box-sizing: border-box;
 }
 
 .txn-search-bar input:focus {
-    border-color: var(--dash-purple);
-    box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.1);
+    border-color: #ea580c;
+    box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.1);
+}
+
+.txn-summary-cards {
+    display: flex;
+    gap: 1.5rem;
+    margin: 0 2rem 1.5rem 2rem;
+    flex-wrap: wrap;
 }
 
 .transactions-table-card {
@@ -269,81 +387,36 @@
     color: #0f172a;
 }
 
-.txn-payment-filter {
-    padding: 0.65rem 1rem;
-    border-radius: 10px;
-    border: 1px solid #e2e8f0;
-    background: #ffffff;
-    color: #1e293b;
-    font-size: 0.9rem;
-    font-weight: 600;
-    outline: none;
-    cursor: pointer;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
-    transition: var(--dash-transition);
-}
-
-.txn-payment-filter:focus, .txn-payment-filter:hover {
-    border-color: #ea580c;
-}
-
-.txn-month-filter, .txn-date-filters {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    background: #ffffff;
-    padding: 0.35rem 0.75rem;
-    border-radius: 10px;
-    border: 1px solid #e2e8f0;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
-}
-
-.txn-month-input, .txn-date-input {
-    padding: 0.4rem 0.6rem;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #1e293b;
-    outline: none;
-    background: #f8fafc;
-    transition: all 0.2s ease;
-}
-
-.txn-month-input:focus, .txn-date-input:focus {
-    border-color: #ea580c;
-    background: #ffffff;
-    box-shadow: 0 0 0 2px rgba(234, 88, 12, 0.1);
-}
-
-.btn-clear-date {
-    padding: 0.35rem 0.65rem;
-    background: #fee2e2;
-    color: #dc2626;
-    border: 1px solid #fecaca;
-    border-radius: 6px;
-    font-size: 0.78rem;
-    font-weight: 700;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    transition: all 0.2s ease;
-}
-
-.btn-clear-date:hover {
-    background: #dc2626;
-    color: #ffffff;
-}
-
 @media (max-width: 1200px) {
     .transactions-actions-bar {
-        flex-wrap: wrap;
+        padding: 0 1.5rem;
+    }
+    .txn-summary-cards {
+        margin: 0 1.5rem 1.5rem 1.5rem;
+    }
+    .transactions-table-card {
+        margin: 0 1.5rem 2rem 1.5rem;
     }
     .txn-search-bar {
-        width: 100%;
+        max-width: 100%;
         margin-left: 0;
     }
 }
+
+@media (max-width: 768px) {
+    .transactions-actions-bar {
+        padding: 0 1rem;
+        gap: 0.75rem;
+    }
+    .txn-summary-cards {
+        margin: 0 1rem 1.5rem 1rem;
+        gap: 1rem;
+    }
+    .transactions-table-card {
+        margin: 0 1rem 2rem 1rem;
+        padding: 1rem;
+    }
+}
+
 
 

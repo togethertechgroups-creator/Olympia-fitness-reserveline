@@ -238,15 +238,14 @@ const DashboardPage = () => {
           <div className="cards-grid-4">
 
             {/* 1. Monthly Collection */}
-            <div className="ui-dash-card" onClick={() => navigate('/transactions')}>
+            <div className="ui-dash-card" style={{ cursor: 'default' }}>
               <div className="card-top-row">
                 <span className="card-category-title">COLLECTION ({dateFilterMode})</span>
               </div>
               <div className="card-val-row">
                 <div className="card-main-val">{formatCurrency(rangeStats?.rangeRevenue !== undefined ? rangeStats.rangeRevenue : stats?.monthlyCollection)}</div>
               </div>
-              <div className="card-bottom-row">
-                <span className="card-link-action">View Details</span>
+              <div className="card-bottom-row" style={{ justifyContent: 'flex-end' }}>
                 <div className="card-icon-badge badge-green">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="7" y1="17" x2="17" y2="7"></line>

@@ -489,20 +489,18 @@ const TransactionsPage = () => {
             className="btn-export" 
             onClick={handleExport} 
             disabled={isExporting || isImporting}
-            style={{ padding: '0.6rem 1rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            {isExporting ? 'EXPORTING...' : 'EXPORT DATA'}
+            <span>{isExporting ? 'EXPORTING...' : 'EXPORT DATA'}</span>
           </button>
           
           <button 
             className="btn-import" 
             onClick={() => fileInputRef.current?.click()} 
             disabled={isExporting || isImporting}
-            style={{ padding: '0.6rem 1rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: 600, color: '#334155', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            {isImporting ? 'IMPORTING...' : 'IMPORT DATA'}
+            <span>{isImporting ? 'IMPORTING...' : 'IMPORT DATA'}</span>
           </button>
 
           <select
@@ -594,7 +592,7 @@ const TransactionsPage = () => {
           </div>
         </div>
 
-      <div className="txn-summary-cards" style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+      <div className="txn-summary-cards">
         <div className="txn-summary-card" style={{ flex: 1, minWidth: '220px', background: 'white', padding: '1.25rem 1.5rem', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Transactions</span>
           <span style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a' }}>{totalFilteredCount}</span>

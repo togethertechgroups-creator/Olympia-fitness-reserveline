@@ -1995,14 +1995,11 @@ app.post('/api/clients', async (req, res) => {
 
     // Create a transaction record if some amount is paid
     if (finalPaidAmount > 0) {
-      const existingTx = await db.prepare('SELECT id FROM transactions WHERE billId = ?').get(billId);
-      if (!existingTx) {
-        const txId = randomUUID();
-        await db.prepare(`
-          INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(txId, id, billId, name, paymentMethod, finalPaidAmount, toDateLabel());
-      }
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(txId, id, billId, name, paymentMethod, finalPaidAmount, toDateLabel());
     }
 
     const newClient = await db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
@@ -3038,22 +3035,19 @@ app.post('/api/general-bookings', async (req, res) => {
     );
 
     if (paidAmountVal > 0) {
-      const existingTx = await db.prepare('SELECT id FROM transactions WHERE billId = ?').get(billId);
-      if (!existingTx) {
-        const txId = randomUUID();
-        await db.prepare(`
-          INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
-        `).run(
-          txId,
-          String(client.clientId || client.id || client_id),
-          billId,
-          `${client.name} - Advance Booking (${plan_type})`,
-          payMethodVal,
-          paidAmountVal,
-          invoiceDateStr
-        );
-      }
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+      `).run(
+        txId,
+        String(client.clientId || client.id || client_id),
+        billId,
+        `${client.name} - Advance Booking (${plan_type})`,
+        payMethodVal,
+        paidAmountVal,
+        invoiceDateStr
+      );
     }
 
     if (dueAmountVal > 0) {
@@ -3410,22 +3404,19 @@ app.post('/api/pt-advance-bookings', async (req, res) => {
     );
 
     if (paidAmountVal > 0) {
-      const existingTx = await db.prepare('SELECT id FROM transactions WHERE billId = ?').get(billId);
-      if (!existingTx) {
-        const txId = randomUUID();
-        await db.prepare(`
-          INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
-        `).run(
-          txId,
-          String(client.clientId || client.id || client_id),
-          billId,
-          `${client.name} - Advance PT Booking (${pkg.name})`,
-          payMethodVal,
-          paidAmountVal,
-          invoiceDateStr
-        );
-      }
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CAPTURED')
+      `).run(
+        txId,
+        String(client.clientId || client.id || client_id),
+        billId,
+        `${client.name} - Advance PT Booking (${pkg.name})`,
+        payMethodVal,
+        paidAmountVal,
+        invoiceDateStr
+      );
     }
 
     if (dueAmountVal > 0) {
@@ -4977,22 +4968,19 @@ app.post('/api/other-services/sell', async (req, res) => {
 
     // Create transaction record if paidAmountVal > 0 so Dashboard & Transactions reflect it immediately
     if (paidAmountVal > 0) {
-      const existingTx = await db.prepare('SELECT id FROM transactions WHERE billId = ?').get(billId);
-      if (!existingTx) {
-        const txId = randomUUID();
-        await db.prepare(`
-          INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          txId,
-          clientIdVal,
-          billId,
-          `${clientNameVal} - ${service.name}`,
-          payMethodVal,
-          paidAmountVal,
-          invoiceDateStr
-        );
-      }
+      const txId = randomUUID();
+      await db.prepare(`
+        INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        txId,
+        clientIdVal,
+        billId,
+        `${clientNameVal} - ${service.name}`,
+        payMethodVal,
+        paidAmountVal,
+        invoiceDateStr
+      );
     }
 
     // Update client due amount if there is any due from discounted price
