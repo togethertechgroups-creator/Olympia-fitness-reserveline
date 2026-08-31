@@ -385,14 +385,35 @@ const TrainerSalaryReportPage = () => {
   const generatePDFBlobBase64 = async () => {
     const element = payslipRef.current;
     if (!element) return null;
+    let html2pdfModule = html2pdf;
+    if (typeof html2pdfModule !== 'function') {
+      try {
+        html2pdfModule = (await import('html2pdf.js')).default;
+      } catch (e) {
+        console.warn('html2pdf dynamic import error:', e);
+      }
+    }
+    if (!html2pdfModule) return null;
+
     const opt = {
-      margin: 10,
-      filename: `Payslip_${modalConfig.trainer?.trainerName.replace(/\s+/g, '_')}_${selectedMonth}.pdf`,
-      image: { type: 'jpeg', quality: 1 },
-      html2canvas: { scale: 4, useCORS: true },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      margin: [10, 10, 10, 10],
+      filename: `Payslip_${modalConfig.trainer?.trainerName.replace(/[^a-zA-Z0-9_-]/g, '_')}_${selectedMonth}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        scrollY: 0,
+        scrollX: 0,
+        windowWidth: 800,
+        width: 800,
+        logging: false
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+      pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
     };
-    const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
+
+    const pdfBlob = await html2pdfModule().set(opt).from(element).output('blob');
     if (pdfBlob && pdfBlob.size > 0) {
       return await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -1053,10 +1074,10 @@ const grandTotalPayable = reportData?.trainers?.reduce((sum, tr) => {
         </div>
       )}
 
-      {/* Printable Hidden Payslip DOM Container for PDF Generation */}
+      {/* Printable Offscreen Payslip DOM Container for PDF Generation */}
       {modalConfig.trainer && (
-        <div style={{ display: 'none' }}>
-          <div ref={payslipRef} style={{ padding: '30px', fontFamily: 'Arial, sans-serif', color: '#1e293b', background: '#ffffff' }}>
+        <div style={{ position: 'fixed', left: '-9999px', top: '0', width: '800px', zIndex: -1000, background: '#ffffff', opacity: 1, pointerEvents: 'none' }}>
+          <div ref={payslipRef} style={{ width: '800px', padding: '30px', fontFamily: 'Arial, sans-serif', color: '#1e293b', background: '#ffffff' }}>
             
             {/* PAGE 1: SALARY PAYSLIP BREAKDOWN */}
             <div style={{ borderBottom: '2px solid #ef4444', paddingBottom: '15px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

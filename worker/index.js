@@ -62,6 +62,9 @@ export default {
           if (object) {
             const headers = new Headers();
             object.writeHttpMetadata(headers);
+            if (objectKey.endsWith('.pdf') || !headers.has('Content-Type')) {
+              headers.set('Content-Type', 'application/pdf');
+            }
             headers.set('etag', object.httpEtag);
             headers.set('Cache-Control', 'public, max-age=31536000');
             headers.set('Access-Control-Allow-Origin', '*');
