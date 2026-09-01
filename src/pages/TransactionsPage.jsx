@@ -89,44 +89,62 @@ const TransactionsPage = () => {
         clientsMapById[c.id] = c;
       });
 
-      const mappedGenBookings = (genBookings || []).map(b => {
-        const grossPrice = parseFloat(b.price) || 0;
-        const discountVal = parseFloat(b.discount_amount) || 0;
-        const netAmount = Math.max(0, grossPrice - discountVal);
-        return {
-          id: `gen-adv-${b.id}`,
-          clientId: b.client_id,
-          name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
-          method: b.payment_method ? `${b.payment_method} (ADV-GEN)` : 'ADVANCE (GEN)',
-          amount: netAmount,
-          grossAmount: grossPrice,
-          discountAmount: discountVal,
-          date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
-          status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-          timestamp: b.created_at || b.booking_start_date || ''
-        };
-      });
-
-      const mappedPtBookings = (ptBookings || []).map(b => {
-        const grossPrice = parseFloat(b.price_snapshot) || 0;
-        const discountVal = parseFloat(b.discount_amount) || 0;
-        const netAmount = Math.max(0, grossPrice - discountVal);
-        return {
-          id: `pt-adv-${b.id}`,
-          clientId: b.client_id,
-          name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
-          method: b.payment_method ? `${b.payment_method} (ADV-PT)` : 'ADVANCE (PT)',
-          amount: netAmount,
-          grossAmount: grossPrice,
-          discountAmount: discountVal,
-          date: b.created_at ? b.created_at.split(' ')[0] : (b.booking_start_date || ''),
-          status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-          timestamp: b.created_at || b.booking_start_date || ''
-        };
-      });
-
       const existingBillIds = new Set((txnData || []).map(t => t.billId).filter(Boolean));
       const existingTxnIds = new Set((txnData || []).map(t => String(t.id)).filter(Boolean));
+
+      const mappedGenBookings = (genBookings || [])
+        .filter(b => {
+          if (b.invoice_id && existingBillIds.has(b.invoice_id)) return false;
+          if (b.id && existingTxnIds.has(String(b.id))) return false;
+          return true;
+        })
+        .map(b => {
+          const grossPrice = parseFloat(b.price) || 0;
+          const discountVal = parseFloat(b.discount_amount) || 0;
+          const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+            ? parseFloat(b.paid_amount)
+            : Math.max(0, grossPrice - discountVal);
+          const actualTxnDate = b.created_at ? b.created_at.split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0];
+          return {
+            id: `gen-adv-${b.id}`,
+            clientId: b.client_id,
+            name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+            method: b.payment_method ? `${b.payment_method} (ADV-GEN)` : 'ADVANCE (GEN)',
+            amount: paidVal,
+            grossAmount: grossPrice,
+            discountAmount: discountVal,
+            date: actualTxnDate,
+            status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+            timestamp: b.created_at || actualTxnDate
+          };
+        });
+
+      const mappedPtBookings = (ptBookings || [])
+        .filter(b => {
+          if (b.invoice_id && existingBillIds.has(b.invoice_id)) return false;
+          if (b.id && existingTxnIds.has(String(b.id))) return false;
+          return true;
+        })
+        .map(b => {
+          const grossPrice = parseFloat(b.price_snapshot) || 0;
+          const discountVal = parseFloat(b.discount_amount) || 0;
+          const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+            ? parseFloat(b.paid_amount)
+            : Math.max(0, grossPrice - discountVal);
+          const actualTxnDate = b.created_at ? b.created_at.split('T')[0].split(' ')[0] : new Date().toISOString().split('T')[0];
+          return {
+            id: `pt-adv-${b.id}`,
+            clientId: b.client_id,
+            name: b.clientName || clientsMapById[b.client_id]?.name || 'Unknown Client',
+            method: b.payment_method ? `${b.payment_method} (ADV-PT)` : 'ADVANCE (PT)',
+            amount: paidVal,
+            grossAmount: grossPrice,
+            discountAmount: discountVal,
+            date: actualTxnDate,
+            status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
+            timestamp: b.created_at || actualTxnDate
+          };
+        });
 
       const mappedPtAssignments = (ptAssignmentsData || [])
         .filter(a => {
@@ -139,6 +157,7 @@ const TransactionsPage = () => {
           const grossPrice = parseFloat(a.package_price_snapshot) || 0;
           const discountVal = parseFloat(a.discount_amount) || 0;
           const netAmount = Math.max(0, grossPrice - discountVal);
+          const actualTxnDate = a.created_at ? a.created_at.split('T')[0].split(' ')[0] : (a.assigned_date ? a.assigned_date.split(' ')[0] : new Date().toISOString().split('T')[0]);
           return {
             id: `pt-assign-${a.id}`,
             clientId: a.clientCode || a.client_id,
@@ -147,7 +166,7 @@ const TransactionsPage = () => {
             amount: netAmount,
             grossAmount: grossPrice,
             discountAmount: discountVal,
-            date: a.assigned_date ? a.assigned_date.split(' ')[0] : (a.created_at ? a.created_at.split(' ')[0] : ''),
+            date: actualTxnDate,
             status: 'CAPTURED',
             timestamp: a.created_at || a.assigned_date || ''
           };

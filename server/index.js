@@ -1218,7 +1218,7 @@ const generatePtInvoice = async (clientId, packageName, priceSnapshot, assignedD
     const nextBillNo = `INV-${(maxNum + 1).toString().padStart(4, '0')}`;
 
     const billId = randomUUID();
-    const invoiceDateStr = toDateLabel(assignedDate || new Date());
+    const invoiceDateStr = toDateLabel();
 
     const discAmt = parseFloat(discountAmount) || 0;
     const grossPrice = parseFloat(priceSnapshot) || 0;
@@ -1997,10 +1997,12 @@ app.post('/api/clients', async (req, res) => {
     const gstCalc = computeGstBreakdown(amount, gstSettings.gst_rate_percent || 4.8);
 
     const billId = randomUUID();
+    const billInvoiceDate = admissionDate ? toDateLabel(admissionDate) : toDateLabel();
+
     await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, invoice_category, taxable_value, cgst_amount, sgst_amount, gst_rate_snapshot, client_gstin_snapshot, discount_amount)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'GeneralPlan', ?, ?, ?, ?, ?, ?)
-    `).run(billId, nextBillNo, id, name, toDateLabel(), fromDate || '', expiryDate || '', amount, finalPaidAmount, dueAmount, paymentStatus, 0, amount, dueAmount, gstCalc.taxable_value, gstCalc.cgst_amount, gstCalc.sgst_amount, gstCalc.gst_rate_snapshot, gstinVal, parseFloat(discount_amount) || 0);
+    `).run(billId, nextBillNo, id, name, billInvoiceDate, fromDate || '', expiryDate || '', amount, finalPaidAmount, dueAmount, paymentStatus, 0, amount, dueAmount, gstCalc.taxable_value, gstCalc.cgst_amount, gstCalc.sgst_amount, gstCalc.gst_rate_snapshot, gstinVal, parseFloat(discount_amount) || 0);
 
     // Create a transaction record if some amount is paid
     if (finalPaidAmount > 0) {
@@ -2008,7 +2010,7 @@ app.post('/api/clients', async (req, res) => {
       await db.prepare(`
         INSERT INTO transactions (id, clientId, billId, name, method, amount, date)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(txId, id, billId, name, paymentMethod, finalPaidAmount, toDateLabel());
+      `).run(txId, id, billId, name, paymentMethod, finalPaidAmount, billInvoiceDate);
     }
 
     const newClient = await db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
