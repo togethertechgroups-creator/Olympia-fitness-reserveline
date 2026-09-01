@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchStats, fetchRevenue, fetchPerformance, getClients, fetchPtSummary, getSupplementDashboardSummary, getPtAssignments, getDashboardStats } from '../api';
+import { fetchStats, fetchRevenue, fetchPerformance, getClientsPaginated, fetchPtSummary, getSupplementDashboardSummary, getDashboardStats } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import RevenueChart from '../components/RevenueChart';
 import PtRevenueChart from '../components/PtRevenueChart';
@@ -13,7 +13,6 @@ const DashboardPage = () => {
   const [revenue, setRevenue] = useState([]);
   const [performance, setPerformance] = useState([]);
   const [clients, setClients] = useState([]);
-  const [allClientsList, setAllClientsList] = useState([]);
   const [ptSummary, setPtSummary] = useState(null);
   const [supplementsSummary, setSupplementsSummary] = useState(null);
   const [activePtCount, setActivePtCount] = useState(0);
@@ -73,10 +72,9 @@ const DashboardPage = () => {
           fetchStats(selectedMonth),
           fetchRevenue(),
           fetchPerformance(),
-          getClients(),
+          getClientsPaginated(1, 8),
           fetchPtSummary(),
           getSupplementDashboardSummary(),
-          getPtAssignments({ status: 'Active' }),
           getDashboardStats(dates.start, dates.end)
         ]);
 
@@ -87,19 +85,15 @@ const DashboardPage = () => {
         const clientsData = Array.isArray(rawClients) ? rawClients : (rawClients?.data || []);
         const ptData = results[4].status === 'fulfilled' ? results[4].value : null;
         const suppSummaryData = results[5].status === 'fulfilled' ? results[5].value : null;
-        const rawPtAssign = results[6].status === 'fulfilled' ? results[6].value : [];
-        const ptAssignData = Array.isArray(rawPtAssign) ? rawPtAssign : (rawPtAssign?.data || []);
-        const dateStatsRes = results[7].status === 'fulfilled' ? results[7].value : null;
+        const dateStatsRes = results[6].status === 'fulfilled' ? results[6].value : null;
 
         setStats(statsData);
         setRevenue(revenueData);
         setPerformance(perfData);
         setClients(clientsData.slice(0, 8));
-        setAllClientsList(clientsData || []);
         setPtSummary(ptData);
         setSupplementsSummary(suppSummaryData);
-        const activeCount = (ptAssignData || []).filter(a => (a.status || '').toLowerCase() === 'active').length;
-        setActivePtCount(activeCount);
+        setActivePtCount(ptData?.activePtCount || statsData?.activePt || 0);
         setRangeStats(dateStatsRes);
       } catch (error) {
         console.error("Failed to fetch dashboard data:", error);
@@ -110,10 +104,10 @@ const DashboardPage = () => {
     loadData();
   }, [selectedMonth, dateFilterMode, customStartDate, customEndDate]);
 
-  const activeMaleCount = rangeStats?.activeMaleClients !== undefined ? rangeStats.activeMaleClients : (stats?.activeMaleClients !== undefined ? stats.activeMaleClients : allClientsList.filter(c => c.status === 'active' && (c.gender || '').toLowerCase() !== 'female').length);
-  const activeFemaleCount = rangeStats?.activeFemaleClients !== undefined ? rangeStats.activeFemaleClients : (stats?.activeFemaleClients !== undefined ? stats.activeFemaleClients : allClientsList.filter(c => c.status === 'active' && (c.gender || '').toLowerCase() === 'female').length);
-  const inactiveMaleCount = rangeStats?.inactiveMaleClients !== undefined ? rangeStats.inactiveMaleClients : (stats?.inactiveMaleClients !== undefined ? stats.inactiveMaleClients : allClientsList.filter(c => c.status !== 'active' && (c.gender || '').toLowerCase() !== 'female').length);
-  const inactiveFemaleCount = rangeStats?.inactiveFemaleClients !== undefined ? rangeStats.inactiveFemaleClients : (stats?.inactiveFemaleClients !== undefined ? stats.inactiveFemaleClients : allClientsList.filter(c => c.status !== 'active' && (c.gender || '').toLowerCase() === 'female').length);
+  const activeMaleCount = rangeStats?.activeMaleClients !== undefined ? rangeStats.activeMaleClients : (stats?.activeMaleClients || 0);
+  const activeFemaleCount = rangeStats?.activeFemaleClients !== undefined ? rangeStats.activeFemaleClients : (stats?.activeFemaleClients || 0);
+  const inactiveMaleCount = rangeStats?.inactiveMaleClients !== undefined ? rangeStats.inactiveMaleClients : (stats?.inactiveMaleClients || 0);
+  const inactiveFemaleCount = rangeStats?.inactiveFemaleClients !== undefined ? rangeStats.inactiveFemaleClients : (stats?.inactiveFemaleClients || 0);
 
   if (loading) return <div className="dashboard-loading-screen">Loading Management Portal...</div>;
 

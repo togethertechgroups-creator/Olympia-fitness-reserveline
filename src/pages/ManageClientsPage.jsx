@@ -743,9 +743,9 @@ const ManageClientsPage = () => {
 
   const [advanceBookings, setAdvanceBookings] = useState({ general: [], pt: [] });
 
-  const fetchClients = async () => {
+  const fetchClients = async (forceRefresh = false) => {
     try {
-      const data = await getClients(true);
+      const data = await getClients(forceRefresh);
       setClients(data);
       setLoading(false);
 

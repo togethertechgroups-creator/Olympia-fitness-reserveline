@@ -88,6 +88,11 @@ export const getClients = async (forceRefresh = false) => {
   return fetchWithCache(`${BASE_URL}/clients`, {}, forceRefresh, CLIENTS_CACHE_TTL);
 };
 
+export const getClientsPaginated = async (page = 1, limit = 20, search = '', forceRefresh = false) => {
+  const query = new URLSearchParams({ page, limit, search: search || '' }).toString();
+  return fetchWithCache(`${BASE_URL}/clients?${query}`, {}, forceRefresh, CLIENTS_CACHE_TTL);
+};
+
 export const getNextClientId = async () => {
   const response = await fetch(`${BASE_URL}/clients/next-id`);
   return handleResponse(response);
@@ -616,8 +621,7 @@ export const unlockPayrollMonth = async (month) => {
 };
 
 export const fetchPtSummary = async () => {
-  const response = await fetch(`${BASE_URL}/stats/pt-summary`);
-  return handleResponse(response);
+  return fetchWithCache(`${BASE_URL}/stats/pt-summary`, {}, false, 15000);
 };
 
 export const saveTrainerPayrollAdjustment = async (adjustmentData) => {
@@ -662,13 +666,13 @@ const getAuthHeaders = () => ({
 
 export const getSupplements = async (activeOnly = false) => {
   const url = activeOnly ? `${BASE_URL}/supplements?activeOnly=true` : `${BASE_URL}/supplements`;
-  const response = await fetch(url, {
+  return fetchWithCache(url, {
     headers: getAuthHeaders()
-  });
-  return handleResponse(response);
+  }, false, 30000);
 };
 
 export const addSupplement = async (data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -678,6 +682,7 @@ export const addSupplement = async (data) => {
 };
 
 export const updateSupplement = async (id, data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/${id}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
@@ -687,6 +692,7 @@ export const updateSupplement = async (id, data) => {
 };
 
 export const toggleSupplementActive = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/${id}/toggle-active`, {
     method: 'PATCH',
     headers: getAuthHeaders(),
@@ -695,6 +701,7 @@ export const toggleSupplementActive = async (id) => {
 };
 
 export const deleteSupplement = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
@@ -705,13 +712,13 @@ export const deleteSupplement = async (id) => {
 export const getSupplementPurchases = async (params = {}) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/supplements/purchases?${query}` : `${BASE_URL}/supplements/purchases`;
-  const response = await fetch(url, {
+  return fetchWithCache(url, {
     headers: getAuthHeaders()
-  });
-  return handleResponse(response);
+  }, false, 15000);
 };
 
 export const addSupplementPurchase = async (data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/purchases`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -721,6 +728,7 @@ export const addSupplementPurchase = async (data) => {
 };
 
 export const updateSupplementPurchase = async (id, data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/purchases/${id}`, {
     method: 'PUT',
     headers: getAuthHeaders(),
@@ -730,6 +738,7 @@ export const updateSupplementPurchase = async (id, data) => {
 };
 
 export const deleteSupplementPurchase = async (id) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/purchases/${id}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
@@ -740,13 +749,13 @@ export const deleteSupplementPurchase = async (id) => {
 export const getSupplementSales = async (params = {}) => {
   const query = new URLSearchParams(params).toString();
   const url = query ? `${BASE_URL}/supplements/sales?${query}` : `${BASE_URL}/supplements/sales`;
-  const response = await fetch(url, {
+  return fetchWithCache(url, {
     headers: getAuthHeaders()
-  });
-  return handleResponse(response);
+  }, false, 15000);
 };
 
 export const addSupplementSale = async (data) => {
+  clearApiCache();
   const response = await fetch(`${BASE_URL}/supplements/sales`, {
     method: 'POST',
     headers: getAuthHeaders(),
