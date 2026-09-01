@@ -22,6 +22,18 @@ const OtherServicesPage = () => {
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const handleClearDates = () => {
+    setFromDate('');
+    setToDate('');
+    setCurrentPage(1);
+  };
 
   // Member Sell / Renew Modal State
   const [isSellModalOpen, setIsSellModalOpen] = useState(false);
@@ -439,7 +451,7 @@ const OtherServicesPage = () => {
     return true;
   });
 
-  // Filtering sales list by search & status
+  // Filtering sales list by search, status & date range
   const filteredSales = sectionSalesList.filter(item => {
     const daysLeft = calculateDaysLeft(item.expiryDate);
     const isExpired = daysLeft !== null && daysLeft < 0;
@@ -448,6 +460,16 @@ const OtherServicesPage = () => {
     if (statusFilter === 'Active') matchesStatus = !isExpired && item.paymentStatus !== 'Due';
     if (statusFilter === 'Expired') matchesStatus = isExpired;
     if (statusFilter === 'Due') matchesStatus = item.paymentStatus === 'Due';
+
+    // Date range filter based on sale_date or created_at
+    let matchesDate = true;
+    const saleDateStr = (item.sale_date || item.created_at || '').split('T')[0];
+    if (fromDate && saleDateStr) {
+      matchesDate = matchesDate && (saleDateStr >= fromDate);
+    }
+    if (toDate && saleDateStr) {
+      matchesDate = matchesDate && (saleDateStr <= toDate);
+    }
 
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
@@ -458,8 +480,21 @@ const OtherServicesPage = () => {
       (item.serviceName || '').toLowerCase().includes(searchLower) ||
       (item.billNo || '').toLowerCase().includes(searchLower);
 
-    return matchesStatus && matchesSearch;
+    return matchesStatus && matchesDate && matchesSearch;
   });
+
+  // Pagination calculations
+  const totalItems = filteredSales.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+  const paginatedSales = filteredSales.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(Math.max(1, totalPages));
+    }
+  }, [totalPages, currentPage]);
 
   // Summary Metrics scoped to active tab
   const totalSalesCount = sectionSalesList.length;
@@ -586,17 +621,61 @@ const OtherServicesPage = () => {
 
       {/* Filter & Search Toolbar */}
       <div className="os-toolbar-card">
-        <div className="os-search-box">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          <input
-            type="text"
-            placeholder="Search by Client Name, Phone, ID, Service or Invoice #..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="os-toolbar-left">
+          <div className="os-search-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by Client Name, Phone, ID, Service or Invoice #..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+            />
+          </div>
+
+          <div className="os-date-filters">
+            <div className="os-date-input-group">
+              <label className="os-date-label">From:</label>
+              <input
+                type="date"
+                className="os-date-input"
+                value={fromDate}
+                onChange={(e) => {
+                  setFromDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                title="From Date"
+              />
+            </div>
+            <div className="os-date-input-group">
+              <label className="os-date-label">To:</label>
+              <input
+                type="date"
+                className="os-date-input"
+                value={toDate}
+                onChange={(e) => {
+                  setToDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                title="To Date"
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                className="btn-clear-date"
+                onClick={handleClearDates}
+                title="Clear Date Filter"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="os-filter-pills">
@@ -604,7 +683,10 @@ const OtherServicesPage = () => {
             <button
               key={status}
               className={`os-pill-btn ${statusFilter === status ? 'active' : ''}`}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => {
+                setStatusFilter(status);
+                setCurrentPage(1);
+              }}
             >
               {status}
             </button>
@@ -636,7 +718,7 @@ const OtherServicesPage = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredSales.map((item) => {
+              {paginatedSales.map((item) => {
                 const daysLeft = calculateDaysLeft(item.expiryDate);
                 const isExpired = daysLeft !== null && daysLeft < 0;
                 const clientInitial = (item.clientName || 'C').charAt(0).toUpperCase();
@@ -801,6 +883,79 @@ const OtherServicesPage = () => {
               })}
             </tbody>
           </table>
+        )}
+
+        {/* Pagination Bar */}
+        {!loading && filteredSales.length > 0 && (
+          <div className="os-pagination-bar">
+            <div className="os-pagination-info">
+              Showing <span>{totalItems > 0 ? startIndex + 1 : 0}</span> to <span>{endIndex}</span> of <span>{totalItems}</span> subscriptions
+            </div>
+            <div className="os-pagination-controls">
+              <div className="os-rows-per-page">
+                <label>Rows per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+
+              <div className="os-pagination-pages">
+                <button
+                  className="btn-os-page-nav"
+                  onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                  disabled={currentPage === 1}
+                  title="Previous Page"
+                >
+                  ‹ Prev
+                </button>
+
+                <div className="os-page-number-buttons">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 1)
+                    .reduce((acc, page, idx, arr) => {
+                      if (idx > 0 && page - arr[idx - 1] > 1) {
+                        acc.push(-1 * page);
+                      }
+                      acc.push(page);
+                      return acc;
+                    }, [])
+                    .map((pageNum, idx) => {
+                      if (pageNum < 0) {
+                        return <span key={`ellipsis-${idx}`} className="os-page-ellipsis">...</span>;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          className={`btn-os-page-num ${currentPage === pageNum ? 'active' : ''}`}
+                          onClick={() => setCurrentPage(pageNum)}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })
+                  }
+                </div>
+
+                <button
+                  className="btn-os-page-nav"
+                  onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  title="Next Page"
+                >
+                  Next ›
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
