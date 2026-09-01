@@ -122,49 +122,62 @@
 /* Revenue Summary Cards */
 .revenue-summary-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1.5rem;
-  margin-bottom: 2.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 2.25rem;
 }
 
 .rev-card {
   background: #ffffff;
   border-radius: 16px;
-  padding: 1.5rem;
+  padding: 1.35rem 1.5rem;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+  gap: 0.5rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.rev-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
 .rev-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.88rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .card-icon {
-  font-size: 1.4rem;
+  font-size: 1.35rem;
 }
 
 .rev-card-value {
-  font-size: 2rem;
+  font-size: 1.85rem;
   font-weight: 900;
-  margin: 0.5rem 0;
+  margin: 0.25rem 0;
+  line-height: 1.2;
 }
 
 .text-purchase { color: #d97706; }
+.text-stock { color: #0284c7; }
 .text-revenue { color: #059669; }
 .text-profit { color: #4f46e5; }
 .text-margin { color: #db2777; }
 
 .rev-card-sub {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
+  font-weight: 600;
   color: #94a3b8;
+  line-height: 1.4;
 }
 
 /* Chart Section */

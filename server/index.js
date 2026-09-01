@@ -7150,6 +7150,19 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
     const purchaseCostRow = await db.prepare(`SELECT SUM(total_cost) as total FROM supplement_purchases ${purchasesWhere}`).get(...purchasesParams);
     const totalPurchaseCost = purchaseCostRow && purchaseCostRow.total ? purchaseCostRow.total : 0;
 
+    const allTimePurchaseRow = await db.prepare('SELECT SUM(total_cost) as total FROM supplement_purchases').get();
+    const allTimePurchaseCost = allTimePurchaseRow && allTimePurchaseRow.total ? allTimePurchaseRow.total : 0;
+
+    const stockInventoryRow = await db.prepare(`
+      SELECT 
+        COUNT(*) as totalItems,
+        COALESCE(SUM(current_stock), 0) as totalStockUnits,
+        COALESCE(SUM(current_stock * COALESCE(default_purchase_price, 0)), 0) as totalStockCostValue,
+        COALESCE(SUM(current_stock * COALESCE(default_sale_price, 0)), 0) as totalStockRetailValue
+      FROM supplements
+      WHERE active = 1
+    `).get();
+
     const salesRow = await db.prepare(`
       SELECT 
         SUM(total_amount) as totalRevenue,
@@ -7167,16 +7180,23 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
       SELECT 
         sup.id,
         sup.name,
+        sup.brand,
         sup.category,
         sup.unit,
+        sup.current_stock,
+        COALESCE(sup.default_purchase_price, 0) as default_purchase_price,
+        COALESCE(sup.default_sale_price, 0) as default_sale_price,
+        (sup.current_stock * COALESCE(sup.default_purchase_price, 0)) as stock_cost_value,
+        (sup.current_stock * COALESCE(sup.default_sale_price, 0)) as stock_retail_value,
         COALESCE(SUM(s.quantity), 0) as units_sold,
         COALESCE(SUM(s.total_amount), 0) as revenue,
         COALESCE(SUM(s.quantity * s.cost_price_snapshot), 0) as cogs,
         COALESCE(SUM(s.total_amount - (s.quantity * s.cost_price_snapshot)), 0) as gross_profit
       FROM supplements sup
       LEFT JOIN supplement_sales s ON sup.id = s.supplement_id ${startDate ? 'AND s.sale_date >= ?' : ''} ${endDate ? 'AND s.sale_date <= ?' : ''}
+      WHERE sup.active = 1
       GROUP BY sup.id
-      HAVING units_sold > 0 OR revenue > 0
+      HAVING units_sold > 0 OR revenue > 0 OR sup.current_stock > 0
       ORDER BY revenue DESC
     `).all(...salesParams);
 
@@ -7222,9 +7242,14 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
     res.json({
       summary: {
         totalPurchaseCost,
+        allTimePurchaseCost,
         totalSaleRevenue,
         grossProfit,
-        profitMarginPct: Math.round(profitMarginPct * 100) / 100
+        profitMarginPct: Math.round(profitMarginPct * 100) / 100,
+        totalStockUnits: stockInventoryRow ? stockInventoryRow.totalStockUnits : 0,
+        totalStockCostValue: stockInventoryRow ? stockInventoryRow.totalStockCostValue : 0,
+        totalStockRetailValue: stockInventoryRow ? stockInventoryRow.totalStockRetailValue : 0,
+        totalStockItems: stockInventoryRow ? stockInventoryRow.totalItems : 0
       },
       breakdown: breakdownFormatted,
       chartData,

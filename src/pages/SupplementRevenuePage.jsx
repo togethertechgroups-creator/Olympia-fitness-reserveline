@@ -95,7 +95,11 @@ const SupplementRevenuePage = () => {
 
     // Summary Sheet
     const summaryData = [
-      { Metric: 'Total Purchase Cost', Value: report.summary.totalPurchaseCost },
+      { Metric: 'Total Purchase Cost (Period)', Value: report.summary.totalPurchaseCost },
+      { Metric: 'All-Time Purchases Total', Value: report.summary.allTimePurchaseCost || 0 },
+      { Metric: 'Total Stock Left Units', Value: report.summary.totalStockUnits || 0 },
+      { Metric: 'Stock Left Inventory Value (Cost Price)', Value: report.summary.totalStockCostValue || 0 },
+      { Metric: 'Stock Left Retail Value (Sale Price)', Value: report.summary.totalStockRetailValue || 0 },
       { Metric: 'Total Sale Revenue', Value: report.summary.totalSaleRevenue },
       { Metric: 'Gross Profit', Value: report.summary.grossProfit },
       { Metric: 'Profit Margin %', Value: `${report.summary.profitMarginPct}%` },
@@ -109,6 +113,8 @@ const SupplementRevenuePage = () => {
       'Item Name': item.name,
       'Category': item.category,
       'Unit': item.unit,
+      'Stock Left (Units)': item.current_stock,
+      'Stock Left Value (₹)': item.stock_cost_value || 0,
       'Units Sold': item.units_sold,
       'Total Revenue (₹)': item.revenue,
       'Cost of Goods Sold (₹)': item.cogs,
@@ -141,7 +147,7 @@ const SupplementRevenuePage = () => {
           <div className="revenue-header">
             <div>
               <h1 className="page-title">Supplements Revenue & Profit Dashboard</h1>
-              <p className="page-subtitle">Track purchases, revenue, COGS, gross margins, and low stock inventory alerts</p>
+              <p className="page-subtitle">Track purchases, stock inventory value, revenue, COGS, gross margins, and low stock inventory alerts</p>
             </div>
             <button className="btn-export-excel" onClick={handleExportExcel} disabled={!report}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -210,7 +216,20 @@ const SupplementRevenuePage = () => {
                     <span className="card-icon">🛍️</span>
                   </div>
                   <div className="rev-card-value text-purchase">{formatCurrency(report.summary.totalPurchaseCost)}</div>
-                  <div className="rev-card-sub">Stock bought in period</div>
+                  <div className="rev-card-sub">
+                    Period purchases • All-Time: {formatCurrency(report.summary.allTimePurchaseCost || 0)}
+                  </div>
+                </div>
+
+                <div className="rev-card card-stock">
+                  <div className="rev-card-header">
+                    <span>Stock Left (Inventory)</span>
+                    <span className="card-icon">📦</span>
+                  </div>
+                  <div className="rev-card-value text-stock">{formatCurrency(report.summary.totalStockCostValue)}</div>
+                  <div className="rev-card-sub">
+                    {report.summary.totalStockUnits || 0} units left • Retail: {formatCurrency(report.summary.totalStockRetailValue || 0)}
+                  </div>
                 </div>
 
                 <div className="rev-card card-revenue">
@@ -278,12 +297,15 @@ const SupplementRevenuePage = () => {
                     <table className="breakdown-table">
                       <thead>
                         <tr>
-                          <th style={{ width: '60px' }}>S.No</th>
+                          <th style={{ width: '50px' }}>S.No</th>
                           <th onClick={() => handleSort('name')} className="sortable">
                             Item {sortField === 'name' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
                           </th>
                           <th onClick={() => handleSort('category')} className="sortable">
                             Category {sortField === 'category' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
+                          </th>
+                          <th onClick={() => handleSort('current_stock')} className="sortable">
+                            Stock Left {sortField === 'current_stock' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
                           </th>
                           <th onClick={() => handleSort('units_sold')} className="sortable">
                             Units Sold {sortField === 'units_sold' ? (sortDirection === 'asc' ? '▲' : '▼') : ''}
@@ -304,13 +326,21 @@ const SupplementRevenuePage = () => {
                       </thead>
                       <tbody>
                         {sortedBreakdown.length === 0 ? (
-                          <tr><td colSpan="8" className="td-empty">No supplement sales logged in this period.</td></tr>
+                          <tr><td colSpan="9" className="td-empty">No supplement sales logged in this period.</td></tr>
                         ) : (
                           sortedBreakdown.map((item, idx) => (
                             <tr key={item.id}>
                               <td style={{ fontWeight: '700', color: '#64748b' }}>{idx + 1}</td>
                               <td><strong>{item.name}</strong></td>
                               <td><span className="cat-pill">{item.category}</span></td>
+                              <td>
+                                <div style={{ fontWeight: 700, color: item.current_stock <= 5 ? '#dc2626' : '#0f172a' }}>
+                                  {item.current_stock} {item.unit}s
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '1px' }}>
+                                  ({formatCurrency(item.stock_cost_value)})
+                                </div>
+                              </td>
                               <td><strong>{item.units_sold}</strong> {item.unit}s</td>
                               <td>{formatCurrency(item.revenue)}</td>
                               <td>{formatCurrency(item.cogs)}</td>
