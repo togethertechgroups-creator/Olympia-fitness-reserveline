@@ -164,8 +164,6 @@ const ExpensesPage = () => {
     }
   };
 
-  if (loading) return <div className="expenses-loading">Loading expenses...</div>;
-
   // Extract distinct categories from recorded expenses + standard categories
   const standardCategories = ['Utilities', 'Rent', 'Equipment Maintenance', 'Staff Salary', 'Marketing', 'Miscellaneous'];
   const allCategories = Array.from(new Set([
@@ -435,7 +433,13 @@ const ExpensesPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredExpenses.length === 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={isSuperAdmin ? "7" : "6"} className="empty-state">
+                        Loading expenses...
+                      </td>
+                    </tr>
+                  ) : filteredExpenses.length === 0 ? (
                     <tr>
                       <td colSpan={isSuperAdmin ? "7" : "6"} className="empty-state">
                         {isAnyFilterActive ? 'No expenses match the selected filters.' : 'No expenses recorded yet.'}
