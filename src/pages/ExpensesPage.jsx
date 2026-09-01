@@ -3,11 +3,46 @@ import { getExpenses, addExpense, deleteExpense } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './ExpensesPage.css';
 
+const normalizeDate = (dStr) => {
+  if (!dStr) return '';
+  let str = String(dStr).trim();
+  str = str.split('T')[0].split(' ')[0];
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+  if (str.includes('-')) {
+    const parts = str.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else if (parts[2].length === 4) {
+        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  }
+  return str;
+};
+
 const ExpensesPage = () => {
   const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+
+  // Filters & Search State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [paymentModeFilter, setPaymentModeFilter] = useState('ALL');
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -131,13 +166,95 @@ const ExpensesPage = () => {
 
   if (loading) return <div className="expenses-loading">Loading expenses...</div>;
 
-  const totalExpenses = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  // Extract distinct categories from recorded expenses + standard categories
+  const standardCategories = ['Utilities', 'Rent', 'Equipment Maintenance', 'Staff Salary', 'Marketing', 'Miscellaneous'];
+  const allCategories = Array.from(new Set([
+    ...standardCategories,
+    ...expenses.map(e => e.category).filter(Boolean)
+  ]));
+
+  const filteredExpenses = expenses.filter(exp => {
+    const nameStr = String(exp.name || '').toLowerCase();
+    const catStr = String(exp.category || '').toLowerCase();
+    const notesStr = String(exp.notes || '').toLowerCase();
+    const modeStr = String(exp.paymentMode || '').toLowerCase();
+    const amtStr = String(exp.amount || '');
+    const searchLower = searchTerm.toLowerCase();
+
+    const matchesSearch =
+      !searchTerm ||
+      nameStr.includes(searchLower) ||
+      catStr.includes(searchLower) ||
+      notesStr.includes(searchLower) ||
+      modeStr.includes(searchLower) ||
+      amtStr.includes(searchLower);
+
+    if (!matchesSearch) return false;
+
+    // Month filter
+    if (selectedMonth) {
+      const expDateNorm = normalizeDate(exp.date);
+      if (!expDateNorm || !expDateNorm.startsWith(selectedMonth)) return false;
+    }
+
+    // Date range filter
+    if (fromDate || toDate) {
+      const expDateNorm = normalizeDate(exp.date);
+      if (!expDateNorm) return false;
+      if (fromDate && expDateNorm < fromDate) return false;
+      if (toDate && expDateNorm > toDate) return false;
+    }
+
+    // Category filter
+    if (categoryFilter !== 'ALL') {
+      if ((exp.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
+    }
+
+    // Payment Mode filter
+    if (paymentModeFilter !== 'ALL') {
+      if ((exp.paymentMode || '').toUpperCase() !== paymentModeFilter.toUpperCase()) return false;
+    }
+
+    return true;
+  });
+
+  const totalFilteredAmount = filteredExpenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
+  const totalAllAmount = expenses.reduce((sum, exp) => sum + (exp.amount || 0), 0);
 
   // Pagination math
-  const totalPages = Math.ceil(expenses.length / itemsPerPage) || 1;
+  const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage) || 1;
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, expenses.length);
-  const currentExpenses = expenses.slice(startIndex, endIndex);
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredExpenses.length);
+  const currentExpenses = filteredExpenses.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(Math.max(1, totalPages));
+    }
+  }, [totalPages, currentPage]);
+
+  const handleClearMonth = () => {
+    setSelectedMonth('');
+    setCurrentPage(1);
+  };
+
+  const handleClearDates = () => {
+    setFromDate('');
+    setToDate('');
+    setCurrentPage(1);
+  };
+
+  const handleClearAllFilters = () => {
+    setSearchTerm('');
+    setSelectedMonth('');
+    setFromDate('');
+    setToDate('');
+    setCategoryFilter('ALL');
+    setPaymentModeFilter('ALL');
+    setCurrentPage(1);
+  };
+
+  const isAnyFilterActive = Boolean(searchTerm || selectedMonth || fromDate || toDate || categoryFilter !== 'ALL' || paymentModeFilter !== 'ALL');
 
   return (
     <div className="premium-dashboard">
@@ -153,9 +270,154 @@ const ExpensesPage = () => {
             </button>
           </div>
 
-          <div className="expenses-summary-card">
-            <h3>Total Expenses Tracked</h3>
-            <p className="total-amount">₹{totalExpenses.toLocaleString()}</p>
+          <div className="expenses-stats-grid">
+            <div className="expenses-summary-card">
+              <span className="exp-stat-label">TOTAL FILTERED EXPENSES</span>
+              <p className="total-amount">₹{totalFilteredAmount.toLocaleString()}</p>
+              <span className="exp-stat-sub">
+                {isAnyFilterActive ? `Filtered from ₹${totalAllAmount.toLocaleString()} total` : 'All recorded expenses'}
+              </span>
+            </div>
+
+            <div className="expenses-summary-card">
+              <span className="exp-stat-label">RECORDED ENTRIES</span>
+              <p className="total-amount" style={{ color: '#0f172a' }}>{filteredExpenses.length} <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 600 }}>Records</span></p>
+              <span className="exp-stat-sub">
+                {isAnyFilterActive ? `${filteredExpenses.length} of ${expenses.length} expenses` : 'Total expenses logged'}
+              </span>
+            </div>
+          </div>
+
+          {/* Filter & Search Toolbar */}
+          <div className="expenses-toolbar-card">
+            <div className="exp-toolbar-row">
+              <div className="exp-search-box">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search expense name, category, notes, mode, amount..."
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                />
+              </div>
+
+              <select
+                className="exp-filter-select"
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="ALL">All Categories</option>
+                {allCategories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+
+              <select
+                className="exp-filter-select"
+                value={paymentModeFilter}
+                onChange={(e) => {
+                  setPaymentModeFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="ALL">All Payment Modes</option>
+                <option value="CASH">CASH</option>
+                <option value="UPI">UPI</option>
+                <option value="CARD">CARD</option>
+                <option value="BANK TRANSFER">BANK TRANSFER</option>
+              </select>
+            </div>
+
+            <div className="exp-toolbar-row">
+              {/* Month Picker */}
+              <div className="exp-month-filter">
+                <label className="exp-filter-label">Month:</label>
+                <input
+                  type="month"
+                  className="exp-month-input"
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    setSelectedMonth(e.target.value);
+                    setFromDate('');
+                    setToDate('');
+                    setCurrentPage(1);
+                  }}
+                  title="Filter by Month"
+                />
+                {selectedMonth && (
+                  <button
+                    type="button"
+                    className="btn-clear-date"
+                    onClick={handleClearMonth}
+                    title="Clear Month Filter"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+
+              {/* Date Range Picker */}
+              <div className="exp-date-filters">
+                <div className="exp-date-input-group">
+                  <label className="exp-filter-label">From:</label>
+                  <input
+                    type="date"
+                    className="exp-date-input"
+                    value={fromDate}
+                    onChange={(e) => {
+                      setFromDate(e.target.value);
+                      setSelectedMonth('');
+                      setCurrentPage(1);
+                    }}
+                    title="From Date"
+                  />
+                </div>
+                <div className="exp-date-input-group">
+                  <label className="exp-filter-label">To:</label>
+                  <input
+                    type="date"
+                    className="exp-date-input"
+                    value={toDate}
+                    onChange={(e) => {
+                      setToDate(e.target.value);
+                      setSelectedMonth('');
+                      setCurrentPage(1);
+                    }}
+                    title="To Date"
+                  />
+                </div>
+                {(fromDate || toDate) && (
+                  <button
+                    type="button"
+                    className="btn-clear-date"
+                    onClick={handleClearDates}
+                    title="Clear Date Filter"
+                  >
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
+
+              {isAnyFilterActive && (
+                <button
+                  type="button"
+                  className="btn-clear-all-filters"
+                  onClick={handleClearAllFilters}
+                  title="Reset all filters"
+                >
+                  ✕ Reset All
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="expenses-table-container">
@@ -173,9 +435,11 @@ const ExpensesPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {expenses.length === 0 ? (
+                  {filteredExpenses.length === 0 ? (
                     <tr>
-                      <td colSpan={isSuperAdmin ? "7" : "6"} className="empty-state">No expenses recorded yet.</td>
+                      <td colSpan={isSuperAdmin ? "7" : "6"} className="empty-state">
+                        {isAnyFilterActive ? 'No expenses match the selected filters.' : 'No expenses recorded yet.'}
+                      </td>
                     </tr>
                   ) : (
                     currentExpenses.map(exp => (
@@ -201,10 +465,10 @@ const ExpensesPage = () => {
             </div>
 
             {/* Pagination Controls */}
-            {!loading && expenses.length > 0 && (
+            {!loading && filteredExpenses.length > 0 && (
               <div className="expenses-pagination">
                 <div className="pagination-info">
-                  Showing <span>{startIndex + 1}</span> to <span>{endIndex}</span> of <span>{expenses.length}</span> expenses
+                  Showing <span>{startIndex + 1}</span> to <span>{endIndex}</span> of <span>{filteredExpenses.length}</span> expenses
                 </div>
                 <div className="pagination-controls">
                   <div className="rows-per-page">
