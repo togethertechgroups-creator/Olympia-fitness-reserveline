@@ -606,9 +606,7 @@ const ManageClientsPage = () => {
     const initialPrice = getTariffPrice(initialPlan) || parseFloat(client.amount) || 0;
     const initialDuration = getTariffDuration(initialPlan);
 
-    const sDate = new Date(startDate);
-    sDate.setDate(sDate.getDate() + parseInt(initialDuration, 10));
-    const computedEndDate = sDate.toISOString().split('T')[0];
+    const computedEndDate = calculatePlanExpiryDate(startDate, initialPlan, initialDuration);
 
     setRenewModal({
       isOpen: true,
@@ -630,9 +628,7 @@ const ManageClientsPage = () => {
     const duration = getTariffDuration(newPlan);
     const price = getTariffPrice(newPlan);
     const startStr = renewModal.startDate || new Date().toISOString().split('T')[0];
-    const sDate = new Date(startStr);
-    sDate.setDate(sDate.getDate() + parseInt(duration, 10));
-    const endDateStr = sDate.toISOString().split('T')[0];
+    const endDateStr = calculatePlanExpiryDate(startStr, newPlan, duration);
 
     const disc = parseFloat(renewModal.discount_amount) || 0;
     const net = Math.max(0, price - disc);
@@ -651,9 +647,7 @@ const ManageClientsPage = () => {
     let endDateStr = renewModal.endDate;
     if (renewModal.plan) {
       const duration = getTariffDuration(renewModal.plan);
-      const sDate = new Date(startDateStr);
-      sDate.setDate(sDate.getDate() + parseInt(duration, 10));
-      endDateStr = sDate.toISOString().split('T')[0];
+      endDateStr = calculatePlanExpiryDate(startDateStr, renewModal.plan, duration);
     }
     setRenewModal(prev => ({
       ...prev,
