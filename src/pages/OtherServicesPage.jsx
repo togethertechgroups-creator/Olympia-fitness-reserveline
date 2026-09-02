@@ -19,11 +19,23 @@ const OtherServicesPage = () => {
   // Section Tabs: 'member' | 'walkin' | 'all'
   const [activeSection, setActiveSection] = useState('member');
 
+  const getInitialMonthDates = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const lastDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+    return { firstDay, lastDay };
+  };
+
+  const initialDates = getInitialMonthDates();
+
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(initialDates.firstDay);
+  const [toDate, setToDate] = useState(initialDates.lastDay);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);

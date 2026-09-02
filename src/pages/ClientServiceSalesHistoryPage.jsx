@@ -10,7 +10,19 @@ const ClientServiceSalesHistoryPage = () => {
   const [sales, setSales] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const getInitialMonthDates = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const lastDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+    return { firstDay, lastDay };
+  };
+
+  const initialDates = getInitialMonthDates();
+  const [fromDate, setFromDate] = useState(initialDates.firstDay);
+  const [toDate, setToDate] = useState(initialDates.lastDay);
   const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -130,12 +142,21 @@ const ClientServiceSalesHistoryPage = () => {
     });
   };
 
-  const filteredSales = sales.filter(s =>
-    (s.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.clientCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.billNo || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredSales = sales.filter(s => {
+    const matchesSearch =
+      (s.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.clientCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (s.billNo || '').toLowerCase().includes(searchTerm.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    const saleDateStr = (s.sale_date || s.created_at || '').split('T')[0];
+    if (fromDate && saleDateStr && saleDateStr < fromDate) return false;
+    if (toDate && saleDateStr && saleDateStr > toDate) return false;
+
+    return true;
+  });
 
   return (
     <div className="premium-dashboard">
@@ -156,13 +177,42 @@ const ClientServiceSalesHistoryPage = () => {
             <h1 style={{ fontSize: '1.8rem', fontWeight: '900', color: '#1e1b4b', margin: '0 0 0.3rem 0' }}>Client Service Sales History</h1>
             <p style={{ color: '#64748b', margin: 0, fontSize: '0.9rem' }}>Full record of all individual service tariffs sold to clients across the gym.</p>
           </div>
-          <input
-            type="text"
-            placeholder="Search by client, service, bill no..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', width: '280px', fontWeight: '700' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>From:</label>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', fontSize: '0.85rem' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>To:</label>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', fontSize: '0.85rem' }}
+              />
+            </div>
+            {(fromDate || toDate) && (
+              <button
+                type="button"
+                onClick={() => { setFromDate(''); setToDate(''); }}
+                style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1', padding: '0.5rem 0.75rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer' }}
+              >
+                ✕ Clear
+              </button>
+            )}
+            <input
+              type="text"
+              placeholder="Search by client, service, bill no..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ padding: '0.65rem 1.25rem', borderRadius: '10px', border: '1px solid #cbd5e1', width: '240px', fontWeight: '700' }}
+            />
+          </div>
         </div>
 
         {/* Sales Table */}

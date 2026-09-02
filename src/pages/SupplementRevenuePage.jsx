@@ -11,8 +11,11 @@ const SupplementRevenuePage = () => {
   // Date Presets logic
   const getInitialDates = () => {
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().substring(0, 10);
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().substring(0, 10);
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const lastDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
     return { firstDay, lastDay };
   };
 
@@ -47,19 +50,27 @@ const SupplementRevenuePage = () => {
   const handlePresetChange = (newPreset) => {
     setPreset(newPreset);
     const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+
     if (newPreset === 'THIS_MONTH') {
-      const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().substring(0, 10);
-      const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().substring(0, 10);
+      const first = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDayNum = new Date(year, month + 1, 0).getDate();
+      const last = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
       setStartDate(first);
       setEndDate(last);
     } else if (newPreset === 'LAST_MONTH') {
-      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().substring(0, 10);
-      const last = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().substring(0, 10);
+      const prevMonthDate = new Date(year, month - 1, 1);
+      const lmYear = prevMonthDate.getFullYear();
+      const lmMonth = prevMonthDate.getMonth();
+      const first = `${lmYear}-${String(lmMonth + 1).padStart(2, '0')}-01`;
+      const lmLastDayNum = new Date(lmYear, lmMonth + 1, 0).getDate();
+      const last = `${lmYear}-${String(lmMonth + 1).padStart(2, '0')}-${String(lmLastDayNum).padStart(2, '0')}`;
       setStartDate(first);
       setEndDate(last);
     } else if (newPreset === 'THIS_YEAR') {
-      const first = `${now.getFullYear()}-01-01`;
-      const last = `${now.getFullYear()}-12-31`;
+      const first = `${year}-01-01`;
+      const last = `${year}-12-31`;
       setStartDate(first);
       setEndDate(last);
     }

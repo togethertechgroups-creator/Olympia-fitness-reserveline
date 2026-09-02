@@ -36,9 +36,16 @@ const ExpensesPage = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
 
+  const getCurrentMonthStr = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  };
+
   // Filters & Search State
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
