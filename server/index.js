@@ -4409,9 +4409,13 @@ app.get('/api/stats/pt-summary', async (req, res) => {
       };
     }));
 
+    const activePtRow = await db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE LOWER(COALESCE(status, '')) = 'active'").get();
+    const activePtCount = activePtRow?.cnt || 0;
+
     res.json({
       currentMonth: currentMonthStr,
       totalPtCommissionPayable,
+      activePtCount,
       trainerRevenueList
     });
   } catch (err) {
@@ -5339,16 +5343,17 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const endObj = parseAnyDate(endDate) || new Date();
     endObj.setHours(23, 59, 59, 999);
 
-    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, allExpenses, ptAssignmentsAll, allBillsInRange, inactivePtCountRes] = await Promise.all([
+    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, allExpenses, ptAssignmentsAll, allBillsInRange, inactivePtCountRes, activePtCountRes] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, invoice_id, total_amount, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare('SELECT id, total_amount, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all(),
-      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get()
+      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get(),
+      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE LOWER(COALESCE(status, '')) = 'active'").get()
     ]);
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
@@ -5440,12 +5445,15 @@ app.get('/api/dashboard/stats', async (req, res) => {
     }, 0);
 
     const inactivePtCount = inactivePtCountRes?.cnt || 0;
+    const activePtCount = activePtCountRes?.cnt || 0;
 
     res.json({
       rangeRevenue,
       rangeExpenses,
       rangeDiscount,
-      inactivePT: inactivePtCount
+      inactivePT: inactivePtCount,
+      activePT: activePtCount,
+      activePtCount
     });
   } catch (err) {
     console.error('Error in /api/dashboard/stats:', err);
@@ -5477,19 +5485,21 @@ app.get('/api/stats', async (req, res) => {
       allExpenses,
       clientsList,
       inactivePtCountRes,
+      activePtCountRes,
       generalAdvanceCountRes,
       ptAdvanceCountRes,
       allBillsStats
     ] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, invoice_id, total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare('SELECT id, total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare('SELECT id, status, expiryDate, gender, ptCategory, ptToDate, admissionDate, amount FROM clients').all(),
       db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get(),
+      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE LOWER(COALESCE(status, '')) = 'active'").get(),
       db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get(),
       db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get(),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all()
@@ -5647,6 +5657,7 @@ app.get('/api/stats', async (req, res) => {
     });
 
     const inactivePtCount = inactivePtCountRes?.cnt || 0;
+    const activePtCount = activePtCountRes?.cnt || 0;
 
     const monthlyTxnsCount = (allTxns || []).filter(t => {
       const d = parseAnyDate(t.date || t.timestamp);
@@ -5710,6 +5721,8 @@ app.get('/api/stats', async (req, res) => {
       inactiveFemaleClients: inactiveFemaleCount,
       expiredClients: expiredCount,
       inactivePt: inactivePtCount,
+      activePt: activePtCount,
+      activePtCount: activePtCount,
       expiredPlans: expiredCount,
       expiredPTPlans: expiredPTCount,
       generalAdvanceBookings: generalAdvanceCount,
