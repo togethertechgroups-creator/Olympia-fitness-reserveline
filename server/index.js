@@ -5441,14 +5441,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
   try {
     const { month } = req.query;
-    const targetMonth = month || new Date().toLocaleDateString('en-GB', { month: 'short' });
     const monthMapping = {
       "Jan": "01", "Feb": "02", "Mar": "03", "Apr": "04",
       "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
-      "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12"
+      "Sep": "09", "Sept": "09", "Oct": "10", "Nov": "11", "Dec": "12"
     };
-    const mm = monthMapping[targetMonth] || targetMonth;
-    const currentYear = new Date().getFullYear();
+    const now = new Date();
+    const mm = month ? (monthMapping[month] || month) : String(now.getMonth() + 1).padStart(2, '0');
+    const currentYear = now.getFullYear();
 
     const [
       allTxns,
