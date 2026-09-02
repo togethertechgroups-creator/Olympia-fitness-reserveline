@@ -5481,6 +5481,7 @@ app.get('/api/stats', async (req, res) => {
     ]);
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
+    const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
     const unloggedOtherServiceSalesAll = (otherServiceSalesAll || []).filter(s => !s.invoice_id || !txnBillIds.has(s.invoice_id));
 
     const totalGenBookingsRevenue = (genBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price || 0) - (b.discount_amount || 0)), 0);
