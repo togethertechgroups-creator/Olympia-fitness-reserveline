@@ -1287,8 +1287,8 @@ const backfillPtAssignmentTransactions = async () => {
     const ptAssignments = await db.prepare(`
       SELECT a.*, c.name as clientName, COALESCE(c.clientId, c.id, a.client_id) as clientCode, c.dueAmount as clientDue, p.name as packageName
       FROM pt_assignments a
-      LEFT JOIN clients c ON CAST(a.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(a.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR TRIM(CAST(a.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR TRIM(CAST(a.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
-      LEFT JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      LEFT JOIN clients c ON (a.client_id = c.id OR a.client_id = c.clientId)
+      LEFT JOIN pt_packages p ON a.pt_package_id = p.id
       WHERE LOWER(COALESCE(a.status, '')) != 'cancelled'
     `).all();
 
@@ -1365,12 +1365,7 @@ const autoActivateAdvanceBookings = async () => {
                c.clientId as client_code,
                c."expiryDate" as "currentExpiry"
         FROM general_package_bookings b
-        LEFT JOIN clients c ON (
-          CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR
-          CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR
-          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR
-          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
-        )
+        LEFT JOIN clients c ON (b.client_id = c.id OR b.client_id = c.clientId)
         WHERE b.status = 'Scheduled'
       `).all();
 
@@ -1424,12 +1419,7 @@ const autoActivateAdvanceBookings = async () => {
                c.id as client_uuid,
                c.clientId as client_code
         FROM pt_advance_bookings b
-        LEFT JOIN clients c ON (
-          CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR
-          CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT) OR
-          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.id AS TEXT)) OR
-          TRIM(CAST(b.client_id AS TEXT)) = TRIM(CAST(c.clientId AS TEXT))
-        )
+        LEFT JOIN clients c ON (b.client_id = c.id OR b.client_id = c.clientId)
         WHERE b.status = 'Scheduled'
       `).all();
 
@@ -1616,12 +1606,13 @@ const COMMISSION_MATRIX = {
 };
 
 const getTrainerMonthlyPtBaseRevenue = async (trainerId, yearMonthStr) => {
+  const monthPattern = `${yearMonthStr}%`;
   const row = await db.prepare(`
       SELECT SUM((a.package_price_snapshot - COALESCE(a.discount_amount, 0)) / a.total_classes_snapshot) as "baseRevenue"
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
-    `).get(trainerId, yearMonthStr);
+      WHERE l.trainer_id = ? AND l.class_date LIKE ?
+    `).get(trainerId, monthPattern);
   return row && row.baseRevenue ? row.baseRevenue : 0;
 };
 
@@ -1639,19 +1630,20 @@ const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
   return (packagePrice * commRate) / totalClasses;
 };
 
-const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
-  const gymTotalRevenue = await getMonthlyGymTotalRevenue(yearMonthStr);
+const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr, precomputedGymRevenue = null) => {
+  const gymTotalRevenue = precomputedGymRevenue !== null ? precomputedGymRevenue : await getMonthlyGymTotalRevenue(yearMonthStr);
   const currentSlab = getSlabForRevenue(gymTotalRevenue);
 
   const trainer = await db.prepare('SELECT grade, custom_commission_percent FROM trainers WHERE id = ?').get(trainerId);
   if (!trainer) return currentSlab;
 
+  const monthPattern = `${yearMonthStr}%`;
   const logs = await db.prepare(`
-      SELECT l.id, l.class_date, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot
+      SELECT l.id, l.class_date, l.per_class_rate_snapshot, l.slab_applied, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      WHERE l.trainer_id = ?
-    `).all(trainerId);
+      WHERE l.trainer_id = ? AND l.class_date LIKE ?
+    `).all(trainerId, monthPattern);
 
   const updateStmt = await db.prepare(`
       UPDATE pt_class_log
@@ -1660,14 +1652,11 @@ const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
     `);
 
   for (const log of (logs || [])) {
-    const d = parseAnyDate(log.class_date);
-    if (!d) continue;
-    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    if (ym !== yearMonthStr) continue;
-
     const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
     const rate = calculatePerClassRate(netPackagePrice, log.total_classes_snapshot, trainer, currentSlab);
-    await updateStmt.run(rate, currentSlab, log.id);
+    if (log.per_class_rate_snapshot !== rate || log.slab_applied !== currentSlab) {
+      await updateStmt.run(rate, currentSlab, log.id);
+    }
   }
 
   return currentSlab;
@@ -2960,7 +2949,7 @@ app.get('/api/general-bookings', async (req, res) => {
              COALESCE(b.payment_status, 'Paid') as payment_status,
              COALESCE(b.discount_amount, 0) as discount_amount
       FROM general_package_bookings b
-      LEFT JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
+      LEFT JOIN clients c ON (b.client_id = c.id OR b.client_id = c.clientId)
       ORDER BY b.created_at DESC
     `).all();
     res.json(bookings);
@@ -3336,9 +3325,9 @@ app.get('/api/pt-advance-bookings', async (req, res) => {
              COALESCE(b.payment_status, 'Paid') as payment_status,
              COALESCE(b.discount_amount, 0) as discount_amount
       FROM pt_advance_bookings b
-      JOIN clients c ON (CAST(b.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.client_id AS TEXT) = CAST(c.clientId AS TEXT))
-      JOIN trainers t ON (CAST(b.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(b.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
-      JOIN pt_packages p ON CAST(b.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      JOIN clients c ON (b.client_id = c.id OR b.client_id = c.clientId)
+      JOIN trainers t ON (b.trainer_id = t.id OR b.trainer_id = t.trainerId)
+      JOIN pt_packages p ON b.pt_package_id = p.id
       ORDER BY b.created_at DESC
     `).all();
     res.json(bookings);
@@ -3861,7 +3850,8 @@ app.delete('/api/pt-class-log/:id', async (req, res) => {
 app.get('/api/pt-class-log/history', async (req, res) => {
   try {
     const { month, client_id, trainer_id, pt_assignment_id } = req.query;
-    const targetMonth = month || new Date().toISOString().substring(0, 7);
+    const targetMonth = month && month !== 'undefined' ? month : new Date().toISOString().substring(0, 7);
+    const monthPattern = `${targetMonth}%`;
 
     let sql = `
       SELECT l.*,
@@ -3873,25 +3863,25 @@ app.get('/api/pt-class-log/history', async (req, res) => {
              at.name as assignedTrainerName, at.grade as assignedTrainerGrade
       FROM pt_class_log l
       LEFT JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      LEFT JOIN clients c ON (CAST(l.client_id AS TEXT) = CAST(c.id AS TEXT) OR CAST(l.client_id AS TEXT) = CAST(c.clientId AS TEXT))
-      LEFT JOIN trainers t ON (CAST(l.trainer_id AS TEXT) = CAST(t.id AS TEXT) OR CAST(l.trainer_id AS TEXT) = CAST(t.trainerId AS TEXT))
-      LEFT JOIN trainers at ON (CAST(a.trainer_id AS TEXT) = CAST(at.id AS TEXT) OR CAST(a.trainer_id AS TEXT) = CAST(at.trainerId AS TEXT))
-      LEFT JOIN pt_packages p ON CAST(a.pt_package_id AS TEXT) = CAST(p.id AS TEXT)
+      LEFT JOIN clients c ON (l.client_id = c.id OR l.client_id = c.clientId)
+      LEFT JOIN trainers t ON (l.trainer_id = t.id OR l.trainer_id = t.trainerId)
+      LEFT JOIN trainers at ON (a.trainer_id = at.id OR a.trainer_id = at.trainerId)
+      LEFT JOIN pt_packages p ON a.pt_package_id = p.id
       WHERE 1=1
     `;
 
     const params = [];
 
     if (month && month !== 'undefined') {
-      sql += " AND strftime('%Y-%m', l.class_date) = ?";
-      params.push(targetMonth);
+      sql += " AND l.class_date LIKE ?";
+      params.push(monthPattern);
     }
     if (client_id && client_id !== 'undefined') {
-      sql += " AND (CAST(l.client_id AS TEXT) = CAST(? AS TEXT) OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT) OR CAST(c.id AS TEXT) = CAST(? AS TEXT))";
+      sql += " AND (l.client_id = ? OR c.clientId = ? OR c.id = ?)";
       params.push(client_id, client_id, client_id);
     }
     if (trainer_id && trainer_id !== 'undefined') {
-      sql += " AND (CAST(l.trainer_id AS TEXT) = CAST(? AS TEXT) OR CAST(a.trainer_id AS TEXT) = CAST(? AS TEXT) OR CAST(t.trainerId AS TEXT) = CAST(? AS TEXT) OR CAST(at.trainerId AS TEXT) = CAST(? AS TEXT))";
+      sql += " AND (l.trainer_id = ? OR a.trainer_id = ? OR t.trainerId = ? OR at.trainerId = ?)";
       params.push(trainer_id, trainer_id, trainer_id, trainer_id);
     }
     if (pt_assignment_id && pt_assignment_id !== 'undefined') {
@@ -3910,58 +3900,34 @@ app.get('/api/pt-class-log/history', async (req, res) => {
 
 async function getMonthlyGymTotalRevenue(targetMonth) {
   let total = 0;
+  const monthPattern = `${targetMonth}%`;
+
   try {
-    const txns = await db.prepare('SELECT amount, date, timestamp FROM transactions').all();
-    txns.forEach(t => {
-      const d = parseAnyDate(t.date || t.timestamp);
-      if (d) {
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        if (ym === targetMonth) total += (parseFloat(t.amount) || 0);
-      }
-    });
+    const txns = await db.prepare('SELECT amount FROM transactions WHERE date LIKE ? OR timestamp LIKE ?').all(monthPattern, monthPattern);
+    txns.forEach(t => { total += (parseFloat(t.amount) || 0); });
   } catch (e) { }
 
   try {
-    const rows = await db.prepare('SELECT price_snapshot, sale_date, created_at FROM other_service_sales').all();
-    rows.forEach(s => {
-      const d = parseAnyDate(s.sale_date || s.created_at);
-      if (d) {
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        if (ym === targetMonth) total += (parseFloat(s.price_snapshot) || 0);
-      }
-    });
+    const rows = await db.prepare('SELECT price_snapshot FROM other_service_sales WHERE sale_date LIKE ? OR created_at LIKE ?').all(monthPattern, monthPattern);
+    rows.forEach(s => { total += (parseFloat(s.price_snapshot) || 0); });
   } catch (e) { }
 
   try {
-    const rows = await db.prepare('SELECT total_amount, sale_date, created_at FROM supplement_sales').all();
-    rows.forEach(s => {
-      const d = parseAnyDate(s.sale_date || s.created_at);
-      if (d) {
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        if (ym === targetMonth) total += (parseFloat(s.total_amount) || 0);
-      }
-    });
+    const rows = await db.prepare('SELECT total_amount FROM supplement_sales WHERE sale_date LIKE ? OR created_at LIKE ?').all(monthPattern, monthPattern);
+    rows.forEach(s => { total += (parseFloat(s.total_amount) || 0); });
   } catch (e) { }
 
   try {
-    const genBookings = await db.prepare("SELECT price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all();
+    const genBookings = await db.prepare("SELECT price, discount_amount FROM general_package_bookings WHERE status != 'Cancelled' AND (booking_start_date LIKE ? OR created_at LIKE ?)").all(monthPattern, monthPattern);
     genBookings.forEach(b => {
-      const d = parseAnyDate(b.created_at || b.booking_start_date);
-      if (d) {
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        if (ym === targetMonth) total += Math.max(0, parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0));
-      }
+      total += Math.max(0, parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0));
     });
   } catch (e) { }
 
   try {
-    const ptBookings = await db.prepare("SELECT price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all();
+    const ptBookings = await db.prepare("SELECT price_snapshot, discount_amount FROM pt_advance_bookings WHERE status != 'Cancelled' AND (booking_start_date LIKE ? OR created_at LIKE ?)").all(monthPattern, monthPattern);
     ptBookings.forEach(b => {
-      const d = parseAnyDate(b.created_at || b.booking_start_date);
-      if (d) {
-        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-        if (ym === targetMonth) total += Math.max(0, parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0));
-      }
+      total += Math.max(0, parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0));
     });
   } catch (e) { }
 
@@ -3973,6 +3939,7 @@ app.get('/api/trainer-salary-report', async (req, res) => {
   try {
     const { month } = req.query;
     const targetMonth = month || new Date().toISOString().substring(0, 7);
+    const monthPattern = `${targetMonth}%`;
 
     const isLockedRow = await db.prepare('SELECT * FROM payroll_locks WHERE month = ?').get(targetMonth);
     const isLocked = !!isLockedRow;
@@ -3980,10 +3947,10 @@ app.get('/api/trainer-salary-report', async (req, res) => {
     const gymTotalRevenue = await getMonthlyGymTotalRevenue(targetMonth);
     const isRevenueBelow3Lakhs = gymTotalRevenue < 300000;
 
-    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE strftime('%Y-%m', class_date) = ?) ORDER BY name ASC").all(targetMonth);
+    const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active' OR id IN (SELECT DISTINCT trainer_id FROM pt_class_log WHERE class_date LIKE ?) ORDER BY name ASC").all(monthPattern);
 
     const reportData = await Promise.all(trainers.map(async (tr) => {
-      await syncTrainerMonthlyClassLogs(tr.id, targetMonth);
+      await syncTrainerMonthlyClassLogs(tr.id, targetMonth, gymTotalRevenue);
       const baseRevenue = await getTrainerMonthlyPtBaseRevenue(tr.id, targetMonth);
       const activeSlab = getSlabForRevenue(gymTotalRevenue);
 
@@ -3997,13 +3964,13 @@ app.get('/api/trainer-salary-report', async (req, res) => {
                t.name as conductingTrainerName, t.grade as conductingTrainerGrade
         FROM pt_class_log l
         LEFT JOIN pt_assignments a ON l.pt_assignment_id = a.id
-        LEFT JOIN clients c ON l.client_id = c.id
-        LEFT JOIN trainers t ON l.trainer_id = t.id
-        LEFT JOIN trainers at ON a.trainer_id = at.id
+        LEFT JOIN clients c ON (l.client_id = c.id OR l.client_id = c.clientId)
+        LEFT JOIN trainers t ON (l.trainer_id = t.id OR l.trainer_id = t.trainerId)
+        LEFT JOIN trainers at ON (a.trainer_id = at.id OR a.trainer_id = at.trainerId)
         LEFT JOIN pt_packages p ON a.pt_package_id = p.id
-        WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
+        WHERE l.trainer_id = ? AND l.class_date LIKE ?
         ORDER BY l.class_date DESC
-      `).all(tr.id, targetMonth);
+      `).all(tr.id, monthPattern);
 
       const totalSalary = logs.reduce((sum, item) => sum + (item.per_class_rate_snapshot || 0), 0);
 

@@ -2,6 +2,7 @@ import React, { useState, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Lazy-loaded route components for high-speed initial bundle delivery
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -115,8 +116,9 @@ function App() {
         )}
 
         <div className="app-main-content">
-          <Suspense fallback={<PageLoadingFallback />}>
-            <Routes>
+          <ErrorBoundary>
+            <Suspense fallback={<PageLoadingFallback />}>
+              <Routes>
               <Route
                 path="/login"
                 element={auth.isLoggedIn ? <Navigate to="/" replace /> : <LoginPage onLogin={handleLogin} />}
@@ -355,8 +357,9 @@ function App() {
                   : <Navigate to="/login" replace />
               }
             />
-          </Routes>
-          </Suspense>
+            </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </div>
 
         {/* Global Floating Powered By Credit Badge */}

@@ -10,19 +10,9 @@ const ClientServiceSalesHistoryPage = () => {
   const [sales, setSales] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const getInitialMonthDates = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-    const lastDayNum = new Date(year, month + 1, 0).getDate();
-    const lastDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
-    return { firstDay, lastDay };
-  };
-
-  const initialDates = getInitialMonthDates();
-  const [fromDate, setFromDate] = useState(initialDates.firstDay);
-  const [toDate, setToDate] = useState(initialDates.lastDay);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -142,16 +132,19 @@ const ClientServiceSalesHistoryPage = () => {
     });
   };
 
-  const filteredSales = sales.filter(s => {
-    const matchesSearch =
-      (s.clientName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.clientCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.serviceName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.billNo || '').toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredSales = (Array.isArray(sales) ? sales : []).filter(s => {
+    if (!s) return false;
+    const q = String(searchTerm || '').trim().toLowerCase();
+    const clientName = String(s.clientName || '').toLowerCase();
+    const clientCode = String(s.clientCode || s.client_id || '').toLowerCase();
+    const serviceName = String(s.serviceName || '').toLowerCase();
+    const billNo = String(s.billNo || '').toLowerCase();
 
+    const matchesSearch = !q || clientName.includes(q) || clientCode.includes(q) || serviceName.includes(q) || billNo.includes(q);
     if (!matchesSearch) return false;
 
-    const saleDateStr = (s.sale_date || s.created_at || '').split('T')[0];
+    const rawDate = s.sale_date || s.created_at || '';
+    const saleDateStr = String(rawDate).includes('T') ? String(rawDate).split('T')[0] : String(rawDate).split(' ')[0];
     if (fromDate && saleDateStr && saleDateStr < fromDate) return false;
     if (toDate && saleDateStr && saleDateStr > toDate) return false;
 
@@ -248,10 +241,10 @@ const ClientServiceSalesHistoryPage = () => {
                       <td style={{ fontWeight: '600', color: '#475569' }}>{sale.sale_date ? formatDateDDMMYYYY(sale.sale_date) : 'N/A'}</td>
                       <td style={{ fontWeight: '600', color: '#475569' }}>{sale.expiryDate ? formatDateDDMMYYYY(sale.expiryDate) : 'N/A'}</td>
                       <td style={{ fontWeight: '900', color: '#059669' }}>
-                        <div>₹{(sale.price_snapshot || 0).toLocaleString()}</div>
+                        <div>₹{(Number(sale.price_snapshot) || 0).toLocaleString()}</div>
                         {parseFloat(sale.discount_amount || 0) > 0 && (
                           <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700' }}>
-                            (₹{(Number(sale.original_price || sale.price_snapshot || 0) + Number(sale.discount_amount || 0)).toLocaleString()} - ₹{Number(sale.discount_amount).toLocaleString()} disc)
+                            (₹{((Number(sale.original_price || sale.price_snapshot) || 0) + (Number(sale.discount_amount) || 0)).toLocaleString()} - ₹{(Number(sale.discount_amount) || 0).toLocaleString()} disc)
                           </div>
                         )}
                       </td>
