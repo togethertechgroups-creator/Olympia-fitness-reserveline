@@ -5324,48 +5324,68 @@ app.get('/api/dashboard/stats', async (req, res) => {
     ]);
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
+    const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
 
     // 1. Transactions collection in range
     let rangeRevenue = (allTxns || []).reduce((sum, t) => {
       const d = parseAnyDate(t.date || t.timestamp);
       if (d && d >= startObj && d <= endObj) {
-        return sum + (t.amount || 0);
+        return sum + (parseFloat(t.amount) || 0);
       }
       return sum;
     }, 0);
 
     // 2. Other services sales in range (only if not already in transactions table)
     (otherSales || []).forEach(s => {
-      if (s.invoice_id && txnBillIds.has(s.invoice_id)) return;
+      if ((s.invoice_id && txnBillIds.has(s.invoice_id)) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`other-svc-${s.id}`)))) return;
       const d = parseAnyDate(s.sale_date || s.created_at);
       if (d && d >= startObj && d <= endObj) {
-        rangeRevenue += (s.price_snapshot || 0);
+        rangeRevenue += (parseFloat(s.price_snapshot) || 0);
       }
     });
 
-    // 3. General Package Advance Bookings in range
+    // 3. Supplement sales in range (only if not already in transactions table)
+    (suppSales || []).forEach(s => {
+      if ((s.invoice_id && txnBillIds.has(s.invoice_id)) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d && d >= startObj && d <= endObj) {
+        rangeRevenue += (parseFloat(s.total_amount) || 0);
+      }
+    });
+
+    // 4. General Package Advance Bookings in range (only if not already in transactions table)
     (genBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(b.invoice_id)) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`gen-adv-${b.id}`)))) return;
       const d = parseAnyDate(b.created_at || b.booking_start_date);
       if (d && d >= startObj && d <= endObj) {
-        const netPaid = Math.max(0, (b.price || 0) - (b.discount_amount || 0));
-        rangeRevenue += netPaid;
+        const grossPrice = parseFloat(b.price) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+          ? parseFloat(b.paid_amount)
+          : Math.max(0, grossPrice - discountVal);
+        rangeRevenue += paidVal;
       }
     });
 
-    // 5. PT Package Advance Bookings in range
+    // 5. PT Package Advance Bookings in range (only if not already in transactions table)
     (ptBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(b.invoice_id)) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`pt-adv-${b.id}`)))) return;
       const d = parseAnyDate(b.created_at || b.booking_start_date);
       if (d && d >= startObj && d <= endObj) {
-        const netPaid = Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0));
-        rangeRevenue += netPaid;
+        const grossPrice = parseFloat(b.price_snapshot) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+          ? parseFloat(b.paid_amount)
+          : Math.max(0, grossPrice - discountVal);
+        rangeRevenue += paidVal;
       }
     });
 
     // 6. PT Package Assignments in range (only if not already in transactions table)
     (ptAssignmentsAll || []).forEach(a => {
-      if (a.invoice_id && txnBillIds.has(a.invoice_id)) return;
+      if ((a.invoice_id && txnBillIds.has(a.invoice_id)) || (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`)))) return;
       const d = parseAnyDate(a.assigned_date || a.created_at);
-      const inRange = !d || (d >= startObj && d <= endObj);
+      const inRange = d && d >= startObj && d <= endObj;
       if (inRange) {
         const netPaid = Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0));
         rangeRevenue += netPaid;
@@ -5509,6 +5529,7 @@ app.get('/api/stats', async (req, res) => {
       .reduce((sum, s) => sum + (s.total_amount || 0), 0);
 
     const monthlyGenBookingsRev = (genBookingsAllStats || [])
+      .filter(b => (!b.invoice_id || !txnBillIds.has(b.invoice_id)) && (!b.id || (!txnIds.has(String(b.id)) && !txnIds.has(`gen-adv-${b.id}`))))
       .filter(b => {
         const d = parseAnyDate(b.created_at || b.booking_start_date);
         if (!d) return false;
@@ -5519,6 +5540,7 @@ app.get('/api/stats', async (req, res) => {
       .reduce((sum, b) => sum + Math.max(0, (b.price || 0) - (b.discount_amount || 0)), 0);
 
     const monthlyPtBookingsRev = (ptBookingsAllStats || [])
+      .filter(b => (!b.invoice_id || !txnBillIds.has(b.invoice_id)) && (!b.id || (!txnIds.has(String(b.id)) && !txnIds.has(`pt-adv-${b.id}`))))
       .filter(b => {
         const d = parseAnyDate(b.created_at || b.booking_start_date);
         if (!d) return false;
@@ -5529,10 +5551,10 @@ app.get('/api/stats', async (req, res) => {
       .reduce((sum, b) => sum + Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0)), 0);
 
     const monthlyPtAssignmentsRev = (ptAssignmentsAllStats || [])
-      .filter(a => !a.invoice_id || !txnBillIds.has(a.invoice_id))
+      .filter(a => (!a.invoice_id || !txnBillIds.has(a.invoice_id)) && (!a.id || (!txnIds.has(String(a.id)) && !txnIds.has(`pt-assign-${a.id}`))))
       .filter(a => {
         const d = parseAnyDate(a.assigned_date || a.created_at);
-        if (!d) return true;
+        if (!d) return false;
         const mStr = String(d.getMonth() + 1).padStart(2, '0');
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
@@ -5547,7 +5569,7 @@ app.get('/api/stats', async (req, res) => {
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
       })
-      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlyPtAssignmentsRev;
+      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlyPtAssignmentsRev + monthlySuppSalesRev;
 
     const monthlyExpensesVal = (allExpenses || [])
       .filter(e => {
