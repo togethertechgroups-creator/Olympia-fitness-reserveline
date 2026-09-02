@@ -104,10 +104,10 @@ const DashboardPage = () => {
     loadData();
   }, [selectedMonth, dateFilterMode, customStartDate, customEndDate]);
 
-  const activeMaleCount = rangeStats?.activeMaleClients !== undefined ? rangeStats.activeMaleClients : (stats?.activeMaleClients || 0);
-  const activeFemaleCount = rangeStats?.activeFemaleClients !== undefined ? rangeStats.activeFemaleClients : (stats?.activeFemaleClients || 0);
-  const inactiveMaleCount = rangeStats?.inactiveMaleClients !== undefined ? rangeStats.inactiveMaleClients : (stats?.inactiveMaleClients || 0);
-  const inactiveFemaleCount = rangeStats?.inactiveFemaleClients !== undefined ? rangeStats.inactiveFemaleClients : (stats?.inactiveFemaleClients || 0);
+  const activeMaleCount = stats?.activeMaleClients || 0;
+  const activeFemaleCount = stats?.activeFemaleClients || 0;
+  const inactiveMaleCount = stats?.inactiveMaleClients || 0;
+  const inactiveFemaleCount = stats?.inactiveFemaleClients || 0;
 
   if (loading) return <div className="dashboard-loading-screen">Loading Management Portal...</div>;
 

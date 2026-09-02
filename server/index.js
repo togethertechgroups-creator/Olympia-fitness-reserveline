@@ -1647,11 +1647,11 @@ const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
   if (!trainer) return currentSlab;
 
   const logs = await db.prepare(`
-      SELECT l.id, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot
+      SELECT l.id, l.class_date, a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot
       FROM pt_class_log l
       JOIN pt_assignments a ON l.pt_assignment_id = a.id
-      WHERE l.trainer_id = ? AND strftime('%Y-%m', l.class_date) = ?
-    `).all(trainerId, yearMonthStr);
+      WHERE l.trainer_id = ?
+    `).all(trainerId);
 
   const updateStmt = await db.prepare(`
       UPDATE pt_class_log
@@ -1660,6 +1660,11 @@ const syncTrainerMonthlyClassLogs = async (trainerId, yearMonthStr) => {
     `);
 
   for (const log of (logs || [])) {
+    const d = parseAnyDate(log.class_date);
+    if (!d) continue;
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (ym !== yearMonthStr) continue;
+
     const netPackagePrice = Math.max(0, parseFloat(log.package_price_snapshot || 0) - parseFloat(log.discount_amount || 0));
     const rate = calculatePerClassRate(netPackagePrice, log.total_classes_snapshot, trainer, currentSlab);
     await updateStmt.run(rate, currentSlab, log.id);
@@ -4379,13 +4384,17 @@ app.get('/api/stats/pt-summary', async (req, res) => {
       await syncTrainerMonthlyClassLogs(tr.id, currentMonthStr);
     }));
 
-    const totalRow = await db.prepare(`
-      SELECT SUM(per_class_rate_snapshot) as "totalPayable"
-      FROM pt_class_log
-      WHERE strftime('%Y-%m', class_date) = ?
-    `).get(currentMonthStr);
-
-    const totalPtCommissionPayable = totalRow && totalRow.totalPayable ? totalRow.totalPayable : 0;
+    const logs = await db.prepare('SELECT per_class_rate_snapshot, class_date FROM pt_class_log').all();
+    let totalPtCommissionPayable = 0;
+    (logs || []).forEach(l => {
+      const d = parseAnyDate(l.class_date);
+      if (d) {
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        if (ym === currentMonthStr) {
+          totalPtCommissionPayable += (parseFloat(l.per_class_rate_snapshot) || 0);
+        }
+      }
+    });
 
     const gymTotalRevenue = await getMonthlyGymTotalRevenue(currentMonthStr);
     const trainerRevenueList = await Promise.all(trainers.map(async tr => {
@@ -5466,41 +5475,23 @@ app.get('/api/stats', async (req, res) => {
       ptBookingsAllStats,
       ptAssignmentsAllStats,
       allExpenses,
-      clientCounts,
+      clientsList,
       inactivePtCountRes,
-      newClientsMonthCountRes,
-      monthlySalesValRes,
       generalAdvanceCountRes,
       ptAdvanceCountRes,
-      monthlyOtherServiceRes,
       allBillsStats
     ] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, invoice_id, total_amount, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare('SELECT id, invoice_id, total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
-      db.prepare(`
-        SELECT 
-          COUNT(CASE WHEN (status IS NULL OR LOWER(status) = 'active') AND (expiryDate IS NULL OR expiryDate >= date('now')) AND LOWER(COALESCE(gender, '')) != 'female' THEN 1 END) as activeMale,
-          COUNT(CASE WHEN (status IS NULL OR LOWER(status) = 'active') AND (expiryDate IS NULL OR expiryDate >= date('now')) AND LOWER(COALESCE(gender, '')) = 'female' THEN 1 END) as activeFemale,
-          COUNT(CASE WHEN (LOWER(COALESCE(status, '')) IN ('inactive', 'expired') OR (expiryDate IS NOT NULL AND expiryDate < date('now'))) AND LOWER(COALESCE(gender, '')) != 'female' THEN 1 END) as inactiveMale,
-          COUNT(CASE WHEN (LOWER(COALESCE(status, '')) IN ('inactive', 'expired') OR (expiryDate IS NOT NULL AND expiryDate < date('now'))) AND LOWER(COALESCE(gender, '')) = 'female' THEN 1 END) as inactiveFemale,
-          COUNT(CASE WHEN expiryDate IS NOT NULL AND expiryDate < date('now') THEN 1 END) as expiredCount,
-          COUNT(CASE WHEN ptCategory IS NOT NULL AND ptCategory != 'None' AND ptToDate IS NOT NULL AND ptToDate < date('now') THEN 1 END) as expiredPtCount
-        FROM clients
-      `).get(),
+      db.prepare('SELECT id, status, expiryDate, gender, ptCategory, ptToDate, admissionDate, amount FROM clients').all(),
       db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get(),
-      db.prepare("SELECT COUNT(*) as cnt FROM clients WHERE admissionDate LIKE ?").get(`%-${mm}-%`),
-      db.prepare("SELECT SUM(amount) as total FROM clients WHERE admissionDate LIKE ?").get(`%-${mm}-%`),
       db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get(),
       db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get(),
-      db.prepare(`
-        SELECT SUM(price_snapshot) as total, COUNT(*) as cnt FROM other_service_sales
-        WHERE strftime('%m', sale_date) = ? AND strftime('%Y', sale_date) = ?
-      `).get(mm, String(currentYear)),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all()
     ]);
 
@@ -5515,8 +5506,19 @@ app.get('/api/stats', async (req, res) => {
 
     const totalRevenueVal = (allTxns || []).reduce((sum, t) => sum + (t.amount || 0), 0) + unloggedOtherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0) + totalGenBookingsRevenue + totalPtBookingsRevenue + totalPtAssignmentsRevenue;
 
-    const monthlyOtherServiceRevenue = monthlyOtherServiceRes ? (monthlyOtherServiceRes.total || 0) : 0;
-    const monthlyOtherServiceSalesCount = monthlyOtherServiceRes ? (monthlyOtherServiceRes.cnt || 0) : 0;
+    let monthlyOtherServiceRevenue = 0;
+    let monthlyOtherServiceSalesCount = 0;
+    (otherServiceSalesAll || []).forEach(s => {
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d) {
+        const mStr = String(d.getMonth() + 1).padStart(2, '0');
+        const yStr = String(d.getFullYear());
+        if (mStr === mm && yStr === String(currentYear)) {
+          monthlyOtherServiceRevenue += (s.price_snapshot || 0);
+          monthlyOtherServiceSalesCount++;
+        }
+      }
+    });
 
     const monthlyUnloggedOtherServiceRevenue = (unloggedOtherServiceSalesAll || [])
       .filter(s => {
@@ -5591,20 +5593,60 @@ app.get('/api/stats', async (req, res) => {
 
     const netProfitVal = monthlyCollectionVal - monthlyExpensesVal;
 
-    const activeMaleCount = clientCounts?.activeMale || 0;
-    const activeFemaleCount = clientCounts?.activeFemale || 0;
-    const activeCount = activeMaleCount + activeFemaleCount;
+    const todayObj = new Date();
+    todayObj.setHours(0, 0, 0, 0);
 
-    const inactiveMaleCount = clientCounts?.inactiveMale || 0;
-    const inactiveFemaleCount = clientCounts?.inactiveFemale || 0;
-    const inactiveCount = inactiveMaleCount + inactiveFemaleCount;
+    let activeCount = 0;
+    let activeMaleCount = 0;
+    let activeFemaleCount = 0;
+    let inactiveCount = 0;
+    let inactiveMaleCount = 0;
+    let inactiveFemaleCount = 0;
+    let expiredCount = 0;
+    let expiredPTCount = 0;
+    let newClientsMonthCount = 0;
+    let monthlySalesVal = 0;
 
-    const expiredCount = clientCounts?.expiredCount || 0;
-    const expiredPTCount = clientCounts?.expiredPtCount || 0;
+    (clientsList || []).forEach(c => {
+      const st = (c.status || '').toLowerCase().trim();
+      const expDate = parseAnyDate(c.expiryDate);
+      if (expDate) expDate.setHours(0, 0, 0, 0);
+
+      const isExplicitInactive = st === 'inactive' || st === 'expired';
+      const isDateExpired = expDate ? (expDate < todayObj) : false;
+
+      const g = (c.gender || '').toLowerCase().trim();
+      const isFemale = g === 'female' || g === 'f';
+
+      if (isExplicitInactive || isDateExpired) {
+        inactiveCount++;
+        expiredCount++;
+        if (isFemale) inactiveFemaleCount++;
+        else inactiveMaleCount++;
+      } else {
+        activeCount++;
+        if (isFemale) activeFemaleCount++;
+        else activeMaleCount++;
+      }
+
+      const ptExpDate = parseAnyDate(c.ptToDate);
+      if (ptExpDate) ptExpDate.setHours(0, 0, 0, 0);
+      if (c.ptCategory && c.ptCategory !== 'None' && ptExpDate && ptExpDate < todayObj) {
+        expiredPTCount++;
+      }
+
+      const admDate = parseAnyDate(c.admissionDate);
+      if (admDate) {
+        const mStr = String(admDate.getMonth() + 1).padStart(2, '0');
+        const yStr = String(admDate.getFullYear());
+        if (mStr === mm && yStr === String(currentYear)) {
+          newClientsMonthCount++;
+          monthlySalesVal += (c.amount || 0);
+        }
+      }
+    });
+
     const inactivePtCount = inactivePtCountRes?.cnt || 0;
-
-    const newClientsMonthCount = newClientsMonthCountRes?.cnt || 0;
-    const monthlySalesVal = monthlySalesValRes?.total || 0;
 
     const monthlyTxnsCount = (allTxns || []).filter(t => {
       const d = parseAnyDate(t.date || t.timestamp);
@@ -7246,19 +7288,27 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
 app.get('/api/supplements/dashboard-summary', async (req, res) => {
   try {
     const now = new Date();
-    const currentMonthPrefix = now.toISOString().substring(0, 7);
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
 
-    const salesRow = await db.prepare(`
-      SELECT 
-        SUM(total_amount) as "monthRevenue",
-        SUM(total_amount - (quantity * cost_price_snapshot)) as "monthProfit"
-      FROM supplement_sales
-      WHERE strftime('%Y-%m', sale_date) = ?
-    `).get(currentMonthPrefix);
+    const sales = await db.prepare('SELECT total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all();
+
+    let monthRevenue = 0;
+    let monthProfit = 0;
+
+    (sales || []).forEach(s => {
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d && d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
+        const rev = parseFloat(s.total_amount || 0);
+        const cost = (parseFloat(s.quantity) || 1) * (parseFloat(s.cost_price_snapshot) || 0);
+        monthRevenue += rev;
+        monthProfit += Math.max(0, rev - cost);
+      }
+    });
 
     res.json({
-      monthRevenue: salesRow && salesRow.monthRevenue ? salesRow.monthRevenue : 0,
-      monthProfit: salesRow && salesRow.monthProfit ? salesRow.monthProfit : 0
+      monthRevenue,
+      monthProfit
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
