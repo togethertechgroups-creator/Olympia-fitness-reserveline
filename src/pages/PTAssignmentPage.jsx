@@ -1603,69 +1603,145 @@ const PTAssignmentPage = () => {
 
       {/* History Calendar Modal */}
       {historyModal.isOpen && historyModal.assignment && (
-        <div className="trainer-modal-overlay">
-          <div className="trainer-modal-content animated-scale-in" style={{ maxWidth: '750px' }}>
+        <div 
+          className="trainer-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setHistoryModal({ ...historyModal, isOpen: false });
+            }
+          }}
+        >
+          <div className="trainer-modal-content animated-scale-in pt-history-modal-content">
             <div className="trainer-modal-header">
-              <h2>PT Attendance History — {historyModal.assignment.clientName}</h2>
-              <button className="btn-close" onClick={() => setHistoryModal({ ...historyModal, isOpen: false })}>&times;</button>
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                  <line x1="16" y1="2" x2="16" y2="6"></line>
+                  <line x1="8" y1="2" x2="8" y2="6"></line>
+                  <line x1="3" y1="10" x2="21" y2="10"></line>
+                </svg>
+                PT Attendance History — <span style={{ color: '#ea580c' }}>{historyModal.assignment.clientName}</span>
+              </h2>
+              <button className="btn-close" onClick={() => setHistoryModal({ ...historyModal, isOpen: false })} title="Close">&times;</button>
             </div>
 
-            <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '12px', marginBottom: '1rem', fontSize: '0.9rem', color: '#334155', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <div><strong>Package:</strong> {historyModal.assignment.packageName} ({historyModal.assignment.classes_completed} / {historyModal.assignment.total_classes_snapshot} Classes Conducted)</div>
-              <div><strong>Trainer:</strong> {historyModal.assignment.trainerName} ({historyModal.assignment.trainerGrade || 'No Grade'})</div>
-              <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.2rem' }}>
-                <span><strong>Start Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.assigned_date)}</span>
-                <span><strong>Expiry Date:</strong> {formatDateDDMMYYYY(historyModal.assignment.expiry_date)}</span>
-              </div>
-            </div>
+            <div className="pt-history-body">
+              {/* Summary Header Card */}
+              {(() => {
+                const completedCount = parseInt(historyModal.assignment.classes_completed || 0, 10);
+                const totalCount = parseInt(historyModal.assignment.total_classes_snapshot || 0, 10);
+                const pct = totalCount > 0 ? Math.min(100, Math.round((completedCount / totalCount) * 100)) : 0;
 
-            {historyModal.loading ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading class history...</div>
-            ) : historyModal.logs.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No class sessions logged for this assignment yet.</div>
-            ) : (
-              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                  <thead>
-                    <tr style={{ background: '#f1f5f9', textAlign: 'left', color: '#475569' }}>
-                      <th style={{ padding: '8px 12px' }}>Date</th>
-                      <th style={{ padding: '8px 12px' }}>Session</th>
-                      <th style={{ padding: '8px 12px' }}>Conducting Trainer</th>
-                      {isSuperAdmin && <th style={{ padding: '8px 12px' }}>Slab / Rate</th>}
-                      {isSuperAdmin && <th style={{ padding: '8px 12px' }}>Payout Rate</th>}
-                      <th style={{ padding: '8px 12px' }}>Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyModal.logs.map(log => (
-                      <tr key={log.id} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: '700' }}>{formatDateDDMMYYYY(log.class_date)}</td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{ background: log.session_slot === 'Evening' ? '#fef3c7' : '#e0f2fe', color: log.session_slot === 'Evening' ? '#b45309' : '#0369a1', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: '700' }}>
-                            {log.session_slot || 'Morning'}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 12px' }}>{log.trainerName}</td>
-                        {isSuperAdmin && (
-                          <td style={{ padding: '10px 12px' }}>
-                            <span style={{ fontSize: '0.75rem', background: log.slab_applied === 'Slab1' ? '#d1fae5' : '#dbeafe', color: log.slab_applied === 'Slab1' ? '#047857' : '#1d4ed8', padding: '2px 8px', borderRadius: '100px', fontWeight: '700' }}>
-                              {log.slab_applied}
+                return (
+                  <div className="pt-history-summary-card">
+                    <div className="pt-history-stat-item">
+                      <span className="pt-history-stat-label">Package Name</span>
+                      <span className="pt-history-stat-val" style={{ color: '#4f46e5' }}>{historyModal.assignment.packageName}</span>
+                    </div>
+                    <div className="pt-history-stat-item">
+                      <span className="pt-history-stat-label">Assigned Trainer</span>
+                      <span className="pt-history-stat-val">
+                        {historyModal.assignment.trainerName} <small style={{ color: '#64748b', fontWeight: '600' }}>({historyModal.assignment.trainerGrade || 'No Grade'})</small>
+                      </span>
+                    </div>
+                    <div className="pt-history-stat-item">
+                      <span className="pt-history-stat-label">Start Date</span>
+                      <span className="pt-history-stat-val">{formatDateDDMMYYYY(historyModal.assignment.assigned_date)}</span>
+                    </div>
+                    <div className="pt-history-stat-item">
+                      <span className="pt-history-stat-label">Expiry Date</span>
+                      <span className="pt-history-stat-val">{formatDateDDMMYYYY(historyModal.assignment.expiry_date)}</span>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div className="pt-history-progress-box">
+                      <div className="pt-history-progress-header">
+                        <span>Class Progress</span>
+                        <span><strong>{completedCount}</strong> of <strong>{totalCount}</strong> Classes Conducted ({pct}%)</span>
+                      </div>
+                      <div className="pt-history-progress-bar">
+                        <div className="pt-history-progress-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Logs Content / Loading / Empty State */}
+              {historyModal.loading ? (
+                <div className="pt-history-empty">
+                  <div className="pt-history-empty-icon" style={{ animation: 'spin 1s linear infinite' }}>⌛</div>
+                  <div style={{ fontWeight: '700', color: '#475569' }}>Loading attendance records...</div>
+                </div>
+              ) : historyModal.logs.length === 0 ? (
+                <div className="pt-history-empty">
+                  <div className="pt-history-empty-icon">📅</div>
+                  <div style={{ fontWeight: '700', color: '#334155', fontSize: '0.95rem' }}>No Class Sessions Logged Yet</div>
+                  <div style={{ fontSize: '0.82rem', color: '#64748b' }}>Attendance records logged by trainers for this assignment will appear here.</div>
+                </div>
+              ) : (
+                <div className="pt-history-table-wrapper">
+                  <table className="pt-history-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Session Slot</th>
+                        <th>Conducting Trainer</th>
+                        {isSuperAdmin && <th>Slab Applied</th>}
+                        {isSuperAdmin && <th>Payout Rate</th>}
+                        <th>Notes / Remarks</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyModal.logs.map(log => (
+                        <tr key={log.id}>
+                          <td style={{ fontWeight: '700', color: '#0f172a' }}>{formatDateDDMMYYYY(log.class_date)}</td>
+                          <td>
+                            <span style={{ 
+                              background: (log.session_slot || '').toLowerCase() === 'evening' ? '#fef3c7' : '#e0f2fe', 
+                              color: (log.session_slot || '').toLowerCase() === 'evening' ? '#b45309' : '#0369a1', 
+                              padding: '3px 10px', 
+                              borderRadius: '100px', 
+                              fontSize: '0.75rem', 
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              {(log.session_slot || '').toLowerCase() === 'evening' ? '🌙 Evening' : '☀️ Morning'}
                             </span>
                           </td>
-                        )}
-                        {isSuperAdmin && (
-                          <td style={{ padding: '10px 12px', fontWeight: '700', color: '#16a34a' }}>{formatCurrency(log.per_class_rate_snapshot)}</td>
-                        )}
-                        <td style={{ padding: '10px 12px', color: '#64748b', fontSize: '0.85rem' }}>{log.notes || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                          <td style={{ fontWeight: '600' }}>{log.trainerName}</td>
+                          {isSuperAdmin && (
+                            <td>
+                              <span style={{ 
+                                fontSize: '0.75rem', 
+                                background: log.slab_applied === 'Slab1' ? '#d1fae5' : '#dbeafe', 
+                                color: log.slab_applied === 'Slab1' ? '#047857' : '#1d4ed8', 
+                                padding: '3px 10px', 
+                                borderRadius: '100px', 
+                                fontWeight: '700' 
+                              }}>
+                                {log.slab_applied || 'Standard'}
+                              </span>
+                            </td>
+                          )}
+                          {isSuperAdmin && (
+                            <td style={{ fontWeight: '800', color: '#16a34a' }}>{formatCurrency(log.per_class_rate_snapshot)}</td>
+                          )}
+                          <td style={{ color: '#64748b', fontSize: '0.85rem' }}>{log.notes || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
             <div className="trainer-modal-footer">
-              <button type="button" className="trainer-btn-cancel" onClick={() => setHistoryModal({ ...historyModal, isOpen: false })}>Close</button>
+              <button type="button" className="trainer-btn-cancel" onClick={() => setHistoryModal({ ...historyModal, isOpen: false })}>
+                Close History
+              </button>
             </div>
           </div>
         </div>

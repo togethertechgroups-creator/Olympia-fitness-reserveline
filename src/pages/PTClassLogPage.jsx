@@ -432,6 +432,23 @@ const PTClassLogPage = () => {
     return `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   };
 
+  const formatSlabLabel = (log) => {
+    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '') {
+      return `Custom Rate: ${log.custom_commission_percent}%`;
+    }
+    if (log.slab_applied === 'Slab1') {
+      return 'Slab 1 (> ₹3L)';
+    }
+    return 'Slab 2 (≤ ₹3L)';
+  };
+
+  const getSlabBadgeClass = (log) => {
+    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '') {
+      return 'slab-badge custom-rate';
+    }
+    return log.slab_applied === 'Slab1' ? 'slab-badge slab1' : 'slab-badge slab2';
+  };
+
   // ─── Monthly Calendar Helper Functions ─────────────────────────────────────
   const renderCalendarGrid = () => {
     const [yearStr, monthStr] = historyMonth.split('-');
@@ -829,11 +846,16 @@ const PTClassLogPage = () => {
                           </td>
                           <td><span className="pkg-badge">{log.packageName}</span></td>
                           <td>
-                            <div className="trainer-info-block">
-                              <span className="trainer-name">{log.trainerName}</span>
+                            <div className="trainer-info-block" style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <span className="trainer-name">{log.trainerName}</span>
+                                <span className={`grade-badge ${(log.trainerGrade || 'unassigned').toLowerCase()}`}>
+                                  Grade {log.trainerGrade || 'N/A'}
+                                </span>
+                              </div>
                               {isSubstituted && (
                                 <div className="substituted-badge">
-                                  🔄 Alternate covering for {log.assignedTrainerName || 'Assigned'}
+                                  🔄 Alternate covering for {log.assignedTrainerName || 'Assigned'} {log.assignedTrainerGrade ? `(Grade ${log.assignedTrainerGrade})` : ''}
                                 </div>
                               )}
                             </div>
@@ -842,8 +864,8 @@ const PTClassLogPage = () => {
                             <td>
                               <div className="rate-cell-block">
                                 <div className="rate-amount">{formatCurrency(log.per_class_rate_snapshot)}</div>
-                                <span className={`slab-badge ${log.slab_applied === 'Slab1' ? 'slab1' : 'slab2'}`}>
-                                  {log.slab_applied === 'Slab1' ? 'Slab 1' : 'Slab 2'}
+                                <span className={getSlabBadgeClass(log)}>
+                                  {formatSlabLabel(log)}
                                 </span>
                               </div>
                             </td>
@@ -981,18 +1003,23 @@ const PTClassLogPage = () => {
                           </td>
                           <td>{log.packageName}</td>
                           <td>
-                            <div>{log.trainerName}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                              <span style={{ fontWeight: '600' }}>{log.trainerName}</span>
+                              <span className={`grade-badge ${(log.trainerGrade || 'unassigned').toLowerCase()}`}>
+                                Grade {log.trainerGrade || 'N/A'}
+                              </span>
+                            </div>
                             {isSubstituted && (
                               <div className="substituted-badge">
-                                🔄 Substituted: {log.trainerName} covering for {log.assignedTrainerName || 'Assigned'}
+                                🔄 Substituted: {log.trainerName} covering for {log.assignedTrainerName || 'Assigned'} {log.assignedTrainerGrade ? `(Grade ${log.assignedTrainerGrade})` : ''}
                               </div>
                             )}
                           </td>
                           {isSuperAdmin && (
                             <td>
                               <div style={{ fontWeight: '700', color: '#10b981' }}>{formatCurrency(log.per_class_rate_snapshot)}</div>
-                              <span className={`slab-badge ${log.slab_applied === 'Slab1' ? 'slab1' : 'slab2'}`}>
-                                {log.slab_applied === 'Slab1' ? 'Slab 1' : 'Slab 2'}
+                              <span className={getSlabBadgeClass(log)}>
+                                {formatSlabLabel(log)}
                               </span>
                             </td>
                           )}
@@ -1096,8 +1123,12 @@ const PTClassLogPage = () => {
                         </span>
                         {log.clientName} ({formatShortId(log.clientCode || log.client_id)})
                       </div>
-                      <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px' }}>
-                        <strong>Conducting Trainer:</strong> {log.trainerName} • <strong>Package:</strong> {log.packageName}
+                      <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        <span><strong>Conducting Trainer:</strong> {log.trainerName}</span>
+                        <span className={`grade-badge ${(log.trainerGrade || 'unassigned').toLowerCase()}`}>
+                          Grade {log.trainerGrade || 'N/A'}
+                        </span>
+                        <span>• <strong>Package:</strong> {log.packageName}</span>
                       </div>
                       {isSubstituted && (
                         <div className="substituted-badge">
@@ -1114,8 +1145,8 @@ const PTClassLogPage = () => {
                     {isSuperAdmin && (
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontWeight: '800', color: '#16a34a', fontSize: '1.1rem' }}>{formatCurrency(log.per_class_rate_snapshot)}</div>
-                        <span style={{ fontSize: '0.72rem', background: log.slab_applied === 'Slab1' ? '#d1fae5' : '#dbeafe', color: log.slab_applied === 'Slab1' ? '#047857' : '#1d4ed8', padding: '2px 8px', borderRadius: '100px', fontWeight: '700' }}>
-                          {log.slab_applied === 'Slab1' ? 'Slab 1 (> ₹3L)' : 'Slab 2 (≤ ₹3L)'}
+                        <span className={getSlabBadgeClass(log)}>
+                          {formatSlabLabel(log)}
                         </span>
                       </div>
                     )}

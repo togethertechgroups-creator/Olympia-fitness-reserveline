@@ -284,7 +284,7 @@ const AdvanceBookingPage = () => {
         client_id: pClient || prev.client_id,
         trainer_id: pTrainer || prev.trainer_id,
         pt_package_id: pPackage || prev.pt_package_id,
-        booking_start_date: calculatedStart || prev.booking_start_date
+        booking_start_date: new Date().toISOString().split('T')[0]
       }));
       setIsModalOpen(true);
     }
@@ -513,12 +513,10 @@ const AdvanceBookingPage = () => {
       }
     }
 
-    if (ptForm.client_id && clients.length > 0) {
-      setPtForm(prev => ({
-        ...prev,
-        booking_start_date: prev.booking_start_date || new Date().toISOString().split('T')[0]
-      }));
-    }
+    setPtForm(prev => ({
+      ...prev,
+      booking_start_date: new Date().toISOString().split('T')[0]
+    }));
 
     setIsModalOpen(true);
   };
@@ -1101,7 +1099,13 @@ const AdvanceBookingPage = () => {
               </button>
               <button
                 className={`sub-tab ${activeTab === 'pt' ? 'active' : ''}`}
-                onClick={() => setActiveTab('pt')}
+                onClick={() => {
+                  setActiveTab('pt');
+                  setPtForm(prev => ({
+                    ...prev,
+                    booking_start_date: new Date().toISOString().split('T')[0]
+                  }));
+                }}
               >
                 🏋️ PT Package
               </button>

@@ -3727,7 +3727,7 @@ app.get('/api/pt-class-log/today', async (req, res) => {
     const logs = await db.prepare(`
       SELECT l.*,
              c.name as clientName, c.clientId as clientCode,
-             t.name as trainerName, t.grade as trainerGrade,
+             t.name as trainerName, t.grade as trainerGrade, t.custom_commission_percent as custom_commission_percent,
              p.name as packageName, a.total_classes_snapshot, a.classes_completed,
              a.trainer_id as assigned_trainer_id,
              at.name as assignedTrainerName, at.grade as assignedTrainerGrade
@@ -3866,7 +3866,7 @@ app.get('/api/pt-class-log/history', async (req, res) => {
     let sql = `
       SELECT l.*,
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
-             t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
+             t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade, t.custom_commission_percent as custom_commission_percent,
              p.name as packageName, p.category as packageCategory,
              a.package_price_snapshot, a.discount_amount, a.total_classes_snapshot, a.classes_completed,
              a.trainer_id as assigned_trainer_id,
