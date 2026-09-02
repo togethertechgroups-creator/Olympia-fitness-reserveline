@@ -5376,16 +5376,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
       }
     });
 
-    // 3. Supplement sales in range (only if not already in transactions table)
-    (suppSales || []).forEach(s => {
-      if (s.invoice_id && txnBillIds.has(s.invoice_id)) return;
-      const d = parseAnyDate(s.sale_date || s.created_at);
-      if (d && d >= startObj && d <= endObj) {
-        rangeRevenue += (s.total_amount || 0);
-      }
-    });
-
-    // 4. General Package Advance Bookings in range
+    // 3. General Package Advance Bookings in range
     (genBookingsAll || []).forEach(b => {
       const d = parseAnyDate(b.created_at || b.booking_start_date);
       if (d && d >= startObj && d <= endObj) {
@@ -5589,7 +5580,7 @@ app.get('/api/stats', async (req, res) => {
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
       })
-      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlySuppSalesRev + monthlyPtAssignmentsRev;
+      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlyPtAssignmentsRev;
 
     const monthlyExpensesVal = (allExpenses || [])
       .filter(e => {
