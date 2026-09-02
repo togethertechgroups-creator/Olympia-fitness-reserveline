@@ -5314,8 +5314,8 @@ app.get('/api/dashboard/stats', async (req, res) => {
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
       db.prepare('SELECT id, total_amount, sale_date, created_at FROM supplement_sales').all(),
-      db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
-      db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all(),
@@ -5438,9 +5438,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// ─── STATS Route ──────────────────────────────────────────────────────────────
-// ─── STATS Route ──────────────────────────────────────────────────────────────
 app.get('/api/stats', async (req, res) => {
   try {
     const { month } = req.query;
@@ -5471,8 +5468,8 @@ app.get('/api/stats', async (req, res) => {
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
       db.prepare('SELECT id, total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all(),
-      db.prepare("SELECT id, price, discount_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
-      db.prepare("SELECT id, price_snapshot, discount_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare('SELECT id, status, expiryDate, gender, ptCategory, ptToDate, admissionDate, amount FROM clients').all(),
