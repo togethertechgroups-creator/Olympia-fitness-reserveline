@@ -5831,20 +5831,15 @@ app.put('/api/settings', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, role, password } = req.body;
-    const identifier = username || role;
+    const targetRole = role || 'superadmin';
 
-    // 1. Try matching by (username or role) AND password
-    let user = await db.prepare('SELECT id, role FROM users WHERE (username = ? OR role = ?) AND password = ?').get(identifier, identifier, password);
+    // Strictly match by role (or username) AND password
+    const user = await db.prepare('SELECT id, role FROM users WHERE (role = ? OR username = ?) AND password = ?').get(targetRole, username || targetRole, password);
 
-    // 2. Fallback: match by password alone if identifier is generic
-    if (!user && password) {
-      user = await db.prepare('SELECT id, role FROM users WHERE password = ?').get(password);
-    }
-
-    if (user) {
+    if (user && user.role === targetRole) {
       res.json({ success: true, role: user.role });
     } else {
-      res.status(401).json({ success: false, error: 'Invalid username or password' });
+      res.status(401).json({ success: false, error: `Invalid password for ${targetRole === 'superadmin' ? 'Super Admin' : 'Admin'} access` });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
