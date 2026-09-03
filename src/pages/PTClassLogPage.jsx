@@ -433,17 +433,23 @@ const PTClassLogPage = () => {
   };
 
   const formatSlabLabel = (log) => {
-    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '') {
+    if (log.slab_applied === 'Slab2') {
+      return 'Slab 2 (≤ ₹3L) • 25%';
+    }
+    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '' && !isNaN(parseFloat(log.custom_commission_percent))) {
       return `Custom Rate: ${log.custom_commission_percent}%`;
     }
     if (log.slab_applied === 'Slab1') {
-      return 'Slab 1 (> ₹3L)';
+      return 'Slab 1 (> ₹3L) • 40%';
     }
-    return 'Slab 2 (≤ ₹3L)';
+    return 'Slab 2 (≤ ₹3L) • 25%';
   };
 
   const getSlabBadgeClass = (log) => {
-    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '') {
+    if (log.slab_applied === 'Slab2') {
+      return 'slab-badge slab2';
+    }
+    if (log.custom_commission_percent !== undefined && log.custom_commission_percent !== null && log.custom_commission_percent !== '' && !isNaN(parseFloat(log.custom_commission_percent))) {
       return 'slab-badge custom-rate';
     }
     return log.slab_applied === 'Slab1' ? 'slab-badge slab1' : 'slab-badge slab2';

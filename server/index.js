@@ -1650,7 +1650,10 @@ const getSlabForRevenue = (baseRevenue) => {
 
 const calculatePerClassRate = (packagePrice, totalClasses, trainer, slab) => {
   let commRate = 0.25;
-  if (trainer && trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '') {
+  if (slab === 'Slab2') {
+    // Under Low Gym Revenue (<= ₹3,00,000 / Slab 2), default percentage is 25% for all trainers
+    commRate = 0.25;
+  } else if (trainer && trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined && trainer.custom_commission_percent !== '' && !isNaN(parseFloat(trainer.custom_commission_percent))) {
     commRate = parseFloat(trainer.custom_commission_percent) / 100;
   } else if (trainer && trainer.grade && COMMISSION_MATRIX[trainer.grade]) {
     commRate = COMMISSION_MATRIX[trainer.grade][slab] || COMMISSION_MATRIX[trainer.grade].Slab2 || 0.25;
@@ -2484,9 +2487,9 @@ app.get('/api/trainers', async (req, res) => {
       const standardRate = (tr.grade && COMMISSION_MATRIX[tr.grade])
         ? (COMMISSION_MATRIX[tr.grade][activeSlab] || COMMISSION_MATRIX[tr.grade].Slab2 || 0.25) * 100
         : (activeSlab === 'Slab1' ? 40 : 25);
-      const commRatePercent = hasCustomRate
-        ? parseFloat(tr.custom_commission_percent)
-        : standardRate;
+      const commRatePercent = activeSlab === 'Slab2'
+        ? 25
+        : (hasCustomRate ? parseFloat(tr.custom_commission_percent) : standardRate);
 
       const calculatedCommSalary = (logs && logs.length > 0)
         ? totalSalary
@@ -3738,9 +3741,21 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
 });
 
 // ─── PT CLASS LOG Routes ─────────────────────────────────────────────────────
+// ─── PT CLASS LOG Routes ─────────────────────────────────────────────────────
 app.get('/api/pt-class-log/today', async (req, res) => {
   try {
     const todayStr = new Date().toISOString().split('T')[0];
+    const yearMonthStr = todayStr.substring(0, 7);
+
+    // Sync active trainers' class logs for current month to ensure accurate slab_applied and per_class_rate_snapshot
+    const gymTotalRevenue = await getMonthlyGymTotalRevenue(yearMonthStr);
+    const activeTrainers = await db.prepare("SELECT DISTINCT trainer_id FROM pt_class_log WHERE class_date LIKE ?").all(`${yearMonthStr}%`);
+    for (const tr of (activeTrainers || [])) {
+      if (tr.trainer_id) {
+        await syncTrainerMonthlyClassLogs(tr.trainer_id, yearMonthStr, gymTotalRevenue);
+      }
+    }
+
     const logs = await db.prepare(`
       SELECT l.*,
              c.name as clientName, c.clientId as clientCode,
@@ -3881,6 +3896,15 @@ app.get('/api/pt-class-log/history', async (req, res) => {
     const targetMonth = month && month !== 'undefined' ? month : new Date().toISOString().substring(0, 7);
     const monthPattern = `${targetMonth}%`;
 
+    // Sync trainers' class logs for target month to ensure accurate slab_applied and per_class_rate_snapshot
+    const gymTotalRevenue = await getMonthlyGymTotalRevenue(targetMonth);
+    const activeTrainers = await db.prepare("SELECT DISTINCT trainer_id FROM pt_class_log WHERE class_date LIKE ?").all(monthPattern);
+    for (const tr of (activeTrainers || [])) {
+      if (tr.trainer_id) {
+        await syncTrainerMonthlyClassLogs(tr.trainer_id, targetMonth, gymTotalRevenue);
+      }
+    }
+
     let sql = `
       SELECT l.*,
              c.name as clientName, c.clientId as clientCode, c.phone as clientPhone,
@@ -3928,36 +3952,96 @@ app.get('/api/pt-class-log/history', async (req, res) => {
 
 async function getMonthlyGymTotalRevenue(targetMonth) {
   let total = 0;
-  const monthPattern = `${targetMonth}%`;
+  if (!targetMonth) return 0;
 
   try {
-    const txns = await db.prepare('SELECT amount FROM transactions WHERE date LIKE ? OR timestamp LIKE ?').all(monthPattern, monthPattern);
-    txns.forEach(t => { total += (parseFloat(t.amount) || 0); });
-  } catch (e) { }
+    const startObj = parseAnyDate(`${targetMonth}-01`) || new Date(`${targetMonth}-01`);
+    startObj.setHours(0, 0, 0, 0);
 
-  try {
-    const rows = await db.prepare('SELECT price_snapshot FROM other_service_sales WHERE sale_date LIKE ? OR created_at LIKE ?').all(monthPattern, monthPattern);
-    rows.forEach(s => { total += (parseFloat(s.price_snapshot) || 0); });
-  } catch (e) { }
+    const [yearStr, monthStr] = targetMonth.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+    const lastDay = new Date(year, month, 0).getDate();
+    const endObj = new Date(year, month - 1, lastDay, 23, 59, 59, 999);
 
-  try {
-    const rows = await db.prepare('SELECT total_amount FROM supplement_sales WHERE sale_date LIKE ? OR created_at LIKE ?').all(monthPattern, monthPattern);
-    rows.forEach(s => { total += (parseFloat(s.total_amount) || 0); });
-  } catch (e) { }
+    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
+      db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
+      db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
+      db.prepare('SELECT id, total_amount, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all()
+    ]);
 
-  try {
-    const genBookings = await db.prepare("SELECT price, discount_amount FROM general_package_bookings WHERE status != 'Cancelled' AND (booking_start_date LIKE ? OR created_at LIKE ?)").all(monthPattern, monthPattern);
-    genBookings.forEach(b => {
-      total += Math.max(0, parseFloat(b.price || 0) - parseFloat(b.discount_amount || 0));
+    const txnBillIds = new Set((allTxns || []).map(t => String(t.billId)).filter(Boolean));
+    const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
+
+    // 1. Transactions collection in target month
+    (allTxns || []).forEach(t => {
+      const d = parseAnyDate(t.date || t.timestamp);
+      if (d && d >= startObj && d <= endObj) {
+        total += (parseFloat(t.amount) || 0);
+      }
     });
-  } catch (e) { }
 
-  try {
-    const ptBookings = await db.prepare("SELECT price_snapshot, discount_amount FROM pt_advance_bookings WHERE status != 'Cancelled' AND (booking_start_date LIKE ? OR created_at LIKE ?)").all(monthPattern, monthPattern);
-    ptBookings.forEach(b => {
-      total += Math.max(0, parseFloat(b.price_snapshot || 0) - parseFloat(b.discount_amount || 0));
+    // 2. Other services sales in target month (only if not already in transactions table)
+    (otherSales || []).forEach(s => {
+      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`other-svc-${s.id}`)))) return;
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d && d >= startObj && d <= endObj) {
+        total += (parseFloat(s.price_snapshot) || 0);
+      }
     });
-  } catch (e) { }
+
+    // 3. Supplement sales in target month (only if not already in transactions table)
+    (suppSales || []).forEach(s => {
+      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
+      const d = parseAnyDate(s.sale_date || s.created_at);
+      if (d && d >= startObj && d <= endObj) {
+        total += (parseFloat(s.total_amount) || 0);
+      }
+    });
+
+    // 4. General Package Advance Bookings in target month (only if not already in transactions table)
+    (genBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(String(b.invoice_id))) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`gen-adv-${b.id}`)))) return;
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d && d >= startObj && d <= endObj) {
+        const grossPrice = parseFloat(b.price) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+          ? parseFloat(b.paid_amount)
+          : Math.max(0, grossPrice - discountVal);
+        total += paidVal;
+      }
+    });
+
+    // 5. PT Package Advance Bookings in target month (only if not already in transactions table)
+    (ptBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(String(b.invoice_id))) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`pt-adv-${b.id}`)))) return;
+      const d = parseAnyDate(b.created_at || b.booking_start_date);
+      if (d && d >= startObj && d <= endObj) {
+        const grossPrice = parseFloat(b.price_snapshot) || 0;
+        const discountVal = parseFloat(b.discount_amount) || 0;
+        const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+          ? parseFloat(b.paid_amount)
+          : Math.max(0, grossPrice - discountVal);
+        total += paidVal;
+      }
+    });
+
+    // 6. PT Package Assignments in target month (only if not already in transactions table)
+    (ptAssignmentsAll || []).forEach(a => {
+      if ((a.invoice_id && txnBillIds.has(String(a.invoice_id))) || (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`)))) return;
+      const d = parseAnyDate(a.assigned_date || a.created_at);
+      if (d && d >= startObj && d <= endObj) {
+        const netPaid = Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0));
+        total += netPaid;
+      }
+    });
+  } catch (e) {
+    console.error('Error calculating monthly gym total revenue:', e);
+  }
 
   return total;
 }
@@ -4005,10 +4089,10 @@ app.get('/api/trainer-salary-report', async (req, res) => {
       const hasCustomRate = tr.custom_commission_percent !== null && tr.custom_commission_percent !== undefined && tr.custom_commission_percent !== '';
       const standardRate = (tr.grade && COMMISSION_MATRIX[tr.grade])
         ? (COMMISSION_MATRIX[tr.grade][activeSlab] || COMMISSION_MATRIX[tr.grade].Slab2 || 0.25) * 100
-        : 25;
-      const commRatePercent = hasCustomRate
-        ? parseFloat(tr.custom_commission_percent)
-        : standardRate;
+        : (activeSlab === 'Slab1' ? 40 : 25);
+      const commRatePercent = activeSlab === 'Slab2'
+        ? 25
+        : (hasCustomRate ? parseFloat(tr.custom_commission_percent) : standardRate);
 
       // Fetch payroll adjustment if exists
       const adj = await db.prepare('SELECT * FROM trainer_payroll_adjustments WHERE trainer_id = ? AND month = ?').get(tr.id, targetMonth);
