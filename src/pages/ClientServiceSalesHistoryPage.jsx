@@ -10,9 +10,20 @@ const ClientServiceSalesHistoryPage = () => {
   const [sales, setSales] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const getInitialMonthDates = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    const lastDayNum = new Date(year, month + 1, 0).getDate();
+    const lastDay = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDayNum).padStart(2, '0')}`;
+    return { firstDay, lastDay };
+  };
+
+  const initialDates = getInitialMonthDates();
   const [searchTerm, setSearchTerm] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(initialDates.firstDay);
+  const [toDate, setToDate] = useState(initialDates.lastDay);
   const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
   const [toastMessage, setToastMessage] = useState(null);
 
@@ -189,13 +200,24 @@ const ClientServiceSalesHistoryPage = () => {
                 style={{ padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '600', fontSize: '0.85rem' }}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                const { firstDay, lastDay } = getInitialMonthDates();
+                setFromDate(firstDay);
+                setToDate(lastDay);
+              }}
+              style={{ background: '#e0e7ff', color: '#4338ca', border: '1px solid #c7d2fe', padding: '0.5rem 0.75rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              📅 This Month
+            </button>
             {(fromDate || toDate) && (
               <button
                 type="button"
                 onClick={() => { setFromDate(''); setToDate(''); }}
                 style={{ background: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1', padding: '0.5rem 0.75rem', borderRadius: '8px', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer' }}
               >
-                ✕ Clear
+                ✕ All Time
               </button>
             )}
             <input

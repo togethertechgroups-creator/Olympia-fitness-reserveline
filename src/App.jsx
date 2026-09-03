@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
@@ -106,6 +106,41 @@ function App() {
   };
 
   const isSuperAdmin = auth.isLoggedIn && auth.userRole === 'superadmin';
+
+  // ─── Super Admin 5-Minute Inactivity Auto-Logout ───────────────────────────
+  useEffect(() => {
+    if (!auth.isLoggedIn || auth.userRole !== 'superadmin') {
+      return;
+    }
+
+    const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    let timeoutId = null;
+
+    const resetInactivityTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        console.warn('Super Admin inactive for 5 minutes. Logging out to login page.');
+        handleLogout();
+        window.location.hash = '#/login';
+      }, INACTIVITY_TIMEOUT_MS);
+    };
+
+    const userActivityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+
+    userActivityEvents.forEach(event => {
+      window.addEventListener(event, resetInactivityTimer, { passive: true });
+    });
+
+    // Start timer on login
+    resetInactivityTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      userActivityEvents.forEach(event => {
+        window.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [auth.isLoggedIn, auth.userRole]);
 
   return (
     <Router>
