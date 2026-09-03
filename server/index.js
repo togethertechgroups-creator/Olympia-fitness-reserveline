@@ -17,7 +17,7 @@ const getWaKey = (workerEnv) => {
   if (candidate && !candidate.startsWith('EAAG') && candidate.length <= 64) {
     return candidate.trim();
   }
-  return '84fc8e6467ae79aee05aa0a3c1c18fd9';
+  return '1fc1f0d5c404e20f050bfd943647f587';
 };
 
 // Helper: normalize phone number to international format with 91 in front (e.g. 918530613447)
