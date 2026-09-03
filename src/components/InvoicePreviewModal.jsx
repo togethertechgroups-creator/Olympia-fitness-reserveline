@@ -13,6 +13,16 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
   const [toastType, setToastType] = useState('success'); // 'success' | 'error' | 'info'
   const [isSendingWa, setIsSendingWa] = useState(false);
 
+  const [waPopup, setWaPopup] = useState({
+    isOpen: false,
+    type: 'success',
+    title: '',
+    message: '',
+    phone: '',
+    clientName: '',
+    billNo: ''
+  });
+
   useEffect(() => {
     if (isOpen) {
       setToastType('success');
@@ -105,7 +115,17 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
       const phoneNum = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
       if (!phoneNum) {
         setToastType('error');
-        setToastMsg('❌ No phone number found for this client');
+        const errMsg = 'No phone number found for this client';
+        setToastMsg(`❌ ${errMsg}`);
+        setWaPopup({
+          isOpen: true,
+          type: 'error',
+          title: 'Missing Phone Number',
+          message: errMsg,
+          phone: '',
+          clientName: client.name || client.clientName || 'Member',
+          billNo: client.billNo || ''
+        });
         return;
       }
 
@@ -173,101 +193,172 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
       // Send PDF invoice via Backend Metamerged WhatsApp API
       try {
         await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text);
+        const successMsg = `Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`;
         setToastType('success');
-        setToastMsg(`✅ Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`);
+        setToastMsg(`✅ ${successMsg}`);
+        setWaPopup({
+          isOpen: true,
+          type: 'success',
+          title: 'WhatsApp Invoice Sent!',
+          message: successMsg,
+          phone: phoneNum,
+          clientName: client.name || client.clientName || 'Member',
+          billNo: client.billNo || ''
+        });
       } catch (backendErr) {
         console.warn('Direct WhatsApp API notice, attempting web fallback:', backendErr);
         const encodedText = encodeURIComponent(text);
         window.open(`https://api.whatsapp.com/send?phone=${phoneNum}&text=${encodedText}`, '_blank');
+        const fallbackMsg = `Invoice message opened for ${phoneNum} via WhatsApp!`;
         setToastType('success');
-        setToastMsg(`✅ Invoice message opened for ${phoneNum} via WhatsApp!`);
+        setToastMsg(`✅ ${fallbackMsg}`);
+        setWaPopup({
+          isOpen: true,
+          type: 'success',
+          title: 'WhatsApp Message Opened!',
+          message: fallbackMsg,
+          phone: phoneNum,
+          clientName: client.name || client.clientName || 'Member',
+          billNo: client.billNo || ''
+        });
       }
     } catch (err) {
       console.error('Failed to send WhatsApp:', err);
+      const errMsg = err.message || 'Failed to send WhatsApp message';
       setToastType('error');
-      setToastMsg(`❌ ${err.message || 'Failed to send WhatsApp message'}`);
+      setToastMsg(`❌ ${errMsg}`);
+      setWaPopup({
+        isOpen: true,
+        type: 'error',
+        title: 'WhatsApp Send Failed',
+        message: errMsg,
+        phone: String(client?.phone || client?.mobile || '').replace(/\D/g, ''),
+        clientName: client?.name || client?.clientName || 'Member',
+        billNo: client?.billNo || ''
+      });
     } finally {
       setIsSendingWa(false);
     }
   };
 
   return (
-    <div className="invoice-modal-overlay">
-      <div className="invoice-modal-content">
+    <>
+      <div className="invoice-modal-overlay">
+        <div className="invoice-modal-content">
 
-        {/* Bill Generated Success / Error Popup Banner */}
-        <div className={`invoice-success-banner ${toastType === 'error' ? 'banner-error' : (toastType === 'info' ? 'banner-info' : '')}`}>
-          <div className="success-banner-left">
-            <span className="success-check-badge">{toastType === 'error' ? '!' : '✓'}</span>
-            <div>
-              <strong className="success-title">{toastMsg}</strong>
-              <span className="success-sub">
-                {client.billNo ? `Bill No: ${client.billNo}` : `Client: ${client.name || client.clientId || 'Member'}`}
-              </span>
+          {/* Bill Generated Success / Error Popup Banner */}
+          <div className={`invoice-success-banner ${toastType === 'error' ? 'banner-error' : (toastType === 'info' ? 'banner-info' : '')}`}>
+            <div className="success-banner-left">
+              <span className="success-check-badge">{toastType === 'error' ? '!' : '✓'}</span>
+              <div>
+                <strong className="success-title">{toastMsg}</strong>
+                <span className="success-sub">
+                  {client.billNo ? `Bill No: ${client.billNo}` : `Client: ${client.name || client.clientId || 'Member'}`}
+                </span>
+              </div>
             </div>
+            <span className="ready-badge">
+              {toastType === 'error' ? 'ATTENTION' : 'READY TO PRINT / DOWNLOAD'}
+            </span>
           </div>
-          <span className="ready-badge">
-            {toastType === 'error' ? 'ATTENTION' : 'READY TO PRINT / DOWNLOAD'}
-          </span>
-        </div>
 
-        <div className="invoice-modal-header">
-          <h2>Invoice — {client.billNo || client.clientId || ''}</h2>
-          <button className="btn-close-modal" onClick={onClose} title="Close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
-        
-        <div className="invoice-preview-container">
-          <iframe
-            ref={iframeRef}
-            srcDoc={htmlContent}
-            title="Invoice Preview"
-            className="invoice-iframe"
-          />
-        </div>
+          <div className="invoice-modal-header">
+            <h2>Invoice — {client.billNo || client.clientId || ''}</h2>
+            <button className="btn-close-modal" onClick={onClose} title="Close">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+          
+          <div className="invoice-preview-container">
+            <iframe
+              ref={iframeRef}
+              srcDoc={htmlContent}
+              title="Invoice Preview"
+              className="invoice-iframe"
+            />
+          </div>
 
-        <div className="invoice-modal-footer">
-          <button className="btn-modal-close" onClick={onClose}>
-            Close
-          </button>
+          <div className="invoice-modal-footer">
+            <button className="btn-modal-close" onClick={onClose}>
+              Close
+            </button>
 
-          <button className="btn-print" onClick={handlePrint}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 6 2 18 2 18 9"></polyline>
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-              <rect x="6" y="14" width="12" height="8"></rect>
-            </svg>
-            Print Invoice
-          </button>
+            <button className="btn-print" onClick={handlePrint}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                <rect x="6" y="14" width="12" height="8"></rect>
+              </svg>
+              Print Invoice
+            </button>
 
-          <button 
-            className="btn-download-pdf" 
-            onClick={handleDownloadPDF}
-            disabled={isDownloading}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            {isDownloading ? 'Generating PDF...' : 'Download Invoice (PDF)'}
-          </button>
+            <button 
+              className="btn-download-pdf" 
+              onClick={handleDownloadPDF}
+              disabled={isDownloading}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="7 10 12 15 17 10" />
+                <line x1="12" y1="15" x2="12" y2="3" />
+              </svg>
+              {isDownloading ? 'Generating PDF...' : 'Download Invoice (PDF)'}
+            </button>
 
-          <button 
-            className="btn-whatsapp-share" 
-            onClick={handleShareWhatsApp}
-            disabled={isSendingWa}
-            title="Share Invoice via WhatsApp"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
-            </svg>
-            Send via WhatsApp
-          </button>
+            <button 
+              className="btn-whatsapp-share" 
+              onClick={handleShareWhatsApp}
+              disabled={isSendingWa}
+              title="Share Invoice via WhatsApp"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
+              </svg>
+              Send via WhatsApp
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* WhatsApp Popup Alert Modal */}
+      {waPopup.isOpen && (
+        <div className="wa-popup-overlay" onClick={() => setWaPopup(prev => ({ ...prev, isOpen: false }))}>
+          <div className="wa-popup-card" onClick={e => e.stopPropagation()}>
+            <div className={`wa-popup-icon-circle ${waPopup.type === 'error' ? 'icon-error' : 'icon-success'}`}>
+              {waPopup.type === 'error' ? (
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="15" y1="9" x2="9" y2="15"></line>
+                  <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+              ) : (
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12.012 2c-5.506 0-9.989 4.478-9.989 9.984 0 1.758.459 3.474 1.33 4.982l-1.413 5.163 5.285-1.385c1.455.793 3.096 1.224 4.787 1.224 5.507 0 9.989-4.478 9.989-9.984s-4.482-9.984-9.989-9.984zm5.79 14.161c-.242.684-1.206 1.256-1.97 1.423-.526.113-1.21.204-3.518-.752-2.956-1.226-4.856-4.238-5.004-4.436-.146-.198-1.206-1.606-1.206-3.063 0-1.457.764-2.176 1.036-2.47.272-.294.594-.368.792-.368.198 0 .396.002.569.01.184.009.431-.07.674.513.242.583.83 2.023.903 2.171.073.149.122.322.024.516-.098.194-.147.316-.292.488-.146.172-.307.385-.438.516-.146.146-.298.305-.128.596.17.291.756 1.246 1.621 2.017 1.114.992 2.054 1.3 2.346 1.446.292.146.463.122.634-.073.171-.194.731-.852.927-1.144.195-.292.392-.243.659-.146.267.098 1.683.793 1.975.939.292.146.486.219.559.342.073.123.073.712-.169 1.396z"/>
+                </svg>
+              )}
+            </div>
+
+            <h3 className="wa-popup-title">{waPopup.title}</h3>
+            <p className="wa-popup-message">{waPopup.message}</p>
+
+            {waPopup.clientName && (
+              <div className="wa-popup-meta">
+                <div><span>Client:</span> <strong>{waPopup.clientName}</strong></div>
+                {waPopup.billNo && <div><span>Bill No:</span> <strong>{waPopup.billNo}</strong></div>}
+                {waPopup.phone && <div><span>Recipient Phone:</span> <strong>+{waPopup.phone}</strong></div>}
+              </div>
+            )}
+
+            <button
+              className="wa-popup-btn"
+              onClick={() => setWaPopup(prev => ({ ...prev, isOpen: false }))}
+            >
+              OK, Got It!
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 
 };

@@ -50,18 +50,23 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   }
 
   const waKey = getWaKey(workerEnv);
-  const endpoint = 'https://api.metamerged.com/api/send';
+  const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
   const payload = {
     number: phone,
     type: 'text',
     message: message,
     access_token: waKey,
-    token: waKey
+    token: waKey,
+    api_key: waKey,
+    variables: {
+      token: waKey,
+      caption: message
+    }
   };
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -75,10 +80,11 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
     clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true || data.status === 'success')) {
-      console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST`);
+    if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
+      console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST:`, data);
       return data;
     }
+    console.warn('[WhatsApp API] Text POST returned non-success:', data);
   } catch (postErr) {
     console.warn('[WhatsApp API] POST failed, trying GET fallback:', postErr.message);
   }
@@ -87,15 +93,22 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=text&message=${encodeURIComponent(message)}&access_token=${encodeURIComponent(waKey)}`;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-    const getResp = await fetch(getUrl, { signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const getResp = await fetch(getUrl, {
+      headers: {
+        'X-Access-Token': waKey,
+        'Authorization': `Bearer ${waKey}`
+      },
+      signal: controller.signal
+    });
     clearTimeout(timeoutId);
 
     const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success')) {
-      console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET`);
+    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success' || getData?.data?.id)) {
+      console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET:`, getData);
       return getData;
     }
+    console.warn('[WhatsApp API] Text GET fallback returned non-success:', getData);
   } catch (getErr) {
     console.warn('[WhatsApp API] GET fallback error:', getErr.message);
   }
@@ -122,30 +135,37 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   }
 
   const waKey = getWaKey(workerEnv);
-  const endpoint = 'https://api.metamerged.com/api/send';
+  const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
+  const cleanFilename = (fileName || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
   const payload = {
     number: phone,
-    type: 'media',
-    media_type: 'document',
+    type: 'document',
+    url: documentUrl || '',
+    media_url: documentUrl || '',
+    document: documentUrl || '',
+    media: documentUrl || '',
+    documentUrl: documentUrl || '',
+    filename: cleanFilename,
+    fileName: cleanFilename,
     message: message || '',
     caption: message || '',
-    media_url: documentUrl || '',
-    url: documentUrl || '',
-    documentUrl: documentUrl || '',
-    filename: fileName || 'document.pdf',
-    fileName: fileName || 'document.pdf',
     access_token: waKey,
     token: waKey,
+    api_key: waKey,
     variables: {
+      url: documentUrl || '',
       documentUrl: documentUrl || '',
-      fileName: fileName || 'document.pdf',
-      media_url: documentUrl || ''
+      fileName: cleanFilename,
+      filename: cleanFilename,
+      media_url: documentUrl || '',
+      caption: message || '',
+      token: waKey
     }
   };
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -159,27 +179,35 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
     clearTimeout(timeoutId);
 
     const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true || data.status === 'success')) {
-      console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST`);
+    if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
+      console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST:`, data);
       return data;
     }
+    console.warn('[WhatsApp API] Document POST returned non-success:', data);
   } catch (postErr) {
     console.warn('[WhatsApp API] Document POST failed, trying GET fallback:', postErr.message);
   }
 
   // Fallback to GET endpoint
-  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=media&message=${encodeURIComponent(message || '')}&caption=${encodeURIComponent(message || '')}&media_url=${encodeURIComponent(documentUrl || '')}&url=${encodeURIComponent(documentUrl || '')}&file_name=${encodeURIComponent(fileName || 'document.pdf')}&filename=${encodeURIComponent(fileName || 'document.pdf')}&access_token=${encodeURIComponent(waKey)}`;
+  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&caption=${encodeURIComponent(message || '')}&url=${encodeURIComponent(documentUrl || '')}&media_url=${encodeURIComponent(documentUrl || '')}&filename=${encodeURIComponent(cleanFilename)}&access_token=${encodeURIComponent(waKey)}`;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-    const getResp = await fetch(getUrl, { signal: controller.signal });
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const getResp = await fetch(getUrl, {
+      headers: {
+        'X-Access-Token': waKey,
+        'Authorization': `Bearer ${waKey}`
+      },
+      signal: controller.signal
+    });
     clearTimeout(timeoutId);
 
     const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success')) {
-      console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET`);
+    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success' || getData?.data?.id)) {
+      console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET:`, getData);
       return getData;
     }
+    console.warn('[WhatsApp API] Document GET fallback returned non-success:', getData);
   } catch (getErr) {
     console.warn('[WhatsApp API] Document GET fallback error:', getErr.message);
   }
