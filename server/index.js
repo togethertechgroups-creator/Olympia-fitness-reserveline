@@ -249,8 +249,8 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 
 app.use('/api/images', express.static(UPLOADS_DIR));
-app.get('/api/images/*', (req, res) => {
-  const relPath = req.params[0];
+app.get(/^\/api\/images\/(.*)/, (req, res) => {
+  const relPath = req.params[0] || '';
   const basename = path.basename(relPath);
   const filePath = path.join(UPLOADS_DIR, basename);
   if (fs.existsSync(filePath)) {

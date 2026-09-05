@@ -33,6 +33,9 @@ server/.env
 scratch/
 check_db.js
 server/check.js
+keys
+cloudflare keys
+*keys*
 
 # Build & Release Binaries
 release/
