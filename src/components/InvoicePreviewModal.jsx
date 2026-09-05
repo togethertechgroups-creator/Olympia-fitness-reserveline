@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { generateInvoice } from '../utils/generateInvoice';
-import { getGstSettings, sendInvoiceWhatsApp } from '../api';
+import { getGstSettings, sendInvoiceWhatsApp, getClientById } from '../api';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './InvoicePreviewModal.css';
 
@@ -111,8 +111,41 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
     setToastType('info');
     setToastMsg('💬 Generating HD PDF & Sending to WhatsApp...');
     try {
-      const rawPhone = String(client.phone || client.mobile || '').replace(/\D/g, '');
-      const phoneNum = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+      const rawPhoneProp = 
+        client.phone || 
+        client.mobile || 
+        client.clientPhone || 
+        client.phoneNo || 
+        client.phoneNumber || 
+        client.walkin_phone || 
+        client.client_phone || 
+        client.mobileNo || 
+        client.contact ||
+        '';
+
+      let rawPhone = String(rawPhoneProp).replace(/\D/g, '');
+      if (rawPhone.startsWith('00')) rawPhone = rawPhone.slice(2);
+      else if (rawPhone.startsWith('0') && rawPhone.length === 11) rawPhone = rawPhone.slice(1);
+      if (rawPhone.length === 10) rawPhone = `91${rawPhone}`;
+
+      const targetClientId = client.clientId || client.id || client.client_id;
+      if ((!rawPhone || rawPhone.length < 10) && targetClientId) {
+        try {
+          const fetchedClient = await getClientById(targetClientId).catch(() => null);
+          if (fetchedClient && fetchedClient.phone) {
+            let fp = String(fetchedClient.phone).replace(/\D/g, '');
+            if (fp.startsWith('00')) fp = fp.slice(2);
+            else if (fp.startsWith('0') && fp.length === 11) fp = fp.slice(1);
+            if (fp.length === 10) fp = `91${fp}`;
+            if (fp.length >= 10) rawPhone = fp;
+          }
+        } catch (e) {
+          console.warn('Client phone lookup fallback notice:', e);
+        }
+      }
+
+      const phoneNum = rawPhone;
+
       if (!phoneNum) {
         setToastType('error');
         const errMsg = 'No phone number found for this client';
@@ -192,7 +225,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
 
       // Send PDF invoice via Backend Metamerged WhatsApp API
       try {
-        await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text);
+        await sendInvoiceWhatsApp(phoneNum, client.name || client.clientName || 'Member', client.billNo || '', pdfBase64, null, text, targetClientId);
         const successMsg = `Invoice PDF sent successfully to ${phoneNum} via WhatsApp!`;
         setToastType('success');
         setToastMsg(`✅ ${successMsg}`);

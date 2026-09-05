@@ -217,7 +217,7 @@ function App() {
             <Route
               path="/transactions"
               element={
-                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['superadmin']}>
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
                   <TransactionsPage />
                 </RoleProtectedRoute>
               }

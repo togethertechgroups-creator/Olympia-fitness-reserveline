@@ -29,11 +29,11 @@ const calcClientDueDetails = (client) => {
   if (client.dueAmount !== undefined && client.dueAmount !== null) {
     effectiveDue = Math.max(0, Number(client.dueAmount));
   } else if ((client.paymentStatus || '').toLowerCase() !== 'paid') {
-    const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : baseTotal;
+    const pd = (client.paidAmount !== undefined && client.paidAmount !== null) ? Number(client.paidAmount) : baseTotal;
     effectiveDue = Math.max(0, baseTotal - pd);
   }
 
-  const actualTotal = Math.max(baseTotal, (Number(client.paidAmount || 0) + effectiveDue));
+  const actualTotal = baseTotal;
   const actualPaid = Math.max(0, actualTotal - effectiveDue);
   return { actualTotal, actualPaid, effectiveDue };
 };
@@ -1789,8 +1789,10 @@ const ManageClientsPage = () => {
         const c = viewClientModal.client;
         const validity = getValidityDisplay(c.expiryDate);
         const vmTotal = Number(c.amount || 0);
-        const vmPaid = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : vmTotal;
-        const vmDue = Math.max(0, vmTotal - vmPaid);
+        const vmDue = (c.dueAmount !== undefined && c.dueAmount !== null)
+          ? Math.max(0, Number(c.dueAmount))
+          : Math.max(0, vmTotal - Number(c.paidAmount || 0));
+        const vmPaid = Math.min(vmTotal, Math.max(0, vmTotal - vmDue));
         const vmStatus = vmDue <= 0 ? 'Paid' : (vmPaid > 0 ? 'Partial' : 'Due');
         
         // Find active PT package
@@ -1947,8 +1949,10 @@ const ManageClientsPage = () => {
 
           if (c.plan && c.fromDate && history.length === 0) {
             const tot = Number(c.amount || 0);
-            const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
-            const due = Math.max(0, tot - pd);
+            const due = (c.dueAmount !== undefined && c.dueAmount !== null)
+              ? Math.max(0, Number(c.dueAmount))
+              : Math.max(0, tot - Number(c.paidAmount || 0));
+            const pd = Math.min(tot, Math.max(0, tot - due));
             history.push({
               id: `current-${c.id}`,
               type: 'General Membership',

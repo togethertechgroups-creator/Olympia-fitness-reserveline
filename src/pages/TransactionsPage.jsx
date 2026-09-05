@@ -50,6 +50,8 @@ const getMonthLabel = (monthStr) => {
 
 const TransactionsPage = () => {
   const navigate = useNavigate();
+  const userRole = localStorage.getItem('userRole') || '';
+  const isSuperAdmin = userRole === 'superadmin';
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -513,14 +515,16 @@ const TransactionsPage = () => {
             <span>{isExporting ? 'EXPORTING...' : 'EXPORT DATA'}</span>
           </button>
           
-          <button 
-            className="btn-import" 
-            onClick={() => fileInputRef.current?.click()} 
-            disabled={isExporting || isImporting}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>{isImporting ? 'IMPORTING...' : 'IMPORT DATA'}</span>
-          </button>
+          {isSuperAdmin && (
+            <button 
+              className="btn-import" 
+              onClick={() => fileInputRef.current?.click()} 
+              disabled={isExporting || isImporting}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>{isImporting ? 'IMPORTING...' : 'IMPORT DATA'}</span>
+            </button>
+          )}
 
           <select
             className="txn-payment-filter"

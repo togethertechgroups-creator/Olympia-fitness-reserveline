@@ -2,13 +2,43 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import './RevenueChart.css';
 
-const PtRevenueChart = ({ data = [] }) => {
+const PtRevenueChart = ({ data = [], selectedMonth = new Date().toISOString().slice(0, 7), onMonthChange }) => {
+  const formatMonthTitle = (monthStr) => {
+    if (!monthStr) return 'This Month';
+    const [year, month] = monthStr.split('-');
+    if (!year || !month) return 'This Month';
+    const date = new Date(parseInt(year, 10), parseInt(month, 10) - 1, 1);
+    const monthName = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    const currentYM = new Date().toISOString().slice(0, 7);
+    return monthStr === currentYM ? `This Month (${monthName})` : monthName;
+  };
+
   return (
     <div className="revenue-chart-card">
-      <div className="chart-header">
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-          <h3 className="chart-title">Trainer PT Base Revenue (This Month)</h3>
-          <span className="chart-subtitle" style={{ margin: 0 }}>Color-coded by active slab (Slab 1 vs Slab 2)</span>
+      <div className="chart-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <h3 className="chart-title">Trainer PT Base Revenue</h3>
+            <span className="chart-subtitle" style={{ margin: 0 }}>Color-coded by active slab (Slab 1 vs Slab 2)</span>
+          </div>
+          <div className="pt-month-filter-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f1f5f9', padding: '4px 10px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+            <span style={{ fontSize: '12px', fontWeight: '800', color: '#475569' }}>📅 Month:</span>
+            <input 
+              type="month" 
+              value={selectedMonth} 
+              onChange={(e) => onMonthChange && onMonthChange(e.target.value)} 
+              className="pt-month-input"
+              style={{
+                border: 'none',
+                background: 'transparent',
+                fontSize: '12px',
+                fontWeight: '700',
+                color: '#1e293b',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            />
+          </div>
         </div>
         <div className="chart-legend" style={{ display: 'flex', gap: '15px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -25,7 +55,7 @@ const PtRevenueChart = ({ data = [] }) => {
       <div className="chart-body">
         {data.length === 0 ? (
           <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: '14px' }}>
-            No active trainer PT revenue logged this month yet.
+            No active trainer PT revenue logged for {formatMonthTitle(selectedMonth)}.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">

@@ -14,6 +14,7 @@ const DashboardPage = () => {
   const [performance, setPerformance] = useState([]);
   const [clients, setClients] = useState([]);
   const [ptSummary, setPtSummary] = useState(null);
+  const [ptChartMonth, setPtChartMonth] = useState(new Date().toISOString().slice(0, 7));
   const [supplementsSummary, setSupplementsSummary] = useState(null);
   const [activePtCount, setActivePtCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,6 +64,18 @@ const DashboardPage = () => {
     }
   };
 
+  const handlePtMonthChange = async (newMonth) => {
+    setPtChartMonth(newMonth);
+    try {
+      const res = await fetchPtSummary(newMonth);
+      if (res) {
+        setPtSummary(res);
+      }
+    } catch (err) {
+      console.error("Failed to fetch PT summary for month:", newMonth, err);
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -73,7 +86,7 @@ const DashboardPage = () => {
           fetchRevenue(),
           fetchPerformance(),
           getClientsPaginated(1, 8),
-          fetchPtSummary(),
+          fetchPtSummary(ptChartMonth),
           getSupplementDashboardSummary(),
           getDashboardStats(dates.start, dates.end)
         ]);
@@ -102,7 +115,7 @@ const DashboardPage = () => {
       }
     };
     loadData();
-  }, [selectedMonth, dateFilterMode, customStartDate, customEndDate]);
+  }, [selectedMonth, dateFilterMode, customStartDate, customEndDate, ptChartMonth]);
 
   const activeMaleCount = stats?.activeMaleClients || 0;
   const activeFemaleCount = stats?.activeFemaleClients || 0;
@@ -471,7 +484,11 @@ const DashboardPage = () => {
               <RevenueChart data={revenue} />
             </div>
             <div className="chart-card-wrapper">
-              <PtRevenueChart data={ptSummary?.trainerRevenueList || []} />
+              <PtRevenueChart 
+                data={ptSummary?.trainerRevenueList || []} 
+                selectedMonth={ptChartMonth}
+                onMonthChange={handlePtMonthChange}
+              />
             </div>
           </div>
 

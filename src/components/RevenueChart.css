@@ -77,3 +77,33 @@
   overflow: visible !important;
 }
 
+.pt-month-filter-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f8fafc;
+  padding: 0.25rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  transition: all 0.2s ease;
+}
+
+.pt-month-filter-wrapper:hover,
+.pt-month-filter-wrapper:focus-within {
+  border-color: #4338ca;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.pt-month-input {
+  border: none;
+  background: transparent;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #1e293b;
+  outline: none;
+  cursor: pointer;
+}
+
+

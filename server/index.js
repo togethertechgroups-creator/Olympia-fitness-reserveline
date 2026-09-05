@@ -823,6 +823,17 @@ async function initDb() {
 
       try {
         db.prepare(`
+          UPDATE clients 
+          SET paidAmount = CASE 
+                WHEN dueAmount <= 0 THEN COALESCE(amount, 0)
+                ELSE MAX(0, COALESCE(amount, 0) - dueAmount)
+              END
+          WHERE amount IS NOT NULL AND paidAmount > amount
+        `).run();
+      } catch (e) { }
+
+      try {
+        db.prepare(`
       UPDATE clients 
       SET dueAmount = MAX(0, COALESCE(amount, 0) - COALESCE(paidAmount, amount)),
           paymentStatus = CASE 
@@ -1849,10 +1860,10 @@ app.get('/api/clients', async (req, res) => {
       const cCodeStr = String(c.clientId || '');
 
       const tot = Number(c.amount || 0);
-      const pd = c.paidAmount !== undefined && c.paidAmount !== null ? Number(c.paidAmount) : tot;
+      const rawPaid = (c.paidAmount !== undefined && c.paidAmount !== null) ? Number(c.paidAmount) : tot;
       const baseDue = (c.dueAmount !== undefined && c.dueAmount !== null)
         ? Math.max(0, Number(c.dueAmount))
-        : Math.max(0, tot - pd);
+        : Math.max(0, tot - rawPaid);
 
       const extraGenDue = genDueMap.get(cidStr) || genDueMap.get(cCodeStr) || 0;
       const extraPtDue = ptDueMap.get(cidStr) || ptDueMap.get(cCodeStr) || 0;
@@ -1860,12 +1871,14 @@ app.get('/api/clients', async (req, res) => {
 
       // Aggregated due across memberships, advance bookings, PT, and other services
       const totalDue = Math.max(baseDue, extraGenDue + extraPtDue + extraOtherDue);
-      const status = totalDue <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+      // Normalized paidAmount for membership should never exceed tot
+      const normalizedPaid = tot > 0 ? Math.min(tot, Math.max(0, tot - baseDue)) : rawPaid;
+      const status = totalDue <= 0 ? 'Paid' : (normalizedPaid > 0 ? 'Partial' : 'Due');
 
       return {
         ...c,
         personalTraining: !!c.personalTraining,
-        paidAmount: pd,
+        paidAmount: normalizedPaid,
         dueAmount: totalDue,
         paymentStatus: status
       };
@@ -1943,15 +1956,16 @@ app.get('/api/clients/:id', async (req, res) => {
     const client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(req.params.id);
     if (!client) return res.status(404).json({ message: 'Client not found' });
     const tot = Number(client.amount || 0);
-    const pd = client.paidAmount !== undefined && client.paidAmount !== null ? Number(client.paidAmount) : tot;
+    const rawPaid = (client.paidAmount !== undefined && client.paidAmount !== null) ? Number(client.paidAmount) : tot;
     const baseDue = (client.dueAmount !== undefined && client.dueAmount !== null)
       ? Math.max(0, Number(client.dueAmount))
-      : Math.max(0, tot - pd);
-    const status = baseDue <= 0 ? 'Paid' : (pd > 0 ? 'Partial' : 'Due');
+      : Math.max(0, tot - rawPaid);
+    const normalizedPaid = tot > 0 ? Math.min(tot, Math.max(0, tot - baseDue)) : rawPaid;
+    const status = baseDue <= 0 ? 'Paid' : (normalizedPaid > 0 ? 'Partial' : 'Due');
     res.json({
       ...client,
       personalTraining: !!client.personalTraining,
-      paidAmount: pd,
+      paidAmount: normalizedPaid,
       dueAmount: baseDue,
       paymentStatus: status
     });
@@ -2057,12 +2071,15 @@ app.post('/api/clients/:id/payment', async (req, res) => {
     const amountToPay = parseFloat(paidAmount);
     if (isNaN(amountToPay) || amountToPay <= 0) return res.status(400).json({ error: 'Invalid paid amount' });
 
+    const clientTot = parseFloat(client.amount) || 0;
     const currentDue = (client.dueAmount !== undefined && client.dueAmount !== null)
       ? Math.max(0, parseFloat(client.dueAmount) || 0)
-      : Math.max(0, (parseFloat(client.amount) || 0) - (parseFloat(client.paidAmount) || 0));
+      : Math.max(0, clientTot - (parseFloat(client.paidAmount) || 0));
 
     const newDueAmount = Math.max(0, currentDue - amountToPay);
-    const newPaidAmount = (parseFloat(client.paidAmount) || 0) + amountToPay;
+    const newPaidAmount = clientTot > 0
+      ? Math.min(clientTot, Math.max(0, clientTot - newDueAmount))
+      : (parseFloat(client.paidAmount) || 0) + amountToPay;
     const newStatus = newDueAmount <= 0 ? 'Paid' : 'Partial';
 
     // Update client
@@ -2070,9 +2087,31 @@ app.post('/api/clients/:id/payment', async (req, res) => {
       UPDATE clients SET paidAmount = ?, dueAmount = ?, paymentStatus = ? WHERE id = ?
     `).run(newPaidAmount, newDueAmount, newStatus, client.id);
 
-    // If client had advance booking or other service dues, cascade update those rows
+    // If client had general plan bill dues, cascade update those rows first
     let remainingToDeduct = amountToPay;
     try {
+      if (remainingToDeduct > 0) {
+        const genBills = await db.prepare(`
+          SELECT id, dueAmount, paidAmount, totalPlanAmount, planAmount 
+          FROM bills 
+          WHERE (clientId = ? OR clientId = ?) 
+            AND (invoice_category = 'GeneralPlan' OR invoice_category IS NULL OR invoice_category = '') 
+            AND dueAmount > 0
+          ORDER BY timestamp ASC
+        `).all(client.id, client.clientId);
+
+        for (const gb of (genBills || [])) {
+          if (remainingToDeduct <= 0) break;
+          const curGbDue = parseFloat(gb.dueAmount || 0);
+          const deduct = Math.min(remainingToDeduct, curGbDue);
+          const newGbDue = Math.max(0, curGbDue - deduct);
+          const newGbPaid = (parseFloat(gb.paidAmount) || 0) + deduct;
+          const newGbStatus = newGbDue <= 0 ? 'Paid' : 'Partial';
+          await db.prepare('UPDATE bills SET dueAmount = ?, remainingBalance = ?, paidAmount = ?, paymentStatus = ? WHERE id = ?')
+            .run(newGbDue, newGbDue, newGbPaid, newGbStatus, gb.id);
+          remainingToDeduct -= deduct;
+        }
+      }
       if (remainingToDeduct > 0) {
         const genBookings = await db.prepare(`
           SELECT id, due_amount, paid_amount 
@@ -4456,7 +4495,8 @@ app.delete('/api/payroll-locks/:month', async (req, res) => {
 
 app.get('/api/stats/pt-summary', async (req, res) => {
   try {
-    const currentMonthStr = new Date().toISOString().substring(0, 7);
+    const { month } = req.query;
+    const currentMonthStr = (month && /^\d{4}-\d{2}$/.test(month)) ? month : new Date().toISOString().substring(0, 7);
 
     const trainers = await db.prepare("SELECT * FROM trainers WHERE status = 'Active'").all();
     await Promise.all(trainers.map(async tr => {
@@ -6159,9 +6199,49 @@ app.get('/api/public-docs/:id', (req, res) => {
 // POST /api/whatsapp/send-invoice — Send invoice directly to client via WhatsApp
 app.post('/api/whatsapp/send-invoice', async (req, res) => {
   try {
-    const { phone, name, billNo, pdfBase64, message: customMsg } = req.body;
+    const { phone, name, billNo, pdfBase64, message: customMsg, clientId } = req.body;
     let documentUrl = req.body.documentUrl;
-    if (!phone) return res.status(400).json({ error: 'Phone number is required' });
+
+    let targetPhone = String(phone || '').replace(/\D/g, '');
+    if (targetPhone.startsWith('00')) targetPhone = targetPhone.slice(2);
+    else if (targetPhone.startsWith('0') && targetPhone.length === 11) targetPhone = targetPhone.slice(1);
+    if (targetPhone.length === 10) targetPhone = `91${targetPhone}`;
+
+    // Fallback DB lookup if phone is missing or invalid
+    if (!targetPhone || targetPhone.length < 10) {
+      if (clientId) {
+        const clientRow = await db.prepare('SELECT phone FROM clients WHERE id = ? OR clientId = ?').get(clientId, clientId);
+        if (clientRow && clientRow.phone) {
+          targetPhone = String(clientRow.phone).replace(/\D/g, '');
+        }
+      }
+      if ((!targetPhone || targetPhone.length < 10) && billNo) {
+        const billRow = await db.prepare(`
+          SELECT c.phone FROM bills b 
+          JOIN clients c ON (CAST(b.clientId AS TEXT) = CAST(c.id AS TEXT) OR CAST(b.clientId AS TEXT) = CAST(c.clientId AS TEXT))
+          WHERE b.billNo = ? OR b.id = ?
+        `).get(billNo, billNo);
+        if (billRow && billRow.phone) {
+          targetPhone = String(billRow.phone).replace(/\D/g, '');
+        }
+      }
+      if ((!targetPhone || targetPhone.length < 10) && name) {
+        const clientRow = await db.prepare('SELECT phone FROM clients WHERE LOWER(name) = LOWER(?)').get(name);
+        if (clientRow && clientRow.phone) {
+          targetPhone = String(clientRow.phone).replace(/\D/g, '');
+        }
+      }
+
+      if (targetPhone) {
+        if (targetPhone.startsWith('00')) targetPhone = targetPhone.slice(2);
+        else if (targetPhone.startsWith('0') && targetPhone.length === 11) targetPhone = targetPhone.slice(1);
+        if (targetPhone.length === 10) targetPhone = `91${targetPhone}`;
+      }
+    }
+
+    if (!targetPhone || targetPhone.length < 10) {
+      return res.status(400).json({ error: 'Phone number is required and could not be resolved for this client.' });
+    }
 
     const filename = `Invoice_${(billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
 
@@ -6195,21 +6275,21 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
 
     if (documentUrl && isPublicUrl(documentUrl)) {
       try {
-        await sendWhatsAppDocument(phone, caption, documentUrl, filename, req.env);
+        await sendWhatsAppDocument(targetPhone, caption, documentUrl, filename, req.env);
       } catch (docErr) {
         console.warn('Document send error, falling back to text:', docErr.message);
-        await sendWhatsAppMessage(phone, caption, req.env);
+        await sendWhatsAppMessage(targetPhone, caption, req.env);
       }
     } else {
-      await sendWhatsAppMessage(phone, caption, req.env);
+      await sendWhatsAppMessage(targetPhone, caption, req.env);
     }
 
     // Log it
     await db.prepare(
       'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
-    ).run(randomUUID(), '', name || '', phone, 'invoice_pdf');
+    ).run(randomUUID(), clientId || '', name || '', targetPhone, 'invoice_pdf');
 
-    res.json({ success: true, message: `Invoice sent to ${phone} via WhatsApp!` });
+    res.json({ success: true, message: `Invoice sent to ${targetPhone} via WhatsApp!` });
   } catch (err) {
     console.error('WhatsApp invoice send error:', err.message);
     res.status(500).json({ error: err.message });

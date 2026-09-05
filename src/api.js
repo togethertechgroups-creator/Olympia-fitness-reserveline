@@ -378,11 +378,11 @@ export const addFollowUp = async (InquiryId, followUpData) => {
   return handleResponse(response);
 };
 
-export const sendInvoiceWhatsApp = async (phone, name, billNo, pdfBase64, documentUrl, message) => {
+export const sendInvoiceWhatsApp = async (phone, name, billNo, pdfBase64, documentUrl, message, clientId = '') => {
   const response = await fetch(`${BASE_URL}/whatsapp/send-invoice`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ phone, name, billNo, pdfBase64, documentUrl, message }),
+    body: JSON.stringify({ phone, name, billNo, pdfBase64, documentUrl, message, clientId }),
   });
   return handleResponse(response);
 };
@@ -620,8 +620,9 @@ export const unlockPayrollMonth = async (month) => {
   return handleResponse(response);
 };
 
-export const fetchPtSummary = async () => {
-  return fetchWithCache(`${BASE_URL}/stats/pt-summary`, {}, false, 15000);
+export const fetchPtSummary = async (month = '') => {
+  const url = month ? `${BASE_URL}/stats/pt-summary?month=${month}` : `${BASE_URL}/stats/pt-summary`;
+  return fetchWithCache(url, {}, false, 15000);
 };
 
 export const saveTrainerPayrollAdjustment = async (adjustmentData) => {
