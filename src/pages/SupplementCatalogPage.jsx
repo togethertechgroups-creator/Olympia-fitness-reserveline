@@ -6,7 +6,8 @@ const CATEGORIES = ['Protein', 'Creatine', 'Vitamins', 'Pre-Workout', 'Mass Gain
 const UNITS = ['bottle', 'kg', 'pack', 'box', 'tub', 'scoop', 'sachet', 'piece'];
 
 const SupplementCatalogPage = () => {
-  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
+  const userRole = localStorage.getItem('userRole');
+  const canManageSupplements = userRole === 'admin' || userRole === 'superadmin';
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -186,7 +187,7 @@ const SupplementCatalogPage = () => {
               <h1 className="catalog-title">Supplement Catalog</h1>
               <p className="catalog-subtitle">Manage sellable supplement items, pricing, and threshold alerts</p>
             </div>
-            {isSuperAdmin && (
+            {canManageSupplements && (
               <button className="btn-add-supplement" onClick={() => handleOpenModal(null)}>
                 + Add Supplement
               </button>
@@ -384,7 +385,7 @@ const SupplementCatalogPage = () => {
                         <td>{formatCurrency(item.default_purchase_price)}</td>
                         <td>{formatCurrency(item.default_sale_price)}</td>
                         <td>
-                          {isSuperAdmin ? (
+                          {canManageSupplements ? (
                             <button
                               className={`status-toggle-btn ${item.active ? 'active' : 'inactive'}`}
                               onClick={() => handleToggleActive(item.id)}
@@ -399,7 +400,7 @@ const SupplementCatalogPage = () => {
                           )}
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          {isSuperAdmin && (
+                          {canManageSupplements && (
                             <div className="catalog-actions-group">
                               <button
                                 className="btn-edit-catalog"

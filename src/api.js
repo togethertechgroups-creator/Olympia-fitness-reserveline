@@ -22,7 +22,9 @@ const handleResponse = async (response) => {
 
   if (!response.ok) {
     const errorMsg = (data && data.error) ? data.error : `Server Error (${response.status}: ${response.statusText || 'Unable to communicate with server'})`;
-    throw new Error(errorMsg);
+    const err = new Error(errorMsg);
+    err.data = data;
+    throw err;
   }
 
   return data || {};

@@ -436,7 +436,7 @@ const TrainerSalaryReportPage = () => {
       margin: 10,
       filename: `Payslip_${tr.trainerName.replace(/\s+/g, '_')}_${selectedMonth}.pdf`,
       image: { type: 'jpeg', quality: 1 },
-      html2canvas: { scale: 4, useCORS: true },
+      html2canvas: { scale: 2, useCORS: true },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
     html2pdf().set(opt).from(element).save();

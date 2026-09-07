@@ -11,7 +11,8 @@ import { formatDateDDMMYYYY } from '../utils/formatDate';
 import './SupplementPurchasePage.css';
 
 const SupplementPurchasePage = () => {
-  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
+  const userRole = localStorage.getItem('userRole');
+  const canManagePurchases = userRole === 'admin' || userRole === 'superadmin';
   const [searchParams] = useSearchParams();
   const preselectedSuppId = searchParams.get('supplementId');
 
@@ -466,7 +467,7 @@ const SupplementPurchasePage = () => {
                         <td>{p.invoice_ref || '—'}</td>
                         <td>{p.notes || '—'}</td>
                         <td style={{ textAlign: 'right' }}>
-                          {isSuperAdmin && (
+                          {canManagePurchases && (
                             <div className="purchase-actions-group">
                               <button
                                 className="btn-action-edit-purchase"

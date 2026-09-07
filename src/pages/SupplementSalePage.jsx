@@ -5,7 +5,8 @@ import { formatShortId } from '../utils/formatShortId';
 import './SupplementSalePage.css';
 
 const SupplementSalePage = () => {
-  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
+  const userRole = localStorage.getItem('userRole');
+  const canManageSales = userRole === 'admin' || userRole === 'superadmin';
   const [activeSupplements, setActiveSupplements] = useState([]);
   const [clientsList, setClientsList] = useState([]);
   const [sales, setSales] = useState([]);
@@ -509,7 +510,7 @@ const SupplementSalePage = () => {
                             <span className="mode-badge">{s.payment_mode}</span>
                           </td>
                           <td>
-                            {isSuperAdmin && (
+                            {canManageSales && (
                               <button
                                 className="btn-delete-sale"
                                 onClick={() => handleDeleteSale(s)}

@@ -13,11 +13,13 @@ const COUNTRY_CODE = process.env.COUNTRY_CODE || '91';
 // Helper: get the verified Metamerged WhatsApp API key
 const getWaKey = (workerEnv) => {
   const candidate = workerEnv?.WHATSAPP_KEY || process.env.WHATSAPP_KEY || workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN;
-  // If candidate is a valid 32-character hex key (or not an old Facebook token starting with EAAG)
-  if (candidate && !candidate.startsWith('EAAG') && candidate.length <= 64) {
-    return candidate.trim();
+  if (candidate && typeof candidate === 'string') {
+    const trimmed = candidate.trim();
+    if (!trimmed.startsWith('EAA') && trimmed.length <= 64) {
+      return trimmed;
+    }
   }
-  return '1fc1f0d5c404e20f050bfd943647f587';
+  return '';
 };
 
 // Helper: normalize phone number to international format with 91 in front (e.g. 918530613447)
@@ -42,7 +44,7 @@ const normalizePhone = (phone) => {
   return digits;
 };
 
-// Helper: send a WhatsApp text message via Metamerged API
+// Helper: send a WhatsApp text message via Metamerged or Meta Cloud API
 const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const phone = normalizePhone(toPhone);
   if (!phone) {
@@ -50,74 +52,90 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   }
 
   const waKey = getWaKey(workerEnv);
-  const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
-  const payload = {
-    number: phone,
-    type: 'text',
-    message: message,
-    access_token: waKey,
-    token: waKey,
-    api_key: waKey,
-    variables: {
-      token: waKey,
-      caption: message
-    }
-  };
+  const waPhoneId = workerEnv?.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const rawToken = workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || '';
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Access-Token': waKey,
-        'Authorization': `Bearer ${waKey}`
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  let lastErrMsg = '';
 
-    const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
-      console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST:`, data);
-      return data;
+  // 1. Try Meta Cloud API if WHATSAPP_TOKEN starts with EAA and WHATSAPP_PHONE_NUMBER_ID exists
+  if (rawToken.startsWith('EAA') && waPhoneId) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${rawToken.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: phone,
+          type: 'text',
+          text: { body: message }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
+        console.log(`[WhatsApp Meta Cloud API] Sent text to ${phone} successfully:`, data);
+        return data;
+      }
+      lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
+      console.warn('[WhatsApp Meta Cloud API] Send error:', lastErrMsg);
+    } catch (metaErr) {
+      lastErrMsg = metaErr.message;
+      console.warn('[WhatsApp Meta Cloud API] Send failed:', metaErr.message);
     }
-    console.warn('[WhatsApp API] Text POST returned non-success:', data);
-  } catch (postErr) {
-    console.warn('[WhatsApp API] POST failed, trying GET fallback:', postErr.message);
   }
 
-  // Fallback to GET endpoint
-  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=text&message=${encodeURIComponent(message)}&access_token=${encodeURIComponent(waKey)}`;
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const getResp = await fetch(getUrl, {
-      headers: {
-        'X-Access-Token': waKey,
-        'Authorization': `Bearer ${waKey}`
-      },
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+  // 2. Try Metamerged API if waKey is a valid non-EAA key
+  if (waKey && !waKey.startsWith('EAA')) {
+    const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
+    const payload = {
+      number: phone,
+      type: 'text',
+      message: message,
+      access_token: waKey
+    };
 
-    const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success' || getData?.data?.id)) {
-      console.log(`[WhatsApp API] Sent text to ${phone} successfully via GET:`, getData);
-      return getData;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Token': waKey,
+          'Authorization': `Bearer ${waKey}`
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
+        console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST:`, data);
+        return data;
+      }
+      lastErrMsg = data.message || data.error || `HTTP ${resp.status}`;
+      console.warn('[WhatsApp API] Text POST returned non-success:', data);
+    } catch (postErr) {
+      lastErrMsg = postErr.message;
+      console.warn('[WhatsApp API] POST failed:', postErr.message);
     }
-    console.warn('[WhatsApp API] Text GET fallback returned non-success:', getData);
-  } catch (getErr) {
-    console.warn('[WhatsApp API] GET fallback error:', getErr.message);
   }
 
-  console.log(`[WhatsApp API] Message queued/logged for ${phone}`);
-  return { success: true, message: 'Message logged for delivery' };
+  // Fail fast so frontend immediately triggers WhatsApp Web/App fallback!
+  console.warn(`[WhatsApp API] Direct send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
+  throw new Error(`Direct WhatsApp API sending unavailable (${lastErrMsg || 'Invalid or inactive API key'}).`);
 };
 
-// Helper: send a WhatsApp document message via Metamerged API
+// Helper: send a WhatsApp document message via Metamerged or Meta Cloud API
 const isPublicUrl = (url) => {
   if (!url || typeof url !== 'string') return false;
   if (!url.startsWith('https://') && !url.startsWith('http://')) return false;
@@ -135,85 +153,96 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   }
 
   const waKey = getWaKey(workerEnv);
-  const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
+  const waPhoneId = workerEnv?.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const rawToken = workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || '';
   const cleanFilename = (fileName || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
-  const payload = {
-    number: phone,
-    type: 'document',
-    url: documentUrl || '',
-    media_url: documentUrl || '',
-    document: documentUrl || '',
-    media: documentUrl || '',
-    documentUrl: documentUrl || '',
-    filename: cleanFilename,
-    fileName: cleanFilename,
-    message: message || '',
-    caption: message || '',
-    access_token: waKey,
-    token: waKey,
-    api_key: waKey,
-    variables: {
+
+  let lastErrMsg = '';
+
+  // 1. Try Meta Cloud API if WHATSAPP_TOKEN starts with EAA and documentUrl is public
+  if (rawToken.startsWith('EAA') && waPhoneId && documentUrl && isPublicUrl(documentUrl)) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${rawToken.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: phone,
+          type: 'document',
+          document: {
+            link: documentUrl,
+            filename: cleanFilename,
+            caption: message || ''
+          }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
+        console.log(`[WhatsApp Meta Cloud API] Sent document to ${phone} successfully:`, data);
+        return data;
+      }
+      lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
+      console.warn('[WhatsApp Meta Cloud API] Document send error:', lastErrMsg);
+    } catch (metaErr) {
+      lastErrMsg = metaErr.message;
+      console.warn('[WhatsApp Meta Cloud API] Document send failed:', metaErr.message);
+    }
+  }
+
+  // 2. Try Metamerged API if waKey is valid
+  if (waKey && !waKey.startsWith('EAA')) {
+    const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
+    const payload = {
+      number: phone,
+      type: 'document',
       url: documentUrl || '',
-      documentUrl: documentUrl || '',
-      fileName: cleanFilename,
-      filename: cleanFilename,
       media_url: documentUrl || '',
+      filename: cleanFilename,
+      message: message || '',
       caption: message || '',
-      token: waKey
-    }
-  };
+      access_token: waKey
+    };
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Access-Token': waKey,
-        'Authorization': `Bearer ${waKey}`
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Access-Token': waKey,
+          'Authorization': `Bearer ${waKey}`
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    const data = await resp.json().catch(() => ({}));
-    if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
-      console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST:`, data);
-      return data;
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
+        console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST:`, data);
+        return data;
+      }
+      lastErrMsg = data.message || data.error || `HTTP ${resp.status}`;
+      console.warn('[WhatsApp API] Document POST returned non-success:', data);
+    } catch (postErr) {
+      lastErrMsg = postErr.message;
+      console.warn('[WhatsApp API] Document POST failed:', postErr.message);
     }
-    console.warn('[WhatsApp API] Document POST returned non-success:', data);
-  } catch (postErr) {
-    console.warn('[WhatsApp API] Document POST failed, trying GET fallback:', postErr.message);
   }
 
-  // Fallback to GET endpoint
-  const getUrl = `https://api.metamerged.com/api/send?number=${encodeURIComponent(phone)}&type=document&message=${encodeURIComponent(message || '')}&caption=${encodeURIComponent(message || '')}&url=${encodeURIComponent(documentUrl || '')}&media_url=${encodeURIComponent(documentUrl || '')}&filename=${encodeURIComponent(cleanFilename)}&access_token=${encodeURIComponent(waKey)}`;
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    const getResp = await fetch(getUrl, {
-      headers: {
-        'X-Access-Token': waKey,
-        'Authorization': `Bearer ${waKey}`
-      },
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const getData = await getResp.json().catch(() => ({}));
-    if (getResp.ok && (getData.success === true || getData.status === true || getData.status === 'success' || getData?.data?.id)) {
-      console.log(`[WhatsApp API] Sent document to ${phone} successfully via GET:`, getData);
-      return getData;
-    }
-    console.warn('[WhatsApp API] Document GET fallback returned non-success:', getData);
-  } catch (getErr) {
-    console.warn('[WhatsApp API] Document GET fallback error:', getErr.message);
-  }
-
-  console.log(`[WhatsApp API] Document message queued/logged for ${phone}`);
-  return { success: true, message: 'Document logged for delivery' };
+  // Fail fast so frontend immediately triggers WhatsApp Web/App fallback!
+  console.warn(`[WhatsApp API] Direct document send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
+  throw new Error(`Direct WhatsApp document API sending unavailable (${lastErrMsg || 'Invalid or inactive API key'}).`);
 };
 
 // Message templates
@@ -6198,9 +6227,9 @@ app.get('/api/public-docs/:id', (req, res) => {
 
 // POST /api/whatsapp/send-invoice — Send invoice directly to client via WhatsApp
 app.post('/api/whatsapp/send-invoice', async (req, res) => {
+  let documentUrl = req.body ? req.body.documentUrl : null;
   try {
     const { phone, name, billNo, pdfBase64, message: customMsg, clientId } = req.body;
-    let documentUrl = req.body.documentUrl;
 
     let targetPhone = String(phone || '').replace(/\D/g, '');
     if (targetPhone.startsWith('00')) targetPhone = targetPhone.slice(2);
@@ -6291,8 +6320,8 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
 
     res.json({ success: true, message: `Invoice sent to ${targetPhone} via WhatsApp!` });
   } catch (err) {
-    console.error('WhatsApp invoice send error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.warn('WhatsApp invoice send failed, returning error to client:', err.message);
+    res.status(400).json({ success: false, error: err.message, documentUrl: documentUrl || null });
   }
 });
 

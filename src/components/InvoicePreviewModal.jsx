@@ -75,7 +75,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
           filename,
           image: { type: 'jpeg', quality: 1.0 },
           html2canvas: {
-            scale: 3,
+            scale: 2,
             useCORS: true,
             allowTaint: true,
             scrollY: 0,
@@ -174,7 +174,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
             filename: `Invoice_${String(client.billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
             image: { type: 'jpeg', quality: 1.0 },
             html2canvas: {
-              scale: 3,
+              scale: 2,
               useCORS: true,
               allowTaint: true,
               scrollY: 0,
@@ -240,7 +240,12 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         });
       } catch (backendErr) {
         console.warn('Direct WhatsApp API notice, attempting web fallback:', backendErr);
-        const encodedText = encodeURIComponent(text);
+        let fallbackText = text;
+        const docUrl = backendErr.data?.documentUrl;
+        if (docUrl) {
+          fallbackText += `\n\n📄 *Download Official PDF Invoice:* ${docUrl}`;
+        }
+        const encodedText = encodeURIComponent(fallbackText);
         window.open(`https://api.whatsapp.com/send?phone=${phoneNum}&text=${encodedText}`, '_blank');
         const fallbackMsg = `Invoice message opened for ${phoneNum} via WhatsApp!`;
         setToastType('success');
