@@ -1246,28 +1246,39 @@ const PTAssignmentPage = () => {
 
                             {/* Edit & Delete Actions */}
                             {(() => {
-                              const isActive = displayStatus === 'ACTIVE' || (item.status || '').toLowerCase() === 'active' || parseInt(item.classes_completed || 0, 10) > 0;
+                              const isClassesStarted = parseInt(item.classes_completed || 0, 10) > 0;
+                              const isCompleted = displayStatus === 'COMPLETED' || (item.status || '').toLowerCase() === 'completed';
+                              const isCancelled = displayStatus === 'CANCELLED' || (item.status || '').toLowerCase() === 'cancelled';
+                              const isEditDisabled = isClassesStarted || isCompleted || isCancelled;
+                              const isDeleteDisabled = isClassesStarted || isCompleted || isCancelled;
+
                               return (
                                 <>
                                   <button
                                     type="button"
                                     onClick={() => handleOpenEditModal(item)}
-                                    disabled={isActive}
+                                    disabled={isEditDisabled}
                                     style={{
                                       padding: '0.35rem 0.65rem',
                                       fontSize: '0.78rem',
                                       fontWeight: '700',
                                       borderRadius: '6px',
-                                      border: isActive ? '1px solid #cbd5e1' : '1px solid #cbd5e1',
-                                      background: isActive ? '#f1f5f9' : '#ffffff',
-                                      color: isActive ? '#94a3b8' : '#334155',
-                                      cursor: isActive ? 'not-allowed' : 'pointer',
+                                      border: '1px solid #cbd5e1',
+                                      background: isEditDisabled ? '#f1f5f9' : '#ffffff',
+                                      color: isEditDisabled ? '#94a3b8' : '#334155',
+                                      cursor: isEditDisabled ? 'not-allowed' : 'pointer',
                                       display: 'flex',
                                       alignItems: 'center',
                                       gap: '4px',
-                                      opacity: isActive ? 0.6 : 1
+                                      opacity: isEditDisabled ? 0.6 : 1
                                     }}
-                                    title={isActive ? 'Cannot edit: PT assignment is currently Active' : 'Edit PT Assignment Details'}
+                                    title={
+                                      isClassesStarted
+                                        ? 'Cannot edit: PT classes have already started'
+                                        : isCompleted || isCancelled
+                                          ? `Cannot edit: PT assignment is ${displayStatus}`
+                                          : 'Edit PT Assignment Details'
+                                    }
                                   >
                                     ✏️ Edit
                                   </button>
@@ -1276,22 +1287,28 @@ const PTAssignmentPage = () => {
                                     <button
                                       type="button"
                                       onClick={() => handleDeleteAssignment(item)}
-                                      disabled={isActive}
+                                      disabled={isDeleteDisabled}
                                       style={{
                                         padding: '0.35rem 0.65rem',
                                         fontSize: '0.78rem',
                                         fontWeight: '700',
                                         borderRadius: '6px',
-                                        border: isActive ? '1px solid #cbd5e1' : '1px solid #fca5a5',
-                                        background: isActive ? '#f1f5f9' : '#fef2f2',
-                                        color: isActive ? '#94a3b8' : '#dc2626',
-                                        cursor: isActive ? 'not-allowed' : 'pointer',
+                                        border: isDeleteDisabled ? '1px solid #cbd5e1' : '1px solid #fca5a5',
+                                        background: isDeleteDisabled ? '#f1f5f9' : '#fef2f2',
+                                        color: isDeleteDisabled ? '#94a3b8' : '#dc2626',
+                                        cursor: isDeleteDisabled ? 'not-allowed' : 'pointer',
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: '4px',
-                                        opacity: isActive ? 0.6 : 1
+                                        opacity: isDeleteDisabled ? 0.6 : 1
                                       }}
-                                      title={isActive ? 'Cannot delete: PT assignment is currently Active' : 'Delete PT Assignment'}
+                                      title={
+                                        isDeleteDisabled
+                                          ? isClassesStarted
+                                            ? 'Cannot delete: PT classes have already started'
+                                            : `Cannot delete: PT assignment is ${displayStatus}`
+                                          : 'Delete PT Assignment'
+                                      }
                                     >
                                       🗑️ Delete
                                     </button>

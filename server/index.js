@@ -5899,46 +5899,86 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/revenue', async (req, res) => {
   try {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const [allTxns, ptAssignmentsAll] = await Promise.all([
-      db.prepare('SELECT amount, date, billId FROM transactions').all(),
-      db.prepare("SELECT invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE status != 'Cancelled'").all()
+    const targetYear = req.query.year ? parseInt(req.query.year, 10) : new Date().getFullYear();
+
+    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
+      db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
+      db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
+      db.prepare('SELECT id, invoice_id, total_amount, sale_date, created_at FROM supplement_sales').all(),
+      db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
+      db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all()
     ]);
 
-    const revenueByMonth = months.map(m => ({ month: m, revenue: 0 }));
-    (allTxns || []).forEach(txn => {
-      if (!txn.date) return;
-      const parts = txn.date.split('/');
-      if (parts.length === 3) {
-        const mm = parseInt(parts[1], 10);
-        if (mm >= 1 && mm <= 12) {
-          revenueByMonth[mm - 1].revenue += txn.amount || 0;
-        }
-      } else {
-        const sparts = txn.date.split(' ');
-        if (sparts.length >= 2) {
-          const monthName = sparts[1];
-          const monthObj = revenueByMonth.find(r => r.month === monthName);
-          if (monthObj) monthObj.revenue += txn.amount || 0;
+    const txnBillIds = new Set((allTxns || []).map(t => String(t.billId)).filter(Boolean));
+    const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
+
+    const monthlyTotals = new Array(12).fill(0);
+
+    const processItem = (dateVal, amountVal) => {
+      const d = parseAnyDate(dateVal);
+      if (d && d.getFullYear() === targetYear) {
+        const m = d.getMonth();
+        if (m >= 0 && m < 12) {
+          monthlyTotals[m] += (parseFloat(amountVal) || 0);
         }
       }
+    };
+
+    // 1. Transactions collection
+    (allTxns || []).forEach(t => {
+      processItem(t.date || t.timestamp, t.amount);
     });
 
-    const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
+    // 2. Other services sales (not in transactions)
+    (otherSales || []).forEach(s => {
+      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`other-svc-${s.id}`)))) return;
+      processItem(s.sale_date || s.created_at, s.price_snapshot);
+    });
+
+    // 3. Supplement sales (not in transactions)
+    (suppSales || []).forEach(s => {
+      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
+      processItem(s.sale_date || s.created_at, s.total_amount);
+    });
+
+    // 4. General Package Advance Bookings (not in transactions)
+    (genBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(String(b.invoice_id))) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`gen-adv-${b.id}`)))) return;
+      const grossPrice = parseFloat(b.price) || 0;
+      const discountVal = parseFloat(b.discount_amount) || 0;
+      const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+        ? parseFloat(b.paid_amount)
+        : Math.max(0, grossPrice - discountVal);
+      processItem(b.created_at || b.booking_start_date, paidVal);
+    });
+
+    // 5. PT Package Advance Bookings (not in transactions)
+    (ptBookingsAll || []).forEach(b => {
+      if ((b.invoice_id && txnBillIds.has(String(b.invoice_id))) || (b.id && (txnIds.has(String(b.id)) || txnIds.has(`pt-adv-${b.id}`)))) return;
+      const grossPrice = parseFloat(b.price_snapshot) || 0;
+      const discountVal = parseFloat(b.discount_amount) || 0;
+      const paidVal = b.paid_amount !== undefined && b.paid_amount !== null && b.paid_amount !== ''
+        ? parseFloat(b.paid_amount)
+        : Math.max(0, grossPrice - discountVal);
+      processItem(b.created_at || b.booking_start_date, paidVal);
+    });
+
+    // 6. PT Package Assignments (not in transactions)
     (ptAssignmentsAll || []).forEach(a => {
-      if (a.invoice_id && txnBillIds.has(a.invoice_id)) return;
-      const d = parseAnyDate(a.assigned_date || a.created_at);
-      if (d) {
-        const mm = d.getMonth();
-        if (mm >= 0 && mm < 12) {
-          const netPaid = Math.max(0, (a.package_price_snapshot || 0) - (a.discount_amount || 0));
-          revenueByMonth[mm].revenue += netPaid;
-        }
-      }
+      if ((a.invoice_id && txnBillIds.has(String(a.invoice_id))) || (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`)))) return;
+      const netPaid = Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0));
+      processItem(a.assigned_date || a.created_at, netPaid);
     });
 
-    const currentMonthShort = new Date().toLocaleDateString('en-GB', { month: 'short' });
-    res.json(revenueByMonth.filter(r => r.revenue > 0 || r.month === currentMonthShort));
+    const revenueByMonth = months.map((m, idx) => ({
+      month: m,
+      revenue: Math.round(monthlyTotals[idx])
+    }));
+
+    res.json(revenueByMonth);
   } catch (err) {
+    console.error('Error in /api/revenue:', err);
     res.status(500).json({ error: err.message });
   }
 });

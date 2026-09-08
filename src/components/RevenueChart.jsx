@@ -2,13 +2,15 @@ import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import './RevenueChart.css';
 
-const RevenueChart = ({ data }) => {
+const RevenueChart = ({ data = [] }) => {
+  const currentYear = new Date().getFullYear();
+
   return (
     <div className="revenue-chart-card">
       <div className="chart-header">
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
           <h3 className="chart-title">Monthly Revenue Trend</h3>
-          <span className="chart-subtitle" style={{ margin: 0 }}>Fiscal year comparison Jan – May 2024</span>
+          <span className="chart-subtitle" style={{ margin: 0 }}>Fiscal year Jan – Dec {currentYear}</span>
         </div>
         <div className="chart-legend">
           <div className="legend-dot"></div>
@@ -33,7 +35,7 @@ const RevenueChart = ({ data }) => {
               tick={{ fill: '#64748b', fontSize: 11, fontWeight: 700 }}
               width={55}
               domain={[0, 'dataMax + 10000']}
-              tickFormatter={(val) => `₹${(val / 1000).toFixed(0)}k`}
+              tickFormatter={(val) => val >= 1000 ? `₹${(val / 1000).toFixed(0)}k` : `₹${val}`}
               strokeWidth={0}
             />
             <Tooltip 
@@ -47,14 +49,14 @@ const RevenueChart = ({ data }) => {
               }}
               itemStyle={{ color: '#0f172a', fontWeight: '700', fontSize: '0.85rem' }}
               labelStyle={{ fontWeight: '800', color: '#64748b', marginBottom: '4px', fontSize: '0.8rem' }}
-              formatter={(value) => [`₹${value.toLocaleString()}`, 'Revenue']}
+              formatter={(value) => [`₹${(value || 0).toLocaleString('en-IN')}`, 'Revenue']}
             />
             <Bar 
               dataKey="revenue" 
               radius={[8, 8, 0, 0]} 
               barSize={28}
             >
-              {data.map((entry, index) => (
+              {(data || []).map((entry, index) => (
                 <Cell 
                   key={`cell-${index}`} 
                   fill={index % 2 === 0 ? '#ea580c' : '#db2777'} 
