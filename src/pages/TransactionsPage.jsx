@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getPtAssignments, getOtherServicesSales, getExpenses, getSupplementSales } from '../api';
+import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getPtAssignments, getOtherServicesSales, getExpenses } from '../api';
 import { utils, writeFile, read } from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -73,15 +73,14 @@ const TransactionsPage = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [txnData, clientsData, genBookings, ptBookings, ptAssignmentsData, otherServiceSales, expensesData, suppSales] = await Promise.all([
+      const [txnData, clientsData, genBookings, ptBookings, ptAssignmentsData, otherServiceSales, expensesData] = await Promise.all([
         fetchTransactions(),
         getClients(),
         getGeneralBookings(),
         getPtAdvanceBookings(),
         getPtAssignments().catch(() => []),
         getOtherServicesSales().catch(() => []),
-        getExpenses().catch(() => []),
-        getSupplementSales().catch(() => [])
+        getExpenses().catch(() => [])
       ]);
       
       const map = {};
@@ -199,29 +198,6 @@ const TransactionsPage = () => {
           };
         });
 
-      const mappedSupplementSales = (suppSales || [])
-        .filter(s => {
-          if (s.invoice_id && existingBillIds.has(s.invoice_id)) return false;
-          if (s.id && existingTxnIds.has(String(s.id))) return false;
-          return true;
-        })
-        .map(s => {
-          const grossPrice = parseFloat(s.total_amount) || 0;
-          const payMethod = s.payment_mode ? `${s.payment_mode.toUpperCase()} (SUPPLEMENT)` : 'CASH (SUPPLEMENT)';
-          const buyerName = s.client_name || s.walkin_name || clientsMapById[s.client_id]?.name || 'Walk-in Customer';
-          return {
-            id: `supp-sale-${s.id}`,
-            clientId: s.client_id ? (clientsMapById[s.client_id]?.clientId || s.client_id) : 'WALK-IN',
-            name: `${buyerName} - ${s.supplement_name || 'Supplement'}`,
-            method: payMethod,
-            amount: grossPrice,
-            grossAmount: grossPrice,
-            discountAmount: 0,
-            date: s.sale_date ? s.sale_date.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : ''),
-            status: 'CAPTURED',
-            timestamp: s.created_at || s.sale_date || ''
-          };
-        });
 
       const mappedExpenses = (expensesData || []).map(e => {
         return {
@@ -286,7 +262,7 @@ const TransactionsPage = () => {
         };
       });
 
-      const combinedTxns = [...mappedTxnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedPtAssignments, ...mappedOtherServiceSales, ...mappedSupplementSales, ...mappedExpenses];
+      const combinedTxns = [...mappedTxnData, ...mappedGenBookings, ...mappedPtBookings, ...mappedPtAssignments, ...mappedOtherServiceSales, ...mappedExpenses];
       combinedTxns.sort((a, b) => {
         const timeA = parseTimeToMs(a);
         const timeB = parseTimeToMs(b);

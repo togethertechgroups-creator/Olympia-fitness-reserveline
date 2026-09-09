@@ -552,6 +552,17 @@ export const deletePtAssignment = async (id) => {
   return handleResponse(response);
 };
 
+export const payPtAssignmentDue = async (id, paymentData) => {
+  clearApiCache();
+  const response = await fetch(`${BASE_URL}/pt-assignments/${id}/pay-due`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(paymentData),
+  });
+  return handleResponse(response);
+};
+
+
 // PT Class Logs
 export const getPtClassLogsToday = async () => {
   const response = await fetch(`${BASE_URL}/pt-class-log/today`);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { getPtAssignments, getClients, getTrainers, getPtPackages, addPtAssignment, updatePtAssignment, deletePtAssignment, getPtClassHistory } from '../api';
+import { getPtAssignments, getClients, getTrainers, getPtPackages, addPtAssignment, updatePtAssignment, deletePtAssignment, getPtClassHistory, payPtAssignmentDue } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -459,6 +459,8 @@ const PTAssignmentPage = () => {
     custom_total_classes: '',
     custom_duration_days: 30,
     discount_amount: '',
+    paid_amount: '',
+    payment_method: 'CASH',
     assigned_date: new Date().toISOString().split('T')[0],
     timing: ''
   });
@@ -478,6 +480,81 @@ const PTAssignmentPage = () => {
     assignment: null,
     timing: ''
   });
+
+  // Pay Due Modal State
+  const [payDueModal, setPayDueModal] = useState({
+    isOpen: false,
+    assignment: null,
+    amount: '',
+    payment_method: 'CASH',
+    payment_date: new Date().toISOString().split('T')[0],
+    submitting: false
+  });
+
+  const handleOpenPayDueModal = (item) => {
+    const due = parseFloat(item.due_amount || 0);
+    setPayDueModal({
+      isOpen: true,
+      assignment: item,
+      amount: due,
+      payment_method: 'CASH',
+      payment_date: new Date().toISOString().split('T')[0],
+      submitting: false
+    });
+  };
+
+  const handleConfirmPayDue = async (e) => {
+    e.preventDefault();
+    if (!payDueModal.assignment) return;
+    const amountVal = parseFloat(payDueModal.amount);
+    if (isNaN(amountVal) || amountVal <= 0) {
+      alert('Please enter a valid payment amount.');
+      return;
+    }
+
+    setPayDueModal(prev => ({ ...prev, submitting: true }));
+    try {
+      const res = await payPtAssignmentDue(payDueModal.assignment.id, {
+        paidAmount: amountVal,
+        paymentMethod: payDueModal.payment_method,
+        paymentDate: payDueModal.payment_date
+      });
+
+      setPayDueModal({ isOpen: false, assignment: null, amount: '', payment_method: 'CASH', payment_date: '', submitting: false });
+      showCustomAlert('Due Paid Successfully', `Recorded payment of ₹${amountVal.toLocaleString('en-IN')} for ${payDueModal.assignment.clientName}.`);
+      await fetchAssignments();
+
+      if (res?.assignment) {
+        const item = res.assignment;
+        const grossPrice = parseFloat(item.package_price_snapshot || 0);
+        const discVal = parseFloat(item.discount_amount || 0);
+        const netPrice = Math.max(0, grossPrice - discVal);
+        const billObj = {
+          name: item.clientName,
+          phone: item.clientPhone,
+          clientId: item.clientCode,
+          plan: item.packageName,
+          amount: netPrice,
+          totalPlanAmount: netPrice,
+          paidAmount: item.paid_amount,
+          dueAmount: item.due_amount,
+          remainingBalance: item.due_amount,
+          paymentStatus: item.payment_status || (parseFloat(item.due_amount || 0) <= 0 ? 'Paid' : 'Partial'),
+          paymentMethod: payDueModal.payment_method,
+          fromDate: item.assigned_date,
+          expiryDate: item.expiry_date,
+          billNo: item.billNo || 'INV-0000',
+          invoice_category: 'PT',
+          discount_amount: discVal
+        };
+        setInvoiceModalData(billObj);
+        setInvoiceModalOpen(true);
+      }
+    } catch (err) {
+      alert('Failed to record payment: ' + (err.message || 'Unknown error'));
+      setPayDueModal(prev => ({ ...prev, submitting: false }));
+    }
+  };
 
   const handleOpenTimingModal = (item) => {
     setTimingModal({
@@ -663,6 +740,9 @@ const PTAssignmentPage = () => {
       custom_price: '',
       custom_total_classes: '',
       custom_duration_days: 30,
+      discount_amount: '',
+      paid_amount: '',
+      payment_method: 'CASH',
       assigned_date: new Date().toISOString().split('T')[0],
       timing: '',
       hasGst: isAct ? !!selClient?.gstin : false,
@@ -780,11 +860,20 @@ const PTAssignmentPage = () => {
     setGstError('');
 
     try {
+      const selPkg = packages.find(p => p.id === formData.pt_package_id);
+      const grossPrice = formData.is_custom ? parseFloat(formData.custom_price || 0) : (selPkg ? parseFloat(selPkg.price || 0) : 0);
+      const discAmt = parseFloat(formData.discount_amount || 0);
+      const netPayable = Math.max(0, grossPrice - discAmt);
+      const finalPaid = formData.paid_amount !== '' && formData.paid_amount !== undefined ? parseFloat(formData.paid_amount) : netPayable;
+      const payMethod = formData.payment_method || 'CASH';
+
       const payload = {
         client_id: formData.client_id,
         trainer_id: formData.trainer_id,
         assigned_date: formData.assigned_date,
-        discount_amount: parseFloat(formData.discount_amount || 0),
+        discount_amount: discAmt,
+        paid_amount: finalPaid,
+        payment_method: payMethod,
         hasGst: formData.hasGst,
         gstin: formData.hasGst ? formData.gstin.trim().toUpperCase() : null,
         timing: formData.timing ? formData.timing.trim() : null,
@@ -813,17 +902,17 @@ const PTAssignmentPage = () => {
         return next;
       }, { replace: true });
       
-      const selPackage = packages.find(p => p.id === formData.pt_package_id);
-      
       handleGeneratePtInvoice({
         id: result?.id || Date.now(),
         clientName: result?.clientName || selClient?.name || 'Client',
         clientPhone: result?.clientPhone || selClient?.phone || '',
         clientCode: result?.clientCode || selClient?.clientId || '',
-        packageName: result?.packageName || (formData.is_custom ? formData.custom_name : selPackage?.name) || 'PT Package',
+        packageName: result?.packageName || (formData.is_custom ? formData.custom_name : selPkg?.name) || 'PT Package',
         trainerName: result?.trainerName || selectedTrainer?.name || '',
-        package_price_snapshot: result?.package_price_snapshot || (formData.is_custom ? parseFloat(formData.custom_price) : selPackage?.price) || 0,
-        discount_amount: result?.discount_amount !== undefined ? parseFloat(result.discount_amount) : parseFloat(formData.discount_amount || 0),
+        package_price_snapshot: result?.package_price_snapshot || (formData.is_custom ? parseFloat(formData.custom_price) : selPkg?.price) || 0,
+        discount_amount: result?.discount_amount !== undefined ? parseFloat(result.discount_amount) : discAmt,
+        paid_amount: result?.paid_amount !== undefined ? parseFloat(result.paid_amount) : finalPaid,
+        payment_method: payMethod,
         assigned_date: formData.assigned_date,
         expiry_date: result?.expiry_date || '',
         billNo: result?.billNo || `INV-PT-${result?.id || Date.now()}`,
@@ -952,6 +1041,11 @@ const PTAssignmentPage = () => {
     const grossPrice = parseFloat(item.package_price_snapshot || item.price || 0);
     const disc = parseFloat(item.discount_amount || item.billDiscount || item.advDiscount || 0);
     const netPrice = Math.max(0, grossPrice - disc);
+    const paid = (item.paid_amount !== undefined && item.paid_amount !== null && item.paid_amount !== '')
+      ? parseFloat(item.paid_amount)
+      : (item.paidAmount !== undefined && item.paidAmount !== null && item.paidAmount !== '' ? parseFloat(item.paidAmount) : netPrice);
+    const due = Math.max(0, netPrice - paid);
+    const payStatus = due <= 0 ? 'Paid' : (paid > 0 ? 'Partial' : 'Due');
 
     setInvoiceClient({
       name: item.clientName,
@@ -959,11 +1053,12 @@ const PTAssignmentPage = () => {
       clientId: item.clientCode || item.client_id || '',
       plan: `PT Package — ${item.packageName} (${item.trainerName || 'Assigned Trainer'})`,
       amount: netPrice,
-      paidAmount: netPrice,
+      paidAmount: paid,
       totalPlanAmount: netPrice,
-      dueAmount: 0,
-      paymentStatus: 'Paid',
-      paymentMethod: item.paymentMethod || 'CASH',
+      dueAmount: due,
+      remainingBalance: due,
+      paymentStatus: payStatus,
+      paymentMethod: item.payment_method || item.paymentMethod || 'CASH',
       fromDate: item.assigned_date,
       expiryDate: item.expiry_date || 'N/A',
       billNo: item.billNo || `INV-PT-${item.id}`,
@@ -1197,12 +1292,26 @@ const PTAssignmentPage = () => {
                             }
                           }
 
+                          const dueAmt = parseFloat(item.due_amount || 0);
+                          const paidAmt = parseFloat(item.paid_amount !== undefined && item.paid_amount !== null ? item.paid_amount : net);
+
                           return (
                             <td style={{ fontWeight: '800', color: '#059669', fontSize: '0.95rem' }}>
                               <div>{formatCurrency(net)}</div>
                               {disc > 0 && (
                                 <div style={{ fontSize: '0.72rem', color: '#ea580c', fontWeight: '700', marginTop: '2px' }}>
                                   (₹{gross.toLocaleString('en-IN')} - ₹{disc.toLocaleString('en-IN')} disc)
+                                </div>
+                              )}
+                              {dueAmt > 0 ? (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', background: '#fff7ed', border: '1px solid #fed7aa', padding: '2px 6px', borderRadius: '6px', fontSize: '0.72rem', color: '#c2410c', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                                  <span>Due: ₹{dueAmt.toLocaleString('en-IN')}</span>
+                                  <span style={{ color: '#fdba74' }}>•</span>
+                                  <span style={{ color: '#15803d' }}>Paid: ₹{paidAmt.toLocaleString('en-IN')}</span>
+                                </div>
+                              ) : (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', background: '#dcfce7', border: '1px solid #bbf7d0', padding: '2px 6px', borderRadius: '6px', fontSize: '0.71rem', color: '#15803d', fontWeight: '800', marginTop: '3px', whiteSpace: 'nowrap' }}>
+                                  ✓ Paid in Full
                                 </div>
                               )}
                             </td>
@@ -1243,6 +1352,29 @@ const PTAssignmentPage = () => {
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                               History
                             </button>
+
+                            {parseFloat(item.due_amount || 0) > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPayDueModal(item)}
+                                style={{
+                                  padding: '0.35rem 0.65rem',
+                                  fontSize: '0.78rem',
+                                  fontWeight: '800',
+                                  borderRadius: '6px',
+                                  border: '1px solid #fed7aa',
+                                  background: '#fff7ed',
+                                  color: '#c2410c',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                title={`Pay Due Balance (₹${parseFloat(item.due_amount).toLocaleString('en-IN')})`}
+                              >
+                                💳 Pay Due
+                              </button>
+                            )}
 
                             {/* Edit & Delete Actions */}
                             {(() => {
@@ -1584,19 +1716,79 @@ const PTAssignmentPage = () => {
                 </div>
               )}
 
-              {/* Discount Amount */}
-              {isSuperAdmin && (
-                <div className="trainer-form-group">
-                  <label>Discount Amount (₹)</label>
+              {/* Pricing & Payment Fields */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                {isSuperAdmin && (
+                  <div className="trainer-form-group" style={{ marginBottom: 0 }}>
+                    <label>Discount Amount (₹)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={formData.discount_amount}
+                      onChange={e => { setFormData({ ...formData, discount_amount: e.target.value }); setIsDirty(true); }}
+                      placeholder="0"
+                    />
+                  </div>
+                )}
+
+                <div className="trainer-form-group" style={{ marginBottom: 0 }}>
+                  <label>Paid Amount (₹)</label>
                   <input
                     type="number"
                     min="0"
-                    value={formData.discount_amount}
-                    onChange={e => { setFormData({ ...formData, discount_amount: e.target.value }); setIsDirty(true); }}
-                    placeholder="0"
+                    placeholder={(() => {
+                      const sel = packages.find(p => String(p.id) === String(formData.pt_package_id));
+                      const gross = formData.is_custom ? parseFloat(formData.custom_price || 0) : (sel ? parseFloat(sel.price || 0) : 0);
+                      const disc = parseFloat(formData.discount_amount || 0);
+                      return Math.max(0, gross - disc);
+                    })()}
+                    value={formData.paid_amount}
+                    onChange={e => { setFormData({ ...formData, paid_amount: e.target.value }); setIsDirty(true); }}
                   />
                 </div>
-              )}
+
+                <div className="trainer-form-group" style={{ marginBottom: 0 }}>
+                  <label>Payment Mode</label>
+                  <select
+                    value={formData.payment_method || 'CASH'}
+                    onChange={e => { setFormData({ ...formData, payment_method: e.target.value }); setIsDirty(true); }}
+                    style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontWeight: '700', fontSize: '0.85rem', height: '42px' }}
+                  >
+                    <option value="CASH">CASH</option>
+                    <option value="UPI">UPI</option>
+                    <option value="CARD">CARD</option>
+                    <option value="BANK TRANSFER">BANK TRANSFER</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Due Amount Summary Breakdown */}
+              {(() => {
+                const selPackage = packages.find(p => String(p.id) === String(formData.pt_package_id));
+                const gross = formData.is_custom ? parseFloat(formData.custom_price || 0) : (selPackage ? parseFloat(selPackage.price || 0) : 0);
+                const disc = parseFloat(formData.discount_amount || 0);
+                const net = Math.max(0, gross - disc);
+                const paid = formData.paid_amount !== '' && formData.paid_amount !== undefined ? parseFloat(formData.paid_amount) || 0 : net;
+                const due = Math.max(0, net - paid);
+                return (
+                  <div style={{ background: '#f8fafc', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1rem', marginTop: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>TOTAL PAYABLE:</span>
+                      <strong style={{ color: '#0f172a' }}>₹{net.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                      <span style={{ color: '#64748b' }}>PAID NOW:</span>
+                      <strong style={{ color: '#16a34a' }}>₹{paid.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '4px', borderTop: '1px dashed #cbd5e1', fontSize: '0.95rem' }}>
+                      <span style={{ fontWeight: '700', color: due > 0 ? '#ea580c' : '#64748b' }}>DUE BALANCE:</span>
+                      <strong style={{ color: due > 0 ? '#ea580c' : '#10b981', fontSize: '1.05rem' }}>
+                        ₹{due.toLocaleString('en-IN')} {due > 0 ? '(Partial Payment)' : '(Full Paid)'}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Assigned Date */}
               <div className="trainer-form-group">
@@ -2105,6 +2297,101 @@ const PTAssignmentPage = () => {
                 {customPopup.type === 'confirm' ? 'Yes, Delete' : 'OK'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pay Due Modal */}
+      {payDueModal.isOpen && payDueModal.assignment && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: '440px', padding: '1.75rem', borderRadius: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: '800', color: '#1e1b4b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                💳 Clear PT Due Balance
+              </h3>
+              <button
+                type="button"
+                onClick={() => setPayDueModal({ isOpen: false, assignment: null, amount: '', payment_method: 'CASH', payment_date: '', submitting: false })}
+                style={{ background: 'none', border: 'none', fontSize: '1.4rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1rem', marginBottom: '1.25rem', fontSize: '0.88rem' }}>
+              <div style={{ color: '#475569', marginBottom: '4px' }}>
+                Client: <strong style={{ color: '#0f172a' }}>{payDueModal.assignment.clientName}</strong> ({formatShortId(payDueModal.assignment.clientCode)})
+              </div>
+              <div style={{ color: '#475569', marginBottom: '4px' }}>
+                Package: <strong style={{ color: '#0f172a' }}>{payDueModal.assignment.packageName}</strong>
+              </div>
+              <div style={{ color: '#ea580c', fontWeight: '800', fontSize: '0.95rem', marginTop: '6px' }}>
+                Pending Due Balance: ₹{parseFloat(payDueModal.assignment.due_amount || 0).toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmPayDue}>
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                  Amount Paying now (₹) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  max={parseFloat(payDueModal.assignment.due_amount || 0)}
+                  value={payDueModal.amount}
+                  onChange={(e) => setPayDueModal(prev => ({ ...prev, amount: e.target.value }))}
+                  required
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '1rem', fontWeight: '700', color: '#0f172a' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                  Payment Mode *
+                </label>
+                <select
+                  value={payDueModal.payment_method}
+                  onChange={(e) => setPayDueModal(prev => ({ ...prev, payment_method: e.target.value }))}
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600', color: '#0f172a' }}
+                >
+                  <option value="UPI">UPI / GPay / PhonePe</option>
+                  <option value="CASH">Cash</option>
+                  <option value="CARD">Credit / Debit Card</option>
+                  <option value="BANK_TRANSFER">Bank Transfer / NEFT</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: '1.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: '700', color: '#334155', marginBottom: '6px' }}>
+                  Payment Date *
+                </label>
+                <input
+                  type="date"
+                  value={payDueModal.payment_date}
+                  onChange={(e) => setPayDueModal(prev => ({ ...prev, payment_date: e.target.value }))}
+                  required
+                  style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '0.9rem', fontWeight: '600', color: '#0f172a' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setPayDueModal({ isOpen: false, assignment: null, amount: '', payment_method: 'CASH', payment_date: '', submitting: false })}
+                  style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', fontWeight: '700', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={payDueModal.submitting}
+                  style={{ padding: '0.65rem 1.5rem', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: '#ffffff', fontWeight: '800', cursor: payDueModal.submitting ? 'not-allowed' : 'pointer' }}
+                >
+                  {payDueModal.submitting ? 'Processing...' : 'Confirm & Record Payment'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

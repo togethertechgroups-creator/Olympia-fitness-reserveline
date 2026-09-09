@@ -68,6 +68,7 @@ const formatDate = (dateString) => {
 };
 
 const ClientMeasurementsPage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState(null);
   const [measurements, setMeasurements] = useState([]);
@@ -249,6 +250,11 @@ const ClientMeasurementsPage = () => {
       hip_waist_ratio: formData.hip_waist_ratio ? parseFloat(formData.hip_waist_ratio) : null,
     };
 
+    if (editingId && !isSuperAdmin) {
+      setErrorMessage('Only Super Admin can update existing measurement records.');
+      return;
+    }
+
     try {
       if (editingId) {
         await updateClientMeasurement(selectedClient.id, editingId, payload);
@@ -271,6 +277,10 @@ const ClientMeasurementsPage = () => {
   };
 
   const handleEditClick = (record) => {
+    if (!isSuperAdmin) {
+      setErrorMessage('Only Super Admin can edit measurement entries.');
+      return;
+    }
     setEditingId(record.id);
     setFormData({
       date: record.date,
@@ -294,6 +304,10 @@ const ClientMeasurementsPage = () => {
   };
 
   const handleDeleteClick = async (id) => {
+    if (!isSuperAdmin) {
+      alert('Only Super Admin can delete measurement entries.');
+      return;
+    }
     if (!window.confirm('Are you sure you want to delete this measurement entry?')) return;
     
     try {
@@ -637,7 +651,7 @@ const ClientMeasurementsPage = () => {
                           <th>Chest</th>
                           <th>Waist / Hip</th>
                           <th>Arm</th>
-                          <th style={{ textAlign: 'right' }}>Actions</th>
+                          {isSuperAdmin && <th style={{ textAlign: 'right' }}>Actions</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -650,20 +664,22 @@ const ClientMeasurementsPage = () => {
                             <td>{item.chest_inspiration ? `${item.chest_inspiration} cm` : '—'}</td>
                             <td>{item.waist && item.hip ? `${item.waist} / ${item.hip} cm` : '—'}</td>
                             <td>{item.arm ? `${item.arm} cm` : '—'}</td>
-                            <td style={{ textAlign: 'right' }}>
-                              <button
-                                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-bright)', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem', marginRight: '0.5rem', cursor: 'pointer' }}
-                                onClick={() => handleEditClick(item)}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem', cursor: 'pointer' }}
-                                onClick={() => handleDeleteClick(item.id)}
-                              >
-                                Delete
-                              </button>
-                            </td>
+                            {isSuperAdmin && (
+                              <td style={{ textAlign: 'right' }}>
+                                <button
+                                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--glass-border)', color: 'var(--text-bright)', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem', marginRight: '0.5rem', cursor: 'pointer' }}
+                                  onClick={() => handleEditClick(item)}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', padding: '0.35rem 0.7rem', borderRadius: '6px', fontSize: '0.78rem', cursor: 'pointer' }}
+                                  onClick={() => handleDeleteClick(item.id)}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>

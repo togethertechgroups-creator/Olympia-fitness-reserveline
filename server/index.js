@@ -849,6 +849,9 @@ async function initDb() {
       try { db.prepare("ALTER TABLE bills ADD COLUMN discount_amount REAL DEFAULT 0").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_name TEXT").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_phone TEXT").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN paid_amount REAL").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN due_amount REAL DEFAULT 0").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN payment_method TEXT DEFAULT 'CASH'").run(); } catch (e) { }
 
       try {
         db.prepare(`
@@ -2753,11 +2756,16 @@ app.get('/api/pt-assignments', async (req, res) => {
              t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
              COALESCE(a.discount_amount, 0) as billDiscount,
-             COALESCE(a.discount_amount, 0) as advDiscount
+             COALESCE(a.discount_amount, 0) as advDiscount,
+             COALESCE(b.paidAmount, a.paid_amount, a.package_price_snapshot - COALESCE(a.discount_amount, 0)) as paid_amount,
+             COALESCE(b.dueAmount, a.due_amount, 0) as due_amount,
+             COALESCE(b.paymentStatus, 'Paid') as payment_status,
+             b.billNo as billNo
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
       JOIN trainers t ON a.trainer_id = t.id
       JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN bills b ON a.invoice_id = b.id
       WHERE 1=1
     `;
     const params = [];
@@ -2782,11 +2790,16 @@ app.get('/api/clients/:clientId/pt-assignments', async (req, res) => {
              t.name as trainerName, t.trainerId as trainerCode, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
              COALESCE(a.discount_amount, 0) as billDiscount,
-             COALESCE(a.discount_amount, 0) as advDiscount
+             COALESCE(a.discount_amount, 0) as advDiscount,
+             COALESCE(b.paidAmount, a.paid_amount, a.package_price_snapshot - COALESCE(a.discount_amount, 0)) as paid_amount,
+             COALESCE(b.dueAmount, a.due_amount, 0) as due_amount,
+             COALESCE(b.paymentStatus, 'Paid') as payment_status,
+             b.billNo as billNo
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
       JOIN trainers t ON a.trainer_id = t.id
       JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN bills b ON a.invoice_id = b.id
       WHERE a.client_id = ? OR c.clientId = ?
       ORDER BY a.created_at DESC
     `).all(req.params.clientId, req.params.clientId);
@@ -2806,11 +2819,16 @@ app.get('/api/pt-assignments/client/:clientId', async (req, res) => {
              t.name as trainerName, t.grade as trainerGrade,
              p.name as packageName, p.category as packageCategory, p.duration_days, p.price as catalogPrice,
              COALESCE(a.discount_amount, 0) as billDiscount,
-             COALESCE(a.discount_amount, 0) as advDiscount
+             COALESCE(a.discount_amount, 0) as advDiscount,
+             COALESCE(b.paidAmount, a.paid_amount, a.package_price_snapshot - COALESCE(a.discount_amount, 0)) as paid_amount,
+             COALESCE(b.dueAmount, a.due_amount, 0) as due_amount,
+             COALESCE(b.paymentStatus, 'Paid') as payment_status,
+             b.billNo as billNo
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id OR a.client_id = c.clientId
       JOIN trainers t ON a.trainer_id = t.id
       JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN bills b ON a.invoice_id = b.id
       WHERE a.client_id = ? OR c.clientId = ?
       ORDER BY a.created_at DESC
     `).all(clientId, clientId);
@@ -2883,6 +2901,13 @@ app.post('/api/pt-assignments', async (req, res) => {
     const assignDate = assigned_date || new Date().toISOString().split('T')[0];
     const expiryDate = calculateExpiryDate(assignDate, packageDurationDays);
     const discVal = parseFloat(discount_amount || 0);
+    const grossPrice = priceSnapshot;
+    const discountedPrice = Math.max(0, grossPrice - discVal);
+    const paidAmountVal = (paid_amount !== undefined && paid_amount !== null && paid_amount !== '')
+      ? parseFloat(paid_amount)
+      : discountedPrice;
+    const dueAmountVal = Math.max(0, discountedPrice - paidAmountVal);
+    const payMethodVal = payment_method || 'CASH';
 
     // Automatic Invoice Generation
     const invoiceObj = await generatePtInvoice(client_id, pkgName, priceSnapshot, assignDate, expiryDate, discVal, paid_amount, payment_method, gstin);
@@ -2890,20 +2915,24 @@ app.post('/api/pt-assignments', async (req, res) => {
 
     const result = await db.prepare(`
       INSERT INTO pt_assignments (
-        client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id, timing
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?, ?)
-    `).run(client_id, finalPackageId, trainer_id, priceSnapshot, discVal, totalClassesSnapshot, assignDate, expiryDate, invoiceId, timing || null);
+        client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, paid_amount, due_amount, payment_method, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id, timing
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?, ?)
+    `).run(client_id, finalPackageId, trainer_id, priceSnapshot, discVal, paidAmountVal, dueAmountVal, payMethodVal, totalClassesSnapshot, assignDate, expiryDate, invoiceId, timing || null);
 
     const newAssignment = await db.prepare(`
-      SELECT a.*, c.name as clientName, c.clientId as clientCode, c.phone as clientPhone, c.gstin as clientGstin, t.name as trainerName, p.name as packageName, p.duration_days
+      SELECT a.*, c.name as clientName, c.clientId as clientCode, c.phone as clientPhone, c.gstin as clientGstin, t.name as trainerName, p.name as packageName, p.duration_days,
+             COALESCE(b.paidAmount, a.paid_amount, a.package_price_snapshot - COALESCE(a.discount_amount, 0)) as paid_amount,
+             COALESCE(b.dueAmount, a.due_amount, 0) as due_amount,
+             COALESCE(b.paymentStatus, 'Paid') as payment_status
       FROM pt_assignments a
       JOIN clients c ON a.client_id = c.id
       JOIN trainers t ON a.trainer_id = t.id
       JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN bills b ON a.invoice_id = b.id
       WHERE a.id = ?
     `).get(result.lastInsertRowid);
 
-    res.status(201).json({ ...newAssignment, billNo: invoiceObj?.billNo });
+    res.status(201).json({ ...newAssignment, billNo: invoiceObj?.billNo, billId: invoiceObj?.billId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2994,6 +3023,90 @@ app.put('/api/pt-assignments/:id', async (req, res) => {
 
     res.json({ success: true, assignment: updated });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST pay due amount for PT Assignment
+app.post('/api/pt-assignments/:id/pay-due', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paidAmount, paymentMethod, paymentDate } = req.body;
+
+    const assignment = await db.prepare('SELECT * FROM pt_assignments WHERE id = ?').get(id);
+    if (!assignment) return res.status(404).json({ error: 'PT Assignment not found' });
+
+    const amountToPay = parseFloat(paidAmount);
+    if (isNaN(amountToPay) || amountToPay <= 0) {
+      return res.status(400).json({ error: 'Invalid paid amount' });
+    }
+
+    const currentDue = parseFloat(assignment.due_amount || 0);
+    const currentPaid = parseFloat(assignment.paid_amount || 0);
+    const newDue = Math.max(0, currentDue - amountToPay);
+    const newPaid = currentPaid + amountToPay;
+    const payMethod = paymentMethod || assignment.payment_method || 'CASH';
+    const payDate = paymentDate || new Date().toISOString().split('T')[0];
+
+    // Update PT Assignment
+    await db.prepare(`
+      UPDATE pt_assignments
+      SET paid_amount = ?, due_amount = ?, payment_method = ?
+      WHERE id = ?
+    `).run(newPaid, newDue, payMethod, id);
+
+    // Update associated bill & insert transaction if invoice_id exists
+    if (assignment.invoice_id) {
+      const bill = await db.prepare('SELECT * FROM bills WHERE id = ?').get(assignment.invoice_id);
+      if (bill) {
+        const billDue = Math.max(0, parseFloat(bill.dueAmount || 0) - amountToPay);
+        const billPaid = parseFloat(bill.paidAmount || 0) + amountToPay;
+        const billStatus = billDue <= 0 ? 'Paid' : 'Partial';
+
+        await db.prepare(`
+          UPDATE bills
+          SET paidAmount = ?, dueAmount = ?, remainingBalance = ?, paymentStatus = ?
+          WHERE id = ?
+        `).run(billPaid, billDue, billDue, billStatus, assignment.invoice_id);
+
+        const txId = `tx-ptdue-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+        const client = await db.prepare('SELECT name FROM clients WHERE id = ?').get(assignment.client_id);
+        const clientName = client ? client.name : 'PT Client';
+
+        try {
+          await db.prepare(`
+            INSERT INTO transactions (id, clientId, billId, name, method, amount, date, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(txId, assignment.client_id, assignment.invoice_id, clientName, payMethod, amountToPay, payDate, payDate);
+        } catch (e) {}
+      }
+    }
+
+    // Cascade update client due amount
+    const client = await db.prepare('SELECT * FROM clients WHERE id = ? OR clientId = ?').get(assignment.client_id, assignment.client_id);
+    if (client) {
+      const clientDue = Math.max(0, parseFloat(client.dueAmount || 0) - amountToPay);
+      const clientStatus = clientDue <= 0 ? 'Paid' : 'Partial';
+      await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(clientDue, clientStatus, client.id);
+    }
+
+    const updatedAssignment = await db.prepare(`
+      SELECT a.*, c.name as clientName, c.clientId as clientCode, c.phone as clientPhone, c.gstin as clientGstin, t.name as trainerName, p.name as packageName, p.duration_days,
+             COALESCE(b.paidAmount, a.paid_amount) as paid_amount,
+             COALESCE(b.dueAmount, a.due_amount, 0) as due_amount,
+             COALESCE(b.paymentStatus, 'Paid') as payment_status,
+             b.billNo as billNo
+      FROM pt_assignments a
+      JOIN clients c ON a.client_id = c.id
+      JOIN trainers t ON a.trainer_id = t.id
+      JOIN pt_packages p ON a.pt_package_id = p.id
+      LEFT JOIN bills b ON a.invoice_id = b.id
+      WHERE a.id = ?
+    `).get(id);
+
+    res.json({ success: true, assignment: updatedAssignment });
+  } catch (err) {
+    console.error('Error paying PT assignment due:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -4032,10 +4145,9 @@ async function getMonthlyGymTotalRevenue(targetMonth) {
     const lastDay = new Date(year, month, 0).getDate();
     const endObj = new Date(year, month - 1, lastDay, 23, 59, 59, 999);
 
-    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
+    const [allTxns, otherSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, total_amount, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all()
@@ -4058,15 +4170,6 @@ async function getMonthlyGymTotalRevenue(targetMonth) {
       const d = parseAnyDate(s.sale_date || s.created_at);
       if (d && d >= startObj && d <= endObj) {
         total += (parseFloat(s.price_snapshot) || 0);
-      }
-    });
-
-    // 3. Supplement sales in target month (only if not already in transactions table)
-    (suppSales || []).forEach(s => {
-      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
-      const d = parseAnyDate(s.sale_date || s.created_at);
-      if (d && d >= startObj && d <= endObj) {
-        total += (parseFloat(s.total_amount) || 0);
       }
     });
 
@@ -5491,10 +5594,9 @@ app.get('/api/dashboard/stats', async (req, res) => {
     const endObj = parseAnyDate(endDate) || new Date();
     endObj.setHours(23, 59, 59, 999);
 
-    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, allExpenses, ptAssignmentsAll, allBillsInRange, inactivePtCountRes, activePtCountRes] = await Promise.all([
+    const [allTxns, otherSales, genBookingsAll, ptBookingsAll, allExpenses, ptAssignmentsAll, allBillsInRange, inactivePtCountRes, activePtCountRes] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, total_amount, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
@@ -5522,15 +5624,6 @@ app.get('/api/dashboard/stats', async (req, res) => {
       const d = parseAnyDate(s.sale_date || s.created_at);
       if (d && d >= startObj && d <= endObj) {
         rangeRevenue += (parseFloat(s.price_snapshot) || 0);
-      }
-    });
-
-    // 3. Supplement sales in range (only if not already in transactions table)
-    (suppSales || []).forEach(s => {
-      if ((s.invoice_id && txnBillIds.has(s.invoice_id)) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
-      const d = parseAnyDate(s.sale_date || s.created_at);
-      if (d && d >= startObj && d <= endObj) {
-        rangeRevenue += (parseFloat(s.total_amount) || 0);
       }
     });
 
@@ -5634,7 +5727,6 @@ app.get('/api/stats', async (req, res) => {
     const [
       allTxns,
       otherServiceSalesAll,
-      suppSalesAllStats,
       genBookingsAllStats,
       ptBookingsAllStats,
       ptAssignmentsAllStats,
@@ -5648,7 +5740,6 @@ app.get('/api/stats', async (req, res) => {
     ] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, total_amount, quantity, cost_price_snapshot, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
@@ -5697,16 +5788,6 @@ app.get('/api/stats', async (req, res) => {
       })
       .reduce((sum, s) => sum + (s.price_snapshot || 0), 0);
 
-    const monthlySuppSalesRev = (suppSalesAllStats || [])
-      .filter(s => {
-        const d = parseAnyDate(s.sale_date || s.created_at);
-        if (!d) return false;
-        const mStr = String(d.getMonth() + 1).padStart(2, '0');
-        const yStr = String(d.getFullYear());
-        return mStr === mm && yStr === String(currentYear);
-      })
-      .reduce((sum, s) => sum + (s.total_amount || 0), 0);
-
     const monthlyGenBookingsRev = (genBookingsAllStats || [])
       .filter(b => (!b.invoice_id || !txnBillIds.has(b.invoice_id)) && (!b.id || (!txnIds.has(String(b.id)) && !txnIds.has(`gen-adv-${b.id}`))))
       .filter(b => {
@@ -5748,7 +5829,7 @@ app.get('/api/stats', async (req, res) => {
         const yStr = String(d.getFullYear());
         return mStr === mm && yStr === String(currentYear);
       })
-      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlyPtAssignmentsRev + monthlySuppSalesRev;
+      .reduce((sum, t) => sum + (t.amount || 0), 0) + monthlyUnloggedOtherServiceRevenue + monthlyGenBookingsRev + monthlyPtBookingsRev + monthlyPtAssignmentsRev;
 
     const monthlyExpensesVal = (allExpenses || [])
       .filter(e => {
@@ -5901,10 +5982,9 @@ app.get('/api/revenue', async (req, res) => {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const targetYear = req.query.year ? parseInt(req.query.year, 10) : new Date().getFullYear();
 
-    const [allTxns, otherSales, suppSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
+    const [allTxns, otherSales, genBookingsAll, ptBookingsAll, ptAssignmentsAll] = await Promise.all([
       db.prepare('SELECT id, billId, amount, date, timestamp FROM transactions').all(),
       db.prepare('SELECT id, invoice_id, price_snapshot, sale_date, created_at FROM other_service_sales').all(),
-      db.prepare('SELECT id, invoice_id, total_amount, sale_date, created_at FROM supplement_sales').all(),
       db.prepare("SELECT id, invoice_id, price, discount_amount, paid_amount, created_at, booking_start_date FROM general_package_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, price_snapshot, discount_amount, paid_amount, created_at, booking_start_date FROM pt_advance_bookings WHERE status != 'Cancelled'").all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all()
@@ -5934,12 +6014,6 @@ app.get('/api/revenue', async (req, res) => {
     (otherSales || []).forEach(s => {
       if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`other-svc-${s.id}`)))) return;
       processItem(s.sale_date || s.created_at, s.price_snapshot);
-    });
-
-    // 3. Supplement sales (not in transactions)
-    (suppSales || []).forEach(s => {
-      if ((s.invoice_id && txnBillIds.has(String(s.invoice_id))) || (s.id && (txnIds.has(String(s.id)) || txnIds.has(`supp-sale-${s.id}`)))) return;
-      processItem(s.sale_date || s.created_at, s.total_amount);
     });
 
     // 4. General Package Advance Bookings (not in transactions)
