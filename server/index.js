@@ -1244,9 +1244,53 @@ async function initDb() {
     console.error('Migration error:', err.message);
   }
 };
+const cleanupDuplicateAdvanceBookingTransactions = async () => {
+  try {
+    const ptAssignments = await db.prepare(`
+      SELECT a.id as assignId, a.client_id, a.assigned_date, a.expiry_date, a.invoice_id as assignInvoiceId,
+             b.id as bookingId, b.invoice_id as bookingInvoiceId
+      FROM pt_assignments a
+      JOIN pt_advance_bookings b ON (
+        (a.client_id = b.client_id OR CAST(a.client_id AS TEXT) = CAST(b.client_id AS TEXT))
+        AND a.pt_package_id = b.pt_package_id
+      )
+      WHERE b.invoice_id IS NOT NULL 
+        AND a.invoice_id IS NOT NULL 
+        AND a.invoice_id != b.invoice_id
+    `).all();
+
+    for (const item of (ptAssignments || [])) {
+      const bookingBill = await db.prepare('SELECT * FROM bills WHERE CAST(id AS TEXT) = ?').get(String(item.bookingInvoiceId));
+      const assignBill = await db.prepare('SELECT * FROM bills WHERE CAST(id AS TEXT) = ?').get(String(item.assignInvoiceId));
+
+      if (bookingBill && assignBill) {
+        const txB = await db.prepare('SELECT id FROM transactions WHERE CAST(billId AS TEXT) = ?').all(String(item.assignInvoiceId));
+        
+        for (const tx of (txB || [])) {
+          await db.prepare('DELETE FROM transactions WHERE id = ?').run(tx.id);
+          console.log(`✅ Removed duplicate transaction ${tx.id} generated during PT advance activation.`);
+        }
+
+        await db.prepare('DELETE FROM bills WHERE CAST(id AS TEXT) = ?').run(String(item.assignInvoiceId));
+        console.log(`✅ Removed duplicate bill ${item.assignInvoiceId} generated during PT advance activation.`);
+
+        await db.prepare('UPDATE pt_assignments SET invoice_id = ? WHERE id = ?').run(item.bookingInvoiceId, item.assignId);
+        await db.prepare(`
+          UPDATE bills 
+          SET invoice_category = 'PT', joinDate = ?, expiryDate = ? 
+          WHERE CAST(id AS TEXT) = ?
+        `).run(item.assigned_date, item.expiry_date, String(item.bookingInvoiceId));
+      }
+    }
+  } catch (err) {
+    console.error('Error cleaning up duplicate advance booking transactions:', err.message);
+  }
+};
+
 if (!process.env.CF_WORKER) {
   initDb().then(() => {
     backfillPtAssignmentTransactions().catch(err => console.error('Backfill error:', err));
+    cleanupDuplicateAdvanceBookingTransactions().catch(err => console.error('Cleanup error:', err));
   }).catch(err => console.error('initDb error:', err));
 }
 
@@ -3867,9 +3911,29 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
     const assignDate = new Date().toISOString().split('T')[0];
     const expiryDate = calculateExpiryDate(assignDate, durationDays);
 
-    const paidAmtToPass = booking.paid_amount !== undefined && booking.paid_amount !== null ? booking.paid_amount : null;
-    const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), paidAmtToPass, booking.payment_method || 'UPI');
-    const invoiceId = invoiceObj ? invoiceObj.billId : null;
+    let invoiceId = booking.invoice_id;
+    let billNo = null;
+
+    if (invoiceId) {
+      const existingBill = await db.prepare('SELECT id, billNo FROM bills WHERE CAST(id AS TEXT) = ?').get(String(invoiceId));
+      if (existingBill) {
+        billNo = existingBill.billNo;
+        await db.prepare(`
+          UPDATE bills 
+          SET joinDate = ?, expiryDate = ?, invoice_category = 'PT'
+          WHERE CAST(id AS TEXT) = ?
+        `).run(assignDate, expiryDate, String(invoiceId));
+      } else {
+        invoiceId = null;
+      }
+    }
+
+    if (!invoiceId) {
+      const paidAmtToPass = booking.paid_amount !== undefined && booking.paid_amount !== null ? booking.paid_amount : null;
+      const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), paidAmtToPass, booking.payment_method || 'UPI');
+      invoiceId = invoiceObj ? invoiceObj.billId : null;
+      billNo = invoiceObj ? invoiceObj.billNo : null;
+    }
 
     // Complete any previous active PT assignment for this client
     try {
@@ -3914,7 +3978,7 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
       `).get(assignResult.lastInsertRowid);
     } catch (e) {}
 
-    res.json({ success: true, assignment: newAssignment, billNo: invoiceObj?.billNo });
+    res.json({ success: true, assignment: newAssignment, billNo: billNo || booking.billNo });
   } catch (err) {
     console.error('Error activating PT advance booking:', err);
     res.status(500).json({ error: err.message });
@@ -5602,8 +5666,18 @@ app.get('/api/dashboard/stats', async (req, res) => {
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all(),
-      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get(),
-      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE LOWER(COALESCE(status, '')) = 'active'").get()
+      db.prepare(`
+        SELECT COUNT(*) as cnt FROM pt_assignments 
+        WHERE LOWER(COALESCE(status, '')) IN ('expired', 'cancelled', 'completed', 'inactive')
+           OR (expiry_date IS NOT NULL AND expiry_date != '' AND expiry_date < CURRENT_DATE)
+           OR (total_classes_snapshot > 0 AND classes_completed >= total_classes_snapshot)
+      `).get(),
+      db.prepare(`
+        SELECT COUNT(*) as cnt FROM pt_assignments 
+        WHERE LOWER(COALESCE(status, '')) = 'active'
+          AND (expiry_date IS NULL OR expiry_date = '' OR expiry_date >= CURRENT_DATE)
+          AND (total_classes_snapshot = 0 OR classes_completed < total_classes_snapshot)
+      `).get()
     ]);
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
@@ -5745,8 +5819,18 @@ app.get('/api/stats', async (req, res) => {
       db.prepare("SELECT id, invoice_id, package_price_snapshot, discount_amount, assigned_date, created_at FROM pt_assignments WHERE LOWER(COALESCE(status, '')) != 'cancelled'").all(),
       db.prepare('SELECT id, amount, date, timestamp FROM expenses').all(),
       db.prepare('SELECT id, status, expiryDate, gender, ptCategory, ptToDate, admissionDate, amount FROM clients').all(),
-      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE status IN ('Expired', 'Cancelled')").get(),
-      db.prepare("SELECT COUNT(*) as cnt FROM pt_assignments WHERE LOWER(COALESCE(status, '')) = 'active'").get(),
+      db.prepare(`
+        SELECT COUNT(*) as cnt FROM pt_assignments 
+        WHERE LOWER(COALESCE(status, '')) IN ('expired', 'cancelled', 'completed', 'inactive')
+           OR (expiry_date IS NOT NULL AND expiry_date != '' AND expiry_date < CURRENT_DATE)
+           OR (total_classes_snapshot > 0 AND classes_completed >= total_classes_snapshot)
+      `).get(),
+      db.prepare(`
+        SELECT COUNT(*) as cnt FROM pt_assignments 
+        WHERE LOWER(COALESCE(status, '')) = 'active'
+          AND (expiry_date IS NULL OR expiry_date = '' OR expiry_date >= CURRENT_DATE)
+          AND (total_classes_snapshot = 0 OR classes_completed < total_classes_snapshot)
+      `).get(),
       db.prepare("SELECT COUNT(*) as cnt FROM general_package_bookings WHERE LOWER(status) = 'scheduled'").get(),
       db.prepare("SELECT COUNT(*) as cnt FROM pt_advance_bookings WHERE LOWER(status) IN ('scheduled', 'readytoactivate')").get(),
       db.prepare('SELECT id, discount_amount, invoiceDate, timestamp FROM bills WHERE discount_amount > 0').all()
@@ -7902,10 +7986,12 @@ app.initDb = initDb;
 app.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
 app.autoActivateAdvanceBookings = autoActivateAdvanceBookings;
 app.autoExpireAssignments = autoExpireAssignments;
+app.cleanupDuplicateAdvanceBookingTransactions = cleanupDuplicateAdvanceBookingTransactions;
 
 module.exports = app;
 module.exports.initDb = initDb;
 module.exports.backfillPtAssignmentTransactions = backfillPtAssignmentTransactions;
 module.exports.autoActivateAdvanceBookings = autoActivateAdvanceBookings;
 module.exports.autoExpireAssignments = autoExpireAssignments;
+module.exports.cleanupDuplicateAdvanceBookingTransactions = cleanupDuplicateAdvanceBookingTransactions;
 

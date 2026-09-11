@@ -33,7 +33,7 @@ const OtherServicesPage = () => {
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('Active');
   const [fromDate, setFromDate] = useState(initialDates.firstDay);
   const [toDate, setToDate] = useState(initialDates.lastDay);
 
@@ -455,25 +455,8 @@ const OtherServicesPage = () => {
 
   const isItemWalkin = (item) => Boolean(item.is_walkin || item.walkin_name || item.clientCode === 'WALKIN');
 
-  // Scoped sales list for current active section tab
-  const sectionSalesList = salesList.filter(item => {
-    const walkin = isItemWalkin(item);
-    if (activeSection === 'walkin') return walkin;
-    if (activeSection === 'member') return !walkin;
-    return true;
-  });
-
-  // Filtering sales list by search, status & date range
-  const filteredSales = sectionSalesList.filter(item => {
-    const daysLeft = calculateDaysLeft(item.expiryDate);
-    const isExpired = daysLeft !== null && daysLeft < 0;
-
-    let matchesStatus = true;
-    if (statusFilter === 'Active') matchesStatus = !isExpired && item.paymentStatus !== 'Due';
-    if (statusFilter === 'Expired') matchesStatus = isExpired;
-    if (statusFilter === 'Due') matchesStatus = item.paymentStatus === 'Due';
-
-    // Date range filter based on sale_date or created_at
+  // 1. Filter all sales by selected date range & search term
+  const dateAndSearchFilteredSales = salesList.filter(item => {
     let matchesDate = true;
     const saleDateStr = (item.sale_date || item.created_at || '').split('T')[0];
     if (fromDate && saleDateStr) {
@@ -492,7 +475,31 @@ const OtherServicesPage = () => {
       (item.serviceName || '').toLowerCase().includes(searchLower) ||
       (item.billNo || '').toLowerCase().includes(searchLower);
 
-    return matchesStatus && matchesDate && matchesSearch;
+    return matchesDate && matchesSearch;
+  });
+
+  const walkinSalesCount = dateAndSearchFilteredSales.filter(isItemWalkin).length;
+  const memberSalesCount = dateAndSearchFilteredSales.filter(s => !isItemWalkin(s)).length;
+
+  // 2. Scoped sales list for current active section tab ('member' | 'walkin' | 'all')
+  const sectionSalesList = dateAndSearchFilteredSales.filter(item => {
+    const walkin = isItemWalkin(item);
+    if (activeSection === 'walkin') return walkin;
+    if (activeSection === 'member') return !walkin;
+    return true;
+  });
+
+  // 3. Filtering sales list by status for table display
+  const filteredSales = sectionSalesList.filter(item => {
+    const daysLeft = calculateDaysLeft(item.expiryDate);
+    const isExpired = daysLeft !== null && daysLeft < 0;
+
+    let matchesStatus = true;
+    if (statusFilter === 'Active') matchesStatus = !isExpired && item.paymentStatus !== 'Due';
+    if (statusFilter === 'Expired') matchesStatus = isExpired;
+    if (statusFilter === 'Due') matchesStatus = item.paymentStatus === 'Due';
+
+    return matchesStatus;
   });
 
   // Pagination calculations
@@ -508,7 +515,7 @@ const OtherServicesPage = () => {
     }
   }, [totalPages, currentPage]);
 
-  // Summary Metrics scoped to active tab
+  // Summary Metrics scoped to active tab & date range
   const totalSalesCount = sectionSalesList.length;
   const totalRevenue = sectionSalesList.reduce((sum, item) => {
     const paid = parseFloat(item.paidAmount);
@@ -517,12 +524,13 @@ const OtherServicesPage = () => {
   }, 0);
   const activeCount = sectionSalesList.filter(item => {
     const days = calculateDaysLeft(item.expiryDate);
-    return days === null || days >= 0;
+    const isExpired = days !== null && days < 0;
+    return !isExpired && item.paymentStatus !== 'Due';
   }).length;
-  const expiredCount = totalSalesCount - activeCount;
-
-  const walkinSalesCount = salesList.filter(isItemWalkin).length;
-  const memberSalesCount = salesList.filter(s => !isItemWalkin(s)).length;
+  const expiredCount = sectionSalesList.filter(item => {
+    const days = calculateDaysLeft(item.expiryDate);
+    return days !== null && days < 0;
+  }).length;
 
   const formatCurrency = (val) => `₹${(parseFloat(val) || 0).toLocaleString('en-IN')}`;
 
@@ -600,7 +608,7 @@ const OtherServicesPage = () => {
         >
           <span className="tab-icon">📋</span>
           <span>All Service Sales</span>
-          <span className="tab-count-pill">{salesList.length}</span>
+          <span className="tab-count-pill">{dateAndSearchFilteredSales.length}</span>
         </button>
       </div>
 

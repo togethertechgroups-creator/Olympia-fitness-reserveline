@@ -472,10 +472,36 @@ const ManageClientsPage = () => {
   };
 
   const getTariffKeys = () => {
-    return Array.from(new Set([
-      ...Object.keys(settings).filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet')).map(k => k.replace('_Strengthening', '')),
-      'MONTHLY', 'QUARTERLY', 'HALF YEAR', '1 YEAR', '2 YEARS', 'Monthly', 'Quarterly', 'Half-Yearly', 'Annual'
-    ])).filter(planBase => !(settings[`${planBase}_hidden`] === 1 || settings[`${planBase}_hidden`] === '1'));
+    const customKeys = Object.keys(settings)
+      .filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet'))
+      .map(k => k.replace('_Strengthening', ''));
+
+    const fallbackDefaults = ['Monthly', 'Quarterly', 'Half-Yearly', 'Annual'];
+    const keysToProcess = customKeys.length > 0 ? customKeys : fallbackDefaults;
+
+    const uniqueMap = new Map();
+    for (const key of keysToProcess) {
+      if (!key) continue;
+      const lower = key.trim().toLowerCase();
+      if (settings[`${key}_hidden`] === 1 || settings[`${key}_hidden`] === '1' || settings[`${lower}_hidden`] === 1 || settings[`${lower}_hidden`] === '1') {
+        continue;
+      }
+      if (!uniqueMap.has(lower)) {
+        uniqueMap.set(lower, key);
+      } else {
+        const existingKey = uniqueMap.get(lower);
+        if (getTariffPrice(existingKey) === 0 && getTariffPrice(key) > 0) {
+          uniqueMap.set(lower, key);
+        }
+      }
+    }
+
+    return Array.from(uniqueMap.values()).filter(planBase => {
+      if (customKeys.length > 0 && getTariffPrice(planBase) === 0) {
+        return false;
+      }
+      return true;
+    });
   };
 
   const getTariffPrice = (plan) => {
@@ -1801,10 +1827,10 @@ const ManageClientsPage = () => {
 
         // Bookings and Services
         const clientGenBookings = (advanceBookings.general || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled' && b.status !== 'Active'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
         );
         const clientPtBookings = (advanceBookings.pt || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled' && b.status !== 'Active'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
         );
         const otherServices = viewClientModal.otherServices || [];
 
@@ -1862,8 +1888,13 @@ const ManageClientsPage = () => {
           });
 
           // 2. Process remaining bills (General membership, other services, or unmatched PT bills)
+          //    Skip GeneralAdvance and PTAdvance bills — they are handled in steps 3 & 4
+          //    via the advance booking records (to prevent duplicate entries).
           bills.forEach(b => {
             if (processedBillIds.has(b.id)) return;
+
+            // Skip advance booking bills — shown via clientGenBookings / clientPtBookings below
+            if (b.invoice_category === 'GeneralAdvance' || b.invoice_category === 'PTAdvance') return;
 
             const isPt = b.invoice_category === 'PT' || (b.planName && b.planName.toLowerCase().includes('pt package'));
             if (isPt) {
@@ -1890,43 +1921,62 @@ const ManageClientsPage = () => {
             });
           });
 
+          // 3. Process general advance bookings — merge linked GeneralAdvance bill data (billNo, amounts)
           clientGenBookings.forEach(b => {
-            const exists = history.some(item => item.planName === b.plan_type && item.startDate === b.booking_start_date);
-            if (!exists) {
-              const net = Math.max(0, Number(b.price || 0) - Number(b.discount_amount || 0));
-              history.push({
-                id: `gen-adv-${b.id}`,
-                type: 'Advance General',
-                planName: b.plan_type || 'General Plan',
-                startDate: b.booking_start_date,
-                expiryDate: b.booking_end_date,
-                amount: net,
-                paidAmount: net,
-                dueAmount: 0,
-                paymentStatus: b.status || 'Scheduled',
-                date: b.created_at || b.booking_start_date
-              });
-            }
+            // Look up the GeneralAdvance bill linked to this booking
+            const linkedBill = b.invoice_id
+              ? bills.find(bl => String(bl.id) === String(b.invoice_id) || String(bl.billNo) === String(b.invoice_id))
+              : bills.find(bl => bl.invoice_category === 'GeneralAdvance' && bl.joinDate === b.booking_start_date && bl.expiryDate === b.booking_end_date);
+
+            const net = Math.max(0, Number(b.price || 0) - Number(b.discount_amount || 0));
+            const finalPaid = linkedBill ? Number(linkedBill.paidAmount || 0) : Number(b.paid_amount !== undefined ? b.paid_amount : net);
+            const finalDue = linkedBill ? Number(linkedBill.dueAmount || 0) : Number(b.due_amount || 0);
+            const finalStatus = linkedBill ? (linkedBill.paymentStatus || b.status) : b.status;
+
+            history.push({
+              id: `gen-adv-${b.id}`,
+              type: 'Advance General',
+              planName: b.plan_type || 'General Plan',
+              billNo: linkedBill?.billNo || (b.invoice_id ? `${b.invoice_id}` : null),
+              startDate: b.booking_start_date,
+              expiryDate: b.booking_end_date,
+              amount: net,
+              paidAmount: finalPaid,
+              dueAmount: finalDue,
+              paymentStatus: finalStatus || 'Scheduled',
+              date: b.created_at || b.booking_start_date,
+              billObj: linkedBill || null,
+              bookingStatus: b.status
+            });
           });
 
+          // 4. Process PT advance bookings — merge linked PTAdvance bill data (billNo, amounts)
           clientPtBookings.forEach(b => {
-            const exists = history.some(item => item.planName === b.packageName && item.startDate === b.booking_start_date);
-            if (!exists) {
-              const net = Math.max(0, Number(b.price_snapshot || 0) - Number(b.discount_amount || 0));
-              history.push({
-                id: `pt-adv-${b.id}`,
-                type: 'Advance PT',
-                planName: b.packageName || 'PT Package',
-                trainerName: b.trainerName || 'Assigned',
-                startDate: b.booking_start_date,
-                expiryDate: b.expiry_date || b.booking_end_date,
-                amount: net,
-                paidAmount: net,
-                dueAmount: 0,
-                paymentStatus: b.status || 'Scheduled',
-                date: b.created_at || b.booking_start_date
-              });
-            }
+            const linkedBill = b.invoice_id
+              ? bills.find(bl => String(bl.id) === String(b.invoice_id) || String(bl.billNo) === String(b.invoice_id))
+              : bills.find(bl => bl.invoice_category === 'PTAdvance' && bl.joinDate === b.booking_start_date);
+
+            const net = Math.max(0, Number(b.price_snapshot || 0) - Number(b.discount_amount || 0));
+            const finalPaid = linkedBill ? Number(linkedBill.paidAmount || 0) : Number(b.paid_amount !== undefined ? b.paid_amount : net);
+            const finalDue = linkedBill ? Number(linkedBill.dueAmount || 0) : Number(b.due_amount || 0);
+            const finalStatus = linkedBill ? (linkedBill.paymentStatus || b.status) : b.status;
+
+            history.push({
+              id: `pt-adv-${b.id}`,
+              type: 'Advance PT',
+              planName: b.packageName || 'PT Package',
+              billNo: linkedBill?.billNo || (b.invoice_id ? `${b.invoice_id}` : null),
+              trainerName: b.trainerName || 'Assigned',
+              startDate: b.booking_start_date,
+              expiryDate: b.expiry_date || b.booking_end_date,
+              amount: net,
+              paidAmount: finalPaid,
+              dueAmount: finalDue,
+              paymentStatus: finalStatus || 'Scheduled',
+              date: b.created_at || b.booking_start_date,
+              billObj: linkedBill || null,
+              bookingStatus: b.status
+            });
           });
 
           otherServices.forEach(s => {

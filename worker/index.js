@@ -22,6 +22,7 @@ const ensureDb = (env, ctx) => {
         if (typeof app.initDb === 'function') await app.initDb();
         if (typeof app.autoActivateAdvanceBookings === 'function') await app.autoActivateAdvanceBookings();
         if (typeof app.autoExpireAssignments === 'function') await app.autoExpireAssignments();
+        if (typeof app.cleanupDuplicateAdvanceBookingTransactions === 'function') await app.cleanupDuplicateAdvanceBookingTransactions();
       } catch (err) {
         console.error('Worker background task error:', err);
       }

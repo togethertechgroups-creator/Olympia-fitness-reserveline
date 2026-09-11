@@ -524,11 +524,30 @@ const AdvanceBookingPage = () => {
   const selectedGenClient = clients.find(c => String(c.id) === String(genForm.client_id) || String(c.clientId) === String(genForm.client_id));
   const selectedPtClient = clients.find(c => String(c.id) === String(ptForm.client_id) || String(c.clientId) === String(ptForm.client_id));
 
-  // Available Tariff Keys from settings (guarantees options exist even if DB uses standard keys)
-  const availableTariffs = Array.from(new Set([
-    ...Object.keys(settings).filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet')).map(k => k.replace('_Strengthening', '')),
-    'Monthly', 'Quarterly', 'Half-Yearly', 'Annual'
-  ])).filter(planBase => !(settings[`${planBase}_hidden`] === 1 || settings[`${planBase}_hidden`] === '1'));
+  // Available Tariff Keys from settings (dynamically deduplicated & filtered)
+  const availableTariffs = (() => {
+    const customKeys = Object.keys(settings)
+      .filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet'))
+      .map(k => k.replace('_Strengthening', ''));
+    const fallbackDefaults = ['Monthly', 'Quarterly', 'Half-Yearly', 'Annual'];
+    const keysToProcess = customKeys.length > 0 ? customKeys : fallbackDefaults;
+    const uniqueMap = new Map();
+    for (const key of keysToProcess) {
+      if (!key) continue;
+      const lower = key.trim().toLowerCase();
+      if (settings[`${key}_hidden`] === 1 || settings[`${key}_hidden`] === '1' || settings[`${lower}_hidden`] === 1 || settings[`${lower}_hidden`] === '1') {
+        continue;
+      }
+      if (!uniqueMap.has(lower)) {
+        uniqueMap.set(lower, key);
+      }
+    }
+    return Array.from(uniqueMap.values()).filter(planBase => {
+      const price = settings[`${planBase}_Strengthening`] !== undefined ? parseFloat(settings[`${planBase}_Strengthening`]) : (settings[planBase] !== undefined ? parseFloat(settings[planBase]) : 0);
+      if (customKeys.length > 0 && price === 0) return false;
+      return true;
+    });
+  })();
 
   const handleGenPlanChange = (plan) => {
     setIsDirty(true);
