@@ -1,6 +1,27 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const fs = require('fs');
+try { require('dotenv').config({ path: path.join(__dirname, '.env') }); } catch (e) {}
+try { require('dotenv').config({ path: path.join(__dirname, '../.env') }); } catch (e) {}
+
+// Safe fallback parser for .env files when dotenv package is not installed
+const loadEnvFile = (envPath) => {
+  try {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split(/\r?\n/).forEach(line => {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          const k = trimmed.slice(0, idx).trim();
+          const v = trimmed.slice(idx + 1).trim();
+          if (!process.env[k]) process.env[k] = v;
+        }
+      });
+    }
+  } catch (e) {}
+};
+loadEnvFile(path.join(__dirname, '.env'));
+loadEnvFile(path.join(__dirname, '../.env'));
 const express = require('express');
 const cors = require('cors');
 const { randomUUID } = require('crypto');
@@ -101,34 +122,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
 
   // 2. APITxT Integrations (https://apitxt.com)
   if (waKey && !waKey.startsWith('EAA')) {
-    // 2a. Primary for Messages: GET to https://apitxt.com/api/sendWAMessage
-    try {
-      const getUrl = `https://apitxt.com/api/sendWAMessage?authkey=${encodeURIComponent(waKey)}&project_ref_id=${encodeURIComponent(waProjectId)}&project_id=${encodeURIComponent(waProjectId)}&mobiles=${encodeURIComponent(phone)}&to=${encodeURIComponent(phone)}&type=text&text=${encodeURIComponent(message)}&message=${encodeURIComponent(message)}`;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const resp = await fetch(getUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${waKey}`,
-          'authkey': waKey
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      const data = await resp.json().catch(() => ({}));
-      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWAMessage GET] Sent text to ${phone} successfully:`, data);
-        return data;
-      }
-      lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
-      console.warn('[APITxT sendWAMessage GET] Returned error:', data);
-    } catch (getErr) {
-      lastErrMsg = getErr.message;
-      console.warn('[APITxT sendWAMessage GET] Failed:', getErr.message);
-    }
-
-    // 2c. Try POST fallback to https://apitxt.com/api/sendWAMessage
+    // 2a. Primary for Messages: POST to https://apitxt.com/api/sendWAMessage
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -165,14 +159,89 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
         console.log(`[APITxT sendWAMessage POST] Sent text to ${phone} successfully:`, data);
         return data;
       }
-      if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
+      lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
+      console.warn('[APITxT sendWAMessage POST] Returned error:', data);
     } catch (postErr) {
-      if (!lastErrMsg) lastErrMsg = postErr.message;
+      lastErrMsg = postErr.message;
+      console.warn('[APITxT sendWAMessage POST] Failed:', postErr.message);
+    }
+
+    // 2b. Secondary for Messages: GET to https://apitxt.com/api/sendWAMessage
+    try {
+      const getUrl = `https://apitxt.com/api/sendWAMessage?authkey=${encodeURIComponent(waKey)}&project_ref_id=${encodeURIComponent(waProjectId)}&project_id=${encodeURIComponent(waProjectId)}&mobiles=${encodeURIComponent(phone)}&to=${encodeURIComponent(phone)}&type=text&text=${encodeURIComponent(message)}&message=${encodeURIComponent(message)}`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch(getUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWAMessage GET] Sent text to ${phone} successfully:`, data);
+        return data;
+      }
+      if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
+      console.warn('[APITxT sendWAMessage GET] Returned error:', data);
+    } catch (getErr) {
+      if (!lastErrMsg) lastErrMsg = getErr.message;
+      console.warn('[APITxT sendWAMessage GET] Failed:', getErr.message);
+    }
+
+    // 2c. Try APITxT sendWA (https://apitxt.com/api/sendWA) if a template is specified or needed
+    const reminderTemplate = workerEnv?.WHATSAPP_TEMPLATE_REMINDER || process.env.WHATSAPP_TEMPLATE_REMINDER || workerEnv?.WHATSAPP_TEMPLATE_NAME || process.env.WHATSAPP_TEMPLATE_NAME;
+    if (reminderTemplate) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const resp = await fetch('https://apitxt.com/api/sendWA', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${waKey}`,
+            'authkey': waKey
+          },
+          body: JSON.stringify({
+            authkey: waKey,
+            project_ref_id: waProjectId,
+            project_id: waProjectId,
+            mobiles: phone,
+            to: phone,
+            template_name: reminderTemplate,
+            body_params: [message]
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+          console.log(`[APITxT sendWA Template POST] Sent text to ${phone} successfully:`, data);
+          return data;
+        }
+      } catch (tmplErr) {
+        console.warn('[APITxT sendWA Template POST] Notice:', tmplErr.message);
+      }
     }
   }
 
-  console.warn(`[WhatsApp API] Direct text send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
-  throw new Error(`Direct WhatsApp message sending failed (${lastErrMsg || 'Invalid API key or network error'}).`);
+  const is24hWindowError = lastErrMsg && (
+    lastErrMsg.includes('24-hour') ||
+    lastErrMsg.includes('outside the 24-hour') ||
+    lastErrMsg.includes('template instead')
+  );
+
+  const finalError = is24hWindowError
+    ? 'Recipient is outside the 24-hour WhatsApp customer service window. Use an approved template in APITxT (sendWA), or ask the member to send a message to the gym WhatsApp number first.'
+    : `Direct WhatsApp message sending failed (${lastErrMsg || 'Invalid API key or network error'}).`;
+
+  console.warn(`[WhatsApp API] Direct text send failed for ${phone}: ${finalError}`);
+  throw new Error(finalError);
 };
 
 // Helper: send a WhatsApp document message via APITxT, Metamerged, or Meta Cloud API
@@ -218,7 +287,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
-      const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'invoice_delivery';
+      const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'olympia_invoice_delivery';
       const recipientDisplayName = recipientName || 'Member';
 
       const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
@@ -280,7 +349,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   // 2. Try APITxT / Meta BSP Wrapper Integrations (https://apitxt.com)
   if (waKey && !waKey.startsWith('EAA')) {
     const waProjectId = getWaProjectId(workerEnv);
-    const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'invoice_delivery';
+    const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'olympia_invoice_delivery';
     const recipientDisplayName = recipientName || 'Member';
 
     // 2a. Try APITxT Document Template API (https://apitxt.com/api/sendWA - Standard BSP Template with Document Header)
@@ -330,7 +399,11 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const resp = await fetch('https://apitxt.com/api/sendWA', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey
+        },
         body: JSON.stringify(payload),
         signal: controller.signal
       });
@@ -460,7 +533,6 @@ app.use((req, res, next) => {
   }
   next();
 });
-const fs = require('fs');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
@@ -7423,13 +7495,29 @@ app.get('/api/whatsapp/log', async (req, res) => {
   }
 });
 
+// POST /api/whatsapp/test — Test WhatsApp connectivity and send test message
+app.post('/api/whatsapp/test', async (req, res) => {
+  try {
+    const { phone, message } = req.body || {};
+    if (!phone) {
+      return res.status(400).json({ success: false, error: 'Recipient phone number is required' });
+    }
+    const testMsg = message || 'Test message from Olympia Fitness via APITxT WhatsApp API';
+    const result = await sendWhatsAppMessage(phone, testMsg, req.env);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Daily Cron: 9:00 AM — Auto-send WhatsApp reminders & Sweep Expired PT Assignments ─
 if (!process.env.CF_WORKER) {
   cron.schedule('0 9 * * *', async () => {
     autoExpireAssignments();
     autoActivateAdvanceBookings();
-    if (!WA_KEY) {
-      console.log('⚠️ [WhatsApp Cron] Skipped — WHATSAPP_KEY not set in .env');
+    const activeWaKey = getWaKey(null);
+    if (!activeWaKey) {
+      console.log('⚠️ [WhatsApp Cron] Skipped — WHATSAPP_KEY not set');
       return;
     }
 

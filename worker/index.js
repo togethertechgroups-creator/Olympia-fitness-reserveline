@@ -52,6 +52,7 @@ export default {
       if (env.WHATSAPP_PROJECT_ID)          process.env.WHATSAPP_PROJECT_ID          = env.WHATSAPP_PROJECT_ID;
       if (env.WHATSAPP_PHONE_NUMBER_ID)     process.env.WHATSAPP_PHONE_NUMBER_ID     = env.WHATSAPP_PHONE_NUMBER_ID;
       if (env.WHATSAPP_BUSINESS_ACCOUNT_ID) process.env.WHATSAPP_BUSINESS_ACCOUNT_ID = env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+      if (env.WHATSAPP_TEMPLATE_INVOICE)    process.env.WHATSAPP_TEMPLATE_INVOICE    = env.WHATSAPP_TEMPLATE_INVOICE;
       if (env.COUNTRY_CODE)                 process.env.COUNTRY_CODE                 = env.COUNTRY_CODE;
 
       const url = new URL(request.url);

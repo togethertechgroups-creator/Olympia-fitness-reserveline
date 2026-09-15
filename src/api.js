@@ -424,6 +424,15 @@ export const sendWhatsAppText = async (phone, message, clientName = '', clientId
   return handleResponse(response);
 };
 
+export const testWhatsAppConnection = async (phone, message) => {
+  const response = await fetch(`${BASE_URL}/whatsapp/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, message }),
+  });
+  return handleResponse(response);
+};
+
 // ─── STAFF API ─────────────────────────────────────────────────────────────
 
 export const getStaff = async () => {
