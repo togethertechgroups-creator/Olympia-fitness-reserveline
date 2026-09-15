@@ -35,6 +35,9 @@ const SupplementPurchasePage = lazy(() => import('./pages/SupplementPurchasePage
 const SupplementSalePage = lazy(() => import('./pages/SupplementSalePage'));
 const SupplementRevenuePage = lazy(() => import('./pages/SupplementRevenuePage'));
 const OtherServicesPage = lazy(() => import('./pages/OtherServicesPage'));
+const AttendancePage = lazy(() => import('./pages/AttendancePage'));
+const WebsiteGalleryPage = lazy(() => import('./pages/WebsiteGalleryPage'));
+
 
 const PageLoadingFallback = () => (
   <div style={{
@@ -197,7 +200,11 @@ function App() {
 
             <Route
               path="/attendance"
-              element={<Navigate to={auth.userRole === 'superadmin' ? '/dashboard' : '/manage-clients'} replace />}
+              element={
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
+                  <AttendancePage />
+                </RoleProtectedRoute>
+              }
             />
 
             <Route
@@ -385,7 +392,17 @@ function App() {
             />
 
             <Route
+              path="/website-gallery"
+              element={
+                <RoleProtectedRoute isLoggedIn={auth.isLoggedIn} userRole={auth.userRole} allowedRoles={['admin', 'superadmin']}>
+                  <WebsiteGalleryPage />
+                </RoleProtectedRoute>
+              }
+            />
+
+            <Route
               path="/"
+
               element={
                 auth.isLoggedIn
                   ? <Navigate to={auth.userRole === 'superadmin' ? '/dashboard' : '/manage-clients'} replace />

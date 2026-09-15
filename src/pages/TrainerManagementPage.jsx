@@ -26,10 +26,31 @@ const TrainerManagementPage = () => {
     status: 'Active',
     grade: '',
     custom_commission_percent: '',
-    profileImage: ''
+    profileImage: '',
+    shiftStartTime: '',
+    shiftEndTime: ''
   });
 
   const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '' });
+
+  const formatTime12h = (time24) => {
+    if (!time24) return '';
+    const [hStr, mStr] = time24.split(':');
+    if (!hStr || !mStr) return time24;
+    let h = parseInt(hStr, 10);
+    const m = mStr.padStart(2, '0');
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12;
+    if (h === 0) h = 12;
+    return `${h}:${m} ${ampm}`;
+  };
+
+  const formatShiftTiming = (start, end) => {
+    if (!start && !end) return null;
+    if (start && end) return `${formatTime12h(start)} - ${formatTime12h(end)}`;
+    if (start) return `From ${formatTime12h(start)}`;
+    return `Until ${formatTime12h(end)}`;
+  };
 
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
@@ -140,7 +161,9 @@ const TrainerManagementPage = () => {
         phone: trainer.phone || '',
         grade: trainer.grade || '',
         custom_commission_percent: trainer.custom_commission_percent !== null && trainer.custom_commission_percent !== undefined ? trainer.custom_commission_percent : '',
-        profileImage: trainer.profileImage || ''
+        profileImage: trainer.profileImage || '',
+        shiftStartTime: trainer.shiftStartTime || '',
+        shiftEndTime: trainer.shiftEndTime || ''
       });
     } else {
       setCurrentTrainer(null);
@@ -156,7 +179,9 @@ const TrainerManagementPage = () => {
           status: 'Active',
           grade: '',
           custom_commission_percent: '',
-          profileImage: ''
+          profileImage: '',
+          shiftStartTime: '',
+          shiftEndTime: ''
         });
       } catch (error) {
         setFormData({
@@ -168,7 +193,9 @@ const TrainerManagementPage = () => {
           status: 'Active',
           grade: '',
           custom_commission_percent: '',
-          profileImage: ''
+          profileImage: '',
+          shiftStartTime: '',
+          shiftEndTime: ''
         });
       }
     }
@@ -354,6 +381,12 @@ const TrainerManagementPage = () => {
                     </div>
                     <div className="client-count-badge">
                       <span>{trainer.clientCount || '0'} Clients</span>
+                    </div>
+                    <div className={`shift-timing-badge ${!formatShiftTiming(trainer.shiftStartTime, trainer.shiftEndTime) ? 'unassigned' : ''}`}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                      <span>{formatShiftTiming(trainer.shiftStartTime, trainer.shiftEndTime) || 'Shift Not Set'}</span>
                     </div>
                   </div>
 
@@ -547,6 +580,27 @@ const TrainerManagementPage = () => {
                 <div className="trainer-form-group">
                   <label>Experience (Years)</label>
                   <input type="text" name="experience" value={formData.experience} onChange={handleInputChange} placeholder="e.g. 5" />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="trainer-form-group">
+                  <label>Shift Start Time (Daily From)</label>
+                  <input
+                    type="time"
+                    name="shiftStartTime"
+                    value={formData.shiftStartTime}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="trainer-form-group">
+                  <label>Shift End Time (Daily To)</label>
+                  <input
+                    type="time"
+                    name="shiftEndTime"
+                    value={formData.shiftEndTime}
+                    onChange={handleInputChange}
+                  />
                 </div>
               </div>
 

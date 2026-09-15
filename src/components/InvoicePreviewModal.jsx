@@ -239,22 +239,15 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
           billNo: client.billNo || ''
         });
       } catch (backendErr) {
-        console.warn('Direct WhatsApp API notice, attempting web fallback:', backendErr);
-        let fallbackText = text;
-        const docUrl = backendErr.data?.documentUrl;
-        if (docUrl) {
-          fallbackText += `\n\n📄 *Download Official PDF Invoice:* ${docUrl}`;
-        }
-        const encodedText = encodeURIComponent(fallbackText);
-        window.open(`https://api.whatsapp.com/send?phone=${phoneNum}&text=${encodedText}`, '_blank');
-        const fallbackMsg = `Invoice message opened for ${phoneNum} via WhatsApp!`;
-        setToastType('success');
-        setToastMsg(`✅ ${fallbackMsg}`);
+        console.error('Direct WhatsApp API send error:', backendErr);
+        const errMsg = backendErr.message || 'Failed to send WhatsApp PDF invoice via API';
+        setToastType('error');
+        setToastMsg(`❌ ${errMsg}`);
         setWaPopup({
           isOpen: true,
-          type: 'success',
-          title: 'WhatsApp Message Opened!',
-          message: fallbackMsg,
+          type: 'error',
+          title: 'WhatsApp PDF Send Failed',
+          message: errMsg,
           phone: phoneNum,
           clientName: client.name || client.clientName || 'Member',
           billNo: client.billNo || ''

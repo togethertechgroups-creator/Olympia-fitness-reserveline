@@ -981,9 +981,8 @@ const ManageClientsPage = () => {
       await sendWhatsAppText(phone, text, client.name, client.id || client.clientId, effectiveDue > 0 ? 'payment_reminder' : (validity.isExpired ? 'expired' : 'reminder'));
       showToast(`✅ WhatsApp reminder sent successfully to ${client.name} (${phone})!`, 'success');
     } catch (err) {
-      console.warn('Direct WhatsApp API notice, attempting web fallback:', err);
-      window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`, '_blank');
-      showToast(`✅ WhatsApp message opened for ${client.name} (${phone})!`, 'success');
+      console.error('WhatsApp API send failed:', err);
+      showToast(`❌ Failed to send WhatsApp message to ${client.name}: ${err.message || 'API error'}`, 'error');
     }
   };
 

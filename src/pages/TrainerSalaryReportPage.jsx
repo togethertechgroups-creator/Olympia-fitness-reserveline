@@ -521,29 +521,13 @@ const TrainerSalaryReportPage = () => {
           waError: ''
         }));
       } catch (backendErr) {
-        console.warn('Direct WhatsApp payslip notice, attempting web fallback:', backendErr);
-        const incSign = incType === 'Subtract' ? '-' : '+';
-        const othSign = othType === 'Subtract' ? '-' : '+';
-        const caption =
-          `Hi ${tr.trainerName || 'Trainer'}! 👋\n\n` +
-          `Here is your Payslip breakdown for *${selectedMonth}*:\n` +
-          `• PT Commission Salary: ₹${(commSalary || 0).toLocaleString('en-IN')}\n` +
-          `• Basic Pay: +₹${(bPay || 0).toLocaleString('en-IN')}\n` +
-          `• Bonus: +₹${(bBonus || 0).toLocaleString('en-IN')}${form.bonusNote ? ` (${form.bonusNote})` : ''}\n` +
-          `• Incentives: ${incSign}₹${(incAmt || 0).toLocaleString('en-IN')}\n` +
-          `• ${othLabel}: ${othSign}₹${(othAmt || 0).toLocaleString('en-IN')}\n` +
-          `---------------------------\n` +
-          `*TOTAL PAYABLE: ₹${(total || 0).toLocaleString('en-IN')}*\n\n` +
-          `*OLYMPIA FITNESS* 🏋️‍♂️`;
-
-        window.open(`https://api.whatsapp.com/send?phone=${targetPhone}&text=${encodeURIComponent(caption)}`, '_blank');
+        console.error('Direct WhatsApp payslip send error:', backendErr);
         setModalConfig(prev => ({
           ...prev,
           sendingWa: false,
           waPhone: targetPhone,
-          waSuccess: `✅ Payslip message opened for ${targetPhone} via WhatsApp!`,
-          showSuccessPopup: true,
-          waError: ''
+          waError: `❌ ${backendErr.message || 'Failed to send WhatsApp payslip PDF via API.'}`,
+          waSuccess: ''
         }));
       }
     } catch (outerErr) {

@@ -49,6 +49,7 @@ export default {
       // ── Copy secret env vars for WhatsApp ──
       if (env.WHATSAPP_KEY)                 process.env.WHATSAPP_KEY                 = env.WHATSAPP_KEY;
       if (env.WHATSAPP_TOKEN)               process.env.WHATSAPP_TOKEN               = env.WHATSAPP_TOKEN;
+      if (env.WHATSAPP_PROJECT_ID)          process.env.WHATSAPP_PROJECT_ID          = env.WHATSAPP_PROJECT_ID;
       if (env.WHATSAPP_PHONE_NUMBER_ID)     process.env.WHATSAPP_PHONE_NUMBER_ID     = env.WHATSAPP_PHONE_NUMBER_ID;
       if (env.WHATSAPP_BUSINESS_ACCOUNT_ID) process.env.WHATSAPP_BUSINESS_ACCOUNT_ID = env.WHATSAPP_BUSINESS_ACCOUNT_ID;
       if (env.COUNTRY_CODE)                 process.env.COUNTRY_CODE                 = env.COUNTRY_CODE;
@@ -72,6 +73,7 @@ export default {
             return new Response(object.body, { headers });
           }
         }
+        return new Response('Image or Document not found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
       }
 
       // ── Route 1: Backend API calls (/api/*) ──

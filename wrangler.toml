@@ -25,8 +25,9 @@ bucket_name = "gym-profile-pictures"
 [vars]
 CF_WORKER = "1"
 COUNTRY_CODE = "91"
-WHATSAPP_KEY = "1fc1f0d5c404e20f050bfd943647f587"
-WHATSAPP_TOKEN = "1fc1f0d5c404e20f050bfd943647f587"
+WHATSAPP_KEY = "-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4"
+WHATSAPP_TOKEN = "-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4"
+WHATSAPP_PROJECT_ID = "PROJ_4610ef2839c8"
 
 # ─── esbuild define (build-time constants) ────────────────────────────────────
 [define]

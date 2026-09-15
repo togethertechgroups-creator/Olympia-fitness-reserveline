@@ -401,6 +401,19 @@ CREATE TABLE IF NOT EXISTS trainer_daily_status (
   UNIQUE(trainer_id, status_date)
 );
 
+CREATE TABLE IF NOT EXISTS website_gallery (
+  id           TEXT PRIMARY KEY,
+  title        TEXT NOT NULL,
+  category     TEXT DEFAULT 'General',
+  imageUrl     TEXT NOT NULL,
+  pdfUrl       TEXT,
+  displayOrder INTEGER DEFAULT 0,
+  active       INTEGER DEFAULT 1,
+  createdAt    DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+
+
 -- ─── Seed default data ────────────────────────────────────────────────────────
 
 INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent)

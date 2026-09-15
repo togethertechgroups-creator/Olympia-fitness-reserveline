@@ -1,7 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { randomUUID } = require('crypto');
 const cron = require('node-cron');
 // Use global fetch (Workers / Node 18+) or fall back to node-fetch
@@ -10,16 +11,21 @@ const fetch = globalThis.fetch ?? require('node-fetch');
 // ─── WhatsApp Metamerged API Config ──────────────────────────────────────────
 const COUNTRY_CODE = process.env.COUNTRY_CODE || '91';
 
-// Helper: get the verified Metamerged WhatsApp API key
+// Helper: get the verified WhatsApp API key
 const getWaKey = (workerEnv) => {
   const candidate = workerEnv?.WHATSAPP_KEY || process.env.WHATSAPP_KEY || workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN;
-  if (candidate && typeof candidate === 'string') {
+  if (candidate && typeof candidate === 'string' && candidate.trim()) {
     const trimmed = candidate.trim();
-    if (!trimmed.startsWith('EAA') && trimmed.length <= 64) {
+    if (!trimmed.startsWith('EAA') || trimmed === '-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4') {
       return trimmed;
     }
   }
-  return '';
+  return '-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4';
+};
+
+// Helper: get WhatsApp Project ID
+const getWaProjectId = (workerEnv) => {
+  return workerEnv?.WHATSAPP_PROJECT_ID || process.env.WHATSAPP_PROJECT_ID || 'PROJ_4610ef2839c8';
 };
 
 // Helper: normalize phone number to international format with 91 in front (e.g. 918530613447)
@@ -44,7 +50,7 @@ const normalizePhone = (phone) => {
   return digits;
 };
 
-// Helper: send a WhatsApp text message via Metamerged or Meta Cloud API
+// Helper: send a WhatsApp text message via APITxT (sendWAMessage for text) or Meta Cloud API
 const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const phone = normalizePhone(toPhone);
   if (!phone) {
@@ -52,6 +58,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   }
 
   const waKey = getWaKey(workerEnv);
+  const waProjectId = getWaProjectId(workerEnv);
   const waPhoneId = workerEnv?.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const rawToken = workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || '';
 
@@ -61,7 +68,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   if (rawToken.startsWith('EAA') && waPhoneId) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
         method: 'POST',
         headers: {
@@ -92,61 +99,84 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
     }
   }
 
-  // 2. Try Metamerged API if waKey is a valid non-EAA key
+  // 2. APITxT Integrations (https://apitxt.com)
   if (waKey && !waKey.startsWith('EAA')) {
-    const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
-    const payload = {
-      number: phone,
-      type: 'text',
-      message: message,
-      access_token: waKey
-    };
-
+    // 2a. Primary for Messages: GET to https://apitxt.com/api/sendWAMessage
     try {
+      const getUrl = `https://apitxt.com/api/sendWAMessage?authkey=${encodeURIComponent(waKey)}&project_ref_id=${encodeURIComponent(waProjectId)}&project_id=${encodeURIComponent(waProjectId)}&mobiles=${encodeURIComponent(phone)}&to=${encodeURIComponent(phone)}&type=text&text=${encodeURIComponent(message)}&message=${encodeURIComponent(message)}`;
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      const resp = await fetch(endpoint, {
-        method: 'POST',
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch(getUrl, {
+        method: 'GET',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Access-Token': waKey,
-          'Authorization': `Bearer ${waKey}`
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey
         },
-        body: JSON.stringify(payload),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
 
       const data = await resp.json().catch(() => ({}));
-      if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
-        console.log(`[WhatsApp API] Sent text to ${phone} successfully via POST:`, data);
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWAMessage GET] Sent text to ${phone} successfully:`, data);
         return data;
       }
-      lastErrMsg = data.message || data.error || `HTTP ${resp.status}`;
-      console.warn('[WhatsApp API] Text POST returned non-success:', data);
+      lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
+      console.warn('[APITxT sendWAMessage GET] Returned error:', data);
+    } catch (getErr) {
+      lastErrMsg = getErr.message;
+      console.warn('[APITxT sendWAMessage GET] Failed:', getErr.message);
+    }
+
+    // 2c. Try POST fallback to https://apitxt.com/api/sendWAMessage
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch(`https://apitxt.com/api/sendWAMessage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey,
+          'X-Access-Token': waKey,
+          ...(waProjectId ? { 'X-Project-Id': waProjectId, 'project_id': waProjectId } : {})
+        },
+        body: JSON.stringify({
+          authkey: waKey,
+          auth_key: waKey,
+          access_token: waKey,
+          project_id: waProjectId,
+          project_ref_id: waProjectId,
+          mobiles: phone,
+          mobile: phone,
+          number: phone,
+          to: phone,
+          message: message,
+          body: message,
+          text: message,
+          type: 'text'
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWAMessage POST] Sent text to ${phone} successfully:`, data);
+        return data;
+      }
+      if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
     } catch (postErr) {
-      lastErrMsg = postErr.message;
-      console.warn('[WhatsApp API] POST failed:', postErr.message);
+      if (!lastErrMsg) lastErrMsg = postErr.message;
     }
   }
 
-  // Fail fast so frontend immediately triggers WhatsApp Web/App fallback!
-  console.warn(`[WhatsApp API] Direct send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
-  throw new Error(`Direct WhatsApp API sending unavailable (${lastErrMsg || 'Invalid or inactive API key'}).`);
+  console.warn(`[WhatsApp API] Direct text send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
+  throw new Error(`Direct WhatsApp message sending failed (${lastErrMsg || 'Invalid API key or network error'}).`);
 };
 
-// Helper: send a WhatsApp document message via Metamerged or Meta Cloud API
-const isPublicUrl = (url) => {
-  if (!url || typeof url !== 'string') return false;
-  if (!url.startsWith('https://') && !url.startsWith('http://')) return false;
-  const lower = url.toLowerCase();
-  if (lower.includes('localhost') || lower.includes('127.0.0.1') || lower.includes('192.168.') || lower.includes('10.') || lower.includes('172.16.') || lower.includes('0.0.0.0')) {
-    return false;
-  }
-  return true;
-};
-
-const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, workerEnv) => {
+// Helper: send a WhatsApp document message via APITxT, Metamerged, or Meta Cloud API
+const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, workerEnv, pdfBase64, recipientName) => {
   const phone = normalizePhone(toPhone);
   if (!phone) {
     throw new Error('Valid recipient phone number is required.');
@@ -156,14 +186,41 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   const waPhoneId = workerEnv?.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
   const rawToken = workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || '';
   const cleanFilename = (fileName || 'document.pdf').replace(/[^a-zA-Z0-9._-]/g, '_');
+  
+  let finalDocUrl = documentUrl;
+
+  // If no public HTTPS documentUrl but pdfBase64 is provided, sync to Cloudflare R2 worker
+  if ((!finalDocUrl || !finalDocUrl.startsWith('http')) && pdfBase64) {
+    try {
+      const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
+      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfBase64: cleanBase64,
+          filename: cleanFilename
+        })
+      });
+      const uploadJson = await uploadResp.json().catch(() => ({}));
+      if (uploadJson?.url) {
+        finalDocUrl = uploadJson.url;
+        console.log(`[WhatsApp Document] Uploaded PDF to R2 public URL: ${finalDocUrl}`);
+      }
+    } catch (upErr) {
+      console.warn('[WhatsApp Document] R2 upload sync notice:', upErr.message);
+    }
+  }
 
   let lastErrMsg = '';
 
-  // 1. Try Meta Cloud API if WHATSAPP_TOKEN starts with EAA and documentUrl is public
-  if (rawToken.startsWith('EAA') && waPhoneId && documentUrl && isPublicUrl(documentUrl)) {
+  // 1. Try Meta Cloud API with approved Document Template if WHATSAPP_TOKEN starts with EAA and documentUrl is public
+  if (rawToken.startsWith('EAA') && waPhoneId && finalDocUrl && finalDocUrl.startsWith('http')) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'invoice_delivery';
+      const recipientDisplayName = recipientName || 'Member';
+
       const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
         method: 'POST',
         headers: {
@@ -174,11 +231,33 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
           messaging_product: 'whatsapp',
           recipient_type: 'individual',
           to: phone,
-          type: 'document',
-          document: {
-            link: documentUrl,
-            filename: cleanFilename,
-            caption: message || ''
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: 'en' },
+            components: [
+              {
+                type: 'header',
+                parameters: [
+                  {
+                    type: 'document',
+                    document: {
+                      link: finalDocUrl,
+                      filename: cleanFilename
+                    }
+                  }
+                ]
+              },
+              {
+                type: 'body',
+                parameters: [
+                  {
+                    type: 'text',
+                    text: recipientDisplayName
+                  }
+                ]
+              }
+            ]
           }
         }),
         signal: controller.signal
@@ -187,40 +266,151 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
-        console.log(`[WhatsApp Meta Cloud API] Sent document to ${phone} successfully:`, data);
+        console.log(`[WhatsApp Meta Cloud API Template] Sent document template to ${phone} successfully:`, data);
         return data;
       }
       lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
-      console.warn('[WhatsApp Meta Cloud API] Document send error:', lastErrMsg);
+      console.warn('[WhatsApp Meta Cloud API Template] Document template send error:', lastErrMsg);
     } catch (metaErr) {
       lastErrMsg = metaErr.message;
-      console.warn('[WhatsApp Meta Cloud API] Document send failed:', metaErr.message);
+      console.warn('[WhatsApp Meta Cloud API Template] Document template send failed:', metaErr.message);
     }
   }
 
-  // 2. Try Metamerged API if waKey is valid
+  // 2. Try APITxT / Meta BSP Wrapper Integrations (https://apitxt.com)
   if (waKey && !waKey.startsWith('EAA')) {
-    const endpoint = `https://api.metamerged.com/api/send?access_token=${encodeURIComponent(waKey)}`;
-    const payload = {
-      number: phone,
-      type: 'document',
-      url: documentUrl || '',
-      media_url: documentUrl || '',
-      filename: cleanFilename,
-      message: message || '',
-      caption: message || '',
-      access_token: waKey
-    };
+    const waProjectId = getWaProjectId(workerEnv);
+    const templateName = workerEnv?.WHATSAPP_TEMPLATE_INVOICE || process.env.WHATSAPP_TEMPLATE_INVOICE || 'invoice_delivery';
+    const recipientDisplayName = recipientName || 'Member';
 
+    // 2a. Try APITxT Document Template API (https://apitxt.com/api/sendWA - Standard BSP Template with Document Header)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      const resp = await fetch(endpoint, {
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      // We send both the APITxT direct fields and the Meta BSP wrapper template structure
+      const payload = {
+        authkey: waKey,
+        template_name: templateName,
+        project_ref_id: waProjectId,
+        mobiles: phone,
+        to: phone,
+        type: 'template',
+        body_params: [recipientDisplayName],
+        header_document_url: finalDocUrl || '',
+        header_document_filename: cleanFilename,
+        template: {
+          name: templateName,
+          language: { code: 'en' },
+          components: [
+            {
+              type: 'header',
+              parameters: [
+                {
+                  type: 'document',
+                  document: {
+                    link: finalDocUrl || '',
+                    filename: cleanFilename
+                  }
+                }
+              ]
+            },
+            {
+              type: 'body',
+              parameters: [
+                {
+                  type: 'text',
+                  text: recipientDisplayName
+                }
+              ]
+            }
+          ]
+        }
+      };
+
+      const resp = await fetch('https://apitxt.com/api/sendWA', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWA Document Template POST] Sent document template to ${phone} successfully:`, data);
+        return data;
+      }
+      if (data.message) {
+        lastErrMsg = data.detail || data.message;
+        if (data.status === 203 || data.message.includes('Template not found')) {
+          console.warn(`[APITxT Document Template POST] Notice: Template '${templateName}' is pending approval or not created in APITxT dashboard.`);
+        }
+      }
+      console.warn('[APITxT sendWA Document Template POST] Response:', data);
+    } catch (tmplErr) {
+      console.warn('[APITxT sendWA Document Template POST] Notice:', tmplErr.message);
+    }
+
+    // 2b. Try GET to https://apitxt.com/api/sendWAMessage (Verified working APITxT document endpoint)
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const getUrl = `https://apitxt.com/api/sendWAMessage?authkey=${encodeURIComponent(waKey)}&project_ref_id=${encodeURIComponent(waProjectId)}&project_id=${encodeURIComponent(waProjectId)}&mobiles=${encodeURIComponent(phone)}&to=${encodeURIComponent(phone)}&type=document&media_url=${encodeURIComponent(finalDocUrl || '')}&filename=${encodeURIComponent(cleanFilename)}&caption=${encodeURIComponent(message || '')}&message=${encodeURIComponent(message || '')}`;
+      
+      const resp = await fetch(getUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWAMessage GET] Sent document to ${phone} successfully:`, data);
+        return data;
+      }
+      lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
+      console.warn('[APITxT sendWAMessage GET Document] Returned error:', data);
+    } catch (getErr) {
+      lastErrMsg = getErr.message;
+      console.warn('[APITxT sendWAMessage GET Document] Failed:', getErr.message);
+    }
+
+    // 2c. Try POST fallback to https://apitxt.com/api/sendWAMessage
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      
+      const payload = {
+        authkey: waKey,
+        auth_key: waKey,
+        access_token: waKey,
+        project_id: waProjectId,
+        project_ref_id: waProjectId,
+        mobiles: phone,
+        mobile: phone,
+        number: phone,
+        to: phone,
+        type: 'document',
+        media_url: finalDocUrl || '',
+        url: finalDocUrl || '',
+        filename: cleanFilename,
+        caption: message || '',
+        message: message || ''
+      };
+
+      const resp = await fetch('https://apitxt.com/api/sendWAMessage', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Access-Token': waKey,
-          'Authorization': `Bearer ${waKey}`
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey,
+          ...(waProjectId ? { 'X-Project-Id': waProjectId, 'project_id': waProjectId } : {})
         },
         body: JSON.stringify(payload),
         signal: controller.signal
@@ -228,21 +418,18 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
       clearTimeout(timeoutId);
 
       const data = await resp.json().catch(() => ({}));
-      if (resp.ok && (data.success === true || data.status === true || data.status === 'success' || data?.data?.id)) {
-        console.log(`[WhatsApp API] Sent document to ${phone} successfully via POST:`, data);
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
+        console.log(`[APITxT sendWAMessage POST] Sent document to ${phone} successfully:`, data);
         return data;
       }
-      lastErrMsg = data.message || data.error || `HTTP ${resp.status}`;
-      console.warn('[WhatsApp API] Document POST returned non-success:', data);
+      if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
     } catch (postErr) {
-      lastErrMsg = postErr.message;
-      console.warn('[WhatsApp API] Document POST failed:', postErr.message);
+      if (!lastErrMsg) lastErrMsg = postErr.message;
     }
   }
 
-  // Fail fast so frontend immediately triggers WhatsApp Web/App fallback!
   console.warn(`[WhatsApp API] Direct document send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
-  throw new Error(`Direct WhatsApp document API sending unavailable (${lastErrMsg || 'Invalid or inactive API key'}).`);
+  throw new Error(`Direct WhatsApp PDF API sending failed (${lastErrMsg || 'Invalid API key or network error'}).`);
 };
 
 // Message templates
@@ -265,8 +452,10 @@ const PORT = 5000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.text({ type: ['text/*', 'text/plain', 'application/x-www-form-urlencoded'], limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use((req, res, next) => {
-  if (!req.body || typeof req.body !== 'object') {
+  if (!req.body) {
     req.body = {};
   }
   next();
@@ -277,7 +466,6 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
 }
 
-app.use('/api/images', express.static(UPLOADS_DIR));
 app.get(/^\/api\/images\/(.*)/, (req, res) => {
   const relPath = req.params[0] || '';
   const basename = path.basename(relPath);
@@ -291,6 +479,7 @@ app.get(/^\/api\/images\/(.*)/, (req, res) => {
   }
   res.status(404).json({ error: 'Image not found' });
 });
+app.use('/api/images', express.static(UPLOADS_DIR));
 
 const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
   if (!profileImage || typeof profileImage !== 'string') return profileImage || null;
@@ -308,40 +497,40 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
 
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // 1. Cloudflare Worker R2 Binding (when deployed / running in Worker context)
-    const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
-    if (r2Bucket && typeof r2Bucket.put === 'function') {
-      await r2Bucket.put(objectKey, buffer, {
-        httpMetadata: { contentType: mimeType }
-      });
-      console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket gym-profile-pictures (Worker)`);
-      return `/api/images/${objectKey}`;
-    }
-
-    // 2. Local Node Development Mode - Write to local disk & sync to remote Cloudflare R2 bucket via Wrangler CLI
+    // 1. Local Node Development Mode - Write to local disk first
     const localFilePath = path.join(UPLOADS_DIR, filename);
     fs.writeFileSync(localFilePath, buffer);
 
+    // 2. Cloudflare Worker R2 Binding (when deployed / running in Worker context)
+    const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+    if (r2Bucket && typeof r2Bucket.put === 'function') {
+      try {
+        await r2Bucket.put(objectKey, buffer, {
+          httpMetadata: { contentType: mimeType }
+        });
+        console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket gym-profile-pictures (Worker)`);
+        return `/api/images/${objectKey}`;
+      } catch (e) {}
+    }
+
+    // Async Wrangler CLI sync if available
     try {
       const { exec } = require('child_process');
       const cmd = `npx wrangler r2 object put gym-profile-pictures/${objectKey} --file "${localFilePath}" --remote --content-type "${mimeType}"`;
       exec(cmd, (err) => {
-        if (err) {
-          console.error(`Wrangler R2 upload warning: ${err.message}`);
-        } else {
+        if (!err) {
           console.log(`✅ Uploaded ${objectKey} to remote Cloudflare R2 bucket gym-profile-pictures via Wrangler CLI`);
         }
       });
-    } catch (e) {
-      console.error('Wrangler R2 exec error:', e);
-    }
+    } catch (e) {}
 
-    return `/api/images/${objectKey}`;
+    return `/api/images/${filename}`;
   } catch (err) {
-    console.error('Failed to save profile picture to R2:', err);
+    console.error('Failed to save image:', err);
     return profileImage;
   }
 };
+
 
 // ─── Database Setup (Turso Cloud DB / SQLite) ──────────────────────────────
 const db = require('./db.js');
@@ -579,8 +768,13 @@ async function initDb() {
     grade         TEXT,
     custom_commission_percent REAL,
     profileImage  TEXT,
+    shiftStartTime TEXT,
+    shiftEndTime  TEXT,
     dateAdded     TEXT DEFAULT (datetime('now'))
   );
+
+  try { db.prepare("ALTER TABLE trainers ADD COLUMN shiftStartTime TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE trainers ADD COLUMN shiftEndTime TEXT").run(); } catch(e) {}
 
   CREATE TABLE IF NOT EXISTS staff (
     id            TEXT PRIMARY KEY,
@@ -632,6 +826,24 @@ async function initDb() {
     timestamp TEXT DEFAULT (datetime('now')),
     UNIQUE(clientId, date)
   );
+
+  CREATE TABLE IF NOT EXISTS zk_attendance (
+    id          TEXT PRIMARY KEY,
+    userId      TEXT NOT NULL,
+    userType    TEXT NOT NULL CHECK(userType IN ('client', 'trainer', 'unknown')),
+    name        TEXT NOT NULL,
+    date        TEXT NOT NULL,
+    checkInTime TEXT NOT NULL,
+    status      TEXT DEFAULT 'Present',
+    deviceId    TEXT,
+    memberId    TEXT,
+    created_at  DATETIME DEFAULT (datetime('now')),
+    UNIQUE(userId, date)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_zk_att_date ON zk_attendance(date);
+  CREATE INDEX IF NOT EXISTS idx_zk_att_userId ON zk_attendance(userId);
+  CREATE INDEX IF NOT EXISTS idx_zk_att_userType ON zk_attendance(userType);
 
   CREATE TABLE IF NOT EXISTS inquiries (
     id            TEXT PRIMARY KEY,
@@ -761,7 +973,22 @@ async function initDb() {
     business_address TEXT DEFAULT 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014',
     gst_rate_percent REAL DEFAULT 4.8
   );
+
+  CREATE TABLE IF NOT EXISTS website_gallery (
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL,
+    category     TEXT DEFAULT 'General',
+    imageUrl     TEXT NOT NULL,
+    pdfUrl       TEXT,
+    displayOrder INTEGER DEFAULT 0,
+    active       INTEGER DEFAULT 1,
+    createdAt    DATETIME DEFAULT (datetime('now'))
+  );
 `);
+
+    try { db.prepare('ALTER TABLE website_gallery ADD COLUMN pdfUrl TEXT').run(); } catch (e) {}
+
+
 
     try {
       db.prepare("INSERT OR IGNORE INTO gst_settings (id, business_legal_name, business_gstin, business_address, gst_rate_percent) VALUES (1, 'OLYMPIA FITNESS A/C UNISEX', '332323402248ED', 'Meenakshi Garden, (Kalankarai) Reserve Line, Vishalakshipuram Main Road, Madurai, 625014', 4.8)").run();
@@ -1855,6 +2082,373 @@ app.get('/api/attendance/monthly', async (req, res) => {
   }
 });
 
+// ─── ZKTECO SPEEDFACE-V5L ADMS / PUSH INTEGRATION ────────────────────────────
+
+/**
+ * Process a single face scan log record from ZKTeco device
+ */
+async function processFaceScanRecord(rawUserId, rawTimeStr, rawDeviceId) {
+  if (!rawUserId) return { success: false, reason: 'Empty User ID' };
+
+  const userIdStr = String(rawUserId).trim();
+  const deviceId = rawDeviceId ? String(rawDeviceId).trim() : 'SpeedFace-V5L';
+
+  // Format date and checkInTime
+  let dateStr, timeStr;
+  const now = new Date();
+  if (rawTimeStr) {
+    const cleanTimeStr = String(rawTimeStr).replace(' ', 'T');
+    const parsed = new Date(cleanTimeStr);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, '0');
+      const day = String(parsed.getDate()).padStart(2, '0');
+      dateStr = `${year}-${month}-${day}`;
+      const hours = String(parsed.getHours()).padStart(2, '0');
+      const mins = String(parsed.getMinutes()).padStart(2, '0');
+      timeStr = `${hours}:${mins}`;
+    }
+  }
+
+  if (!dateStr) {
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    dateStr = `${year}-${month}-${day}`;
+  }
+  if (!timeStr) {
+    const hours = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    timeStr = `${hours}:${mins}`;
+  }
+
+  // Prevent duplicate attendance for same person on same day
+  const existingRecord = await db.prepare('SELECT * FROM zk_attendance WHERE userId = ? AND date = ?').get(userIdStr, dateStr);
+  if (existingRecord) {
+    return {
+      success: true,
+      duplicate: true,
+      message: 'Attendance already recorded for today. Keeping initial check-in time.',
+      record: existingRecord
+    };
+  }
+
+  // 1. Check Clients table (match clientId or id, exact or case-insensitive)
+  let clientMatch = await db.prepare(`
+    SELECT * FROM clients 
+    WHERE LOWER(clientId) = LOWER(?) OR LOWER(id) = LOWER(?) OR clientId = ? OR id = ?
+    LIMIT 1
+  `).get(userIdStr, userIdStr, userIdStr, userIdStr);
+
+  // Fallback: if numeric string e.g. "1", match against clientId ending with "001" or "1"
+  if (!clientMatch && /^\d+$/.test(userIdStr)) {
+    const padded = userIdStr.padStart(3, '0');
+    clientMatch = await db.prepare(`
+      SELECT * FROM clients 
+      WHERE clientId LIKE ? OR clientId LIKE ?
+      LIMIT 1
+    `).get(`%${padded}`, `%-${padded}`);
+  }
+
+  let userType = 'unknown';
+  let userName = userIdStr;
+  let status = 'Present';
+  let memberId = userIdStr;
+
+  if (clientMatch) {
+    userType = 'client';
+    userName = clientMatch.name;
+    memberId = clientMatch.clientId || clientMatch.id;
+
+    // Membership Active Check
+    const clientStatus = (clientMatch.status || '').toLowerCase();
+    const expiryDate = clientMatch.expiryDate;
+    let isExpired = false;
+
+    if (clientStatus === 'inactive') {
+      isExpired = true;
+    } else if (expiryDate) {
+      const expDateStr = new Date(expiryDate).toISOString().split('T')[0];
+      if (expDateStr < dateStr) {
+        isExpired = true;
+      }
+    }
+
+    if (isExpired) {
+      status = 'Your Plan Expired. Renew It';
+    } else {
+      status = 'Present';
+    }
+  } else {
+    // 2. Check Trainers table (match trainerId or id)
+    let trainerMatch = await db.prepare(`
+      SELECT * FROM trainers 
+      WHERE LOWER(trainerId) = LOWER(?) OR LOWER(id) = LOWER(?) OR trainerId = ? OR id = ?
+      LIMIT 1
+    `).get(userIdStr, userIdStr, userIdStr, userIdStr);
+
+    if (!trainerMatch && /^\d+$/.test(userIdStr)) {
+      const padded = userIdStr.padStart(3, '0');
+      trainerMatch = await db.prepare(`
+        SELECT * FROM trainers 
+        WHERE trainerId LIKE ? OR trainerId LIKE ?
+        LIMIT 1
+      `).get(`%${padded}`, `%-${padded}`);
+    }
+
+    if (trainerMatch) {
+      userType = 'trainer';
+      userName = trainerMatch.name;
+      memberId = trainerMatch.trainerId || trainerMatch.id;
+
+      const trainerStatus = (trainerMatch.status || 'Active').toLowerCase();
+      if (trainerStatus !== 'active') {
+        return {
+          success: false,
+          reason: `Trainer ${trainerMatch.name} is inactive. Attendance not marked.`,
+          userType: 'trainer'
+        };
+      }
+      status = 'Present';
+    } else {
+      // Unregistered user ID on device
+      userType = 'unknown';
+      userName = `User ${userIdStr}`;
+      status = 'Unregistered';
+    }
+  }
+
+  // Insert into zk_attendance table
+  const newId = randomUUID();
+  try {
+    await db.prepare(`
+      INSERT INTO zk_attendance (id, userId, userType, name, date, checkInTime, status, deviceId, memberId)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(newId, userIdStr, userType, userName, dateStr, timeStr, status, deviceId, memberId);
+
+    const insertedRecord = await db.prepare('SELECT * FROM zk_attendance WHERE id = ?').get(newId);
+    return {
+      success: true,
+      duplicate: false,
+      record: insertedRecord
+    };
+  } catch (err) {
+    if (err.message && err.message.includes('UNIQUE constraint failed')) {
+      const existing = await db.prepare('SELECT * FROM zk_attendance WHERE userId = ? AND date = ?').get(userIdStr, dateStr);
+      return {
+        success: true,
+        duplicate: true,
+        record: existing
+      };
+    }
+    throw err;
+  }
+}
+
+// ─── ZKTeco ADMS Communication Protocol Endpoints ───
+
+// GET /iclock/cdata - Handshake & Option initialization
+app.get(['/iclock/cdata', '/cdata'], (req, res) => {
+  const sn = req.query.SN || req.query.sn || 'SpeedFace-V5L';
+  console.log(`[ZKTeco ADMS] Device Handshake connected from SN: ${sn}`);
+  res.type('text/plain').send('OK');
+});
+
+// POST /iclock/cdata - Attendance log push from device
+app.post(['/iclock/cdata', '/cdata'], async (req, res) => {
+  try {
+    const sn = req.query.SN || req.query.sn || 'SpeedFace-V5L';
+    const table = req.query.table || req.query.Table || 'ATTLOG';
+
+    console.log(`[ZKTeco ADMS] Data push received from SN: ${sn}, table: ${table}`);
+
+    let bodyText = '';
+    if (typeof req.body === 'string') {
+      bodyText = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      bodyText = JSON.stringify(req.body);
+    }
+
+    let processedCount = 0;
+
+    if (bodyText) {
+      const lines = bodyText.split(/[\r\n]+/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // ADMS ATTLOG lines format: <PIN/UserID>\t<YYYY-MM-DD HH:mm:ss>\t<Status>\t...
+        const tokens = trimmed.split(/[\t\s]+/);
+        if (tokens.length >= 2) {
+          const userId = tokens[0];
+          let timeStr = tokens[1];
+          if (tokens[2] && tokens[2].includes(':')) {
+            timeStr = `${tokens[1]} ${tokens[2]}`;
+          }
+          await processFaceScanRecord(userId, timeStr, sn);
+          processedCount++;
+        }
+      }
+    }
+
+    res.type('text/plain').send(`OK: ${processedCount}`);
+  } catch (err) {
+    console.error('[ZKTeco ADMS] Error processing push:', err);
+    res.type('text/plain').send('OK');
+  }
+});
+
+// GET /iclock/getrequest - Device command polling
+app.get(['/iclock/getrequest', '/getrequest'], (req, res) => {
+  res.type('text/plain').send('OK');
+});
+
+// POST /iclock/devicecmd - Device command execution result
+app.post(['/iclock/devicecmd', '/devicecmd'], (req, res) => {
+  res.type('text/plain').send('OK');
+});
+
+// ─── ZKTeco React / UI API Endpoints ───
+
+// GET /api/attendance/clients?date=YYYY-MM-DD
+app.get('/api/attendance/clients', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const records = await db.prepare(`
+      SELECT 
+        z.*, 
+        c.expiryDate as expiryDate, 
+        c.plan as plan,
+        c.phone as phone
+      FROM zk_attendance z
+      LEFT JOIN clients c ON (
+        LOWER(z.memberId) = LOWER(c.clientId) OR 
+        LOWER(z.memberId) = LOWER(c.id) OR 
+        LOWER(z.userId) = LOWER(c.clientId) OR 
+        LOWER(z.userId) = LOWER(c.id)
+      )
+      WHERE z.userType = 'client' AND z.date = ? 
+      ORDER BY z.checkInTime ASC, z.created_at ASC
+    `).all(date);
+    res.json(records);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/attendance/trainers?date=YYYY-MM-DD
+app.get('/api/attendance/trainers', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const records = await db.prepare(`
+      SELECT * FROM zk_attendance 
+      WHERE userType = 'trainer' AND date = ? 
+      ORDER BY checkInTime ASC, created_at ASC
+    `).all(date);
+    res.json(records);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/attendance/absent-clients?date=YYYY-MM-DD&minDays=5
+app.get('/api/attendance/absent-clients', async (req, res) => {
+  try {
+    const targetDateStr = req.query.date || new Date().toISOString().split('T')[0];
+    const minDays = parseInt(req.query.minDays || '5', 10);
+    const targetTime = new Date(targetDateStr).getTime();
+
+    const activeClients = await db.prepare(`
+      SELECT id, clientId, name, phone, plan, expiryDate, fromDate, admissionDate, dateAdded, status 
+      FROM clients 
+      WHERE status IS NULL OR LOWER(status) = 'active'
+    `).all();
+
+    const result = [];
+
+    for (const client of (activeClients || [])) {
+      const cIdStr = String(client.id);
+      const cCodeStr = String(client.clientId || '');
+
+      const zkRow = await db.prepare(`
+        SELECT MAX(date) as lastDate 
+        FROM zk_attendance 
+        WHERE (LOWER(userId) = LOWER(?) OR LOWER(memberId) = LOWER(?) OR LOWER(userId) = LOWER(?) OR LOWER(memberId) = LOWER(?))
+          AND date <= ?
+      `).get(cIdStr, cIdStr, cCodeStr, cCodeStr, targetDateStr);
+
+      const attRow = await db.prepare(`
+        SELECT MAX(date) as lastDate 
+        FROM attendance 
+        WHERE (clientId = ? OR clientId = ?) AND date <= ?
+      `).get(cIdStr, cCodeStr, targetDateStr);
+
+      let lastCheckInDate = null;
+      if (zkRow?.lastDate && attRow?.lastDate) {
+        lastCheckInDate = zkRow.lastDate > attRow.lastDate ? zkRow.lastDate : attRow.lastDate;
+      } else {
+        lastCheckInDate = zkRow?.lastDate || attRow?.lastDate || null;
+      }
+
+      let absentDays = 0;
+      let isNeverCheckedIn = false;
+
+      if (lastCheckInDate) {
+        const lastTime = new Date(lastCheckInDate).getTime();
+        absentDays = Math.round((targetTime - lastTime) / (1000 * 60 * 60 * 24));
+      } else {
+        const baseDateStr = client.fromDate || client.admissionDate || client.dateAdded;
+        if (baseDateStr) {
+          const baseTime = new Date(baseDateStr.includes('T') ? baseDateStr.split('T')[0] : baseDateStr).getTime();
+          if (!isNaN(baseTime) && targetTime >= baseTime) {
+            absentDays = Math.round((targetTime - baseTime) / (1000 * 60 * 60 * 24));
+          } else {
+            absentDays = 999;
+          }
+        } else {
+          absentDays = 999;
+        }
+        isNeverCheckedIn = true;
+      }
+
+      if (absentDays >= minDays) {
+        result.push({
+          ...client,
+          lastCheckInDate,
+          absentDays,
+          isNeverCheckedIn
+        });
+      }
+    }
+
+    result.sort((a, b) => b.absentDays - a.absentDays);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/attendance/zk-push - Manual trigger or JSON push endpoint
+app.post('/api/attendance/zk-push', async (req, res) => {
+  try {
+    let payload = req.body;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch (e) {}
+    }
+    const userId = payload?.userId;
+    const timestamp = payload?.timestamp;
+    const deviceId = payload?.deviceId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    const result = await processFaceScanRecord(userId, timestamp, deviceId);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET bills for a specific client
 app.get('/api/bills/client/:clientId', async (req, res) => {
   try {
@@ -2652,7 +3246,7 @@ app.get('/api/trainers/next-id', async (req, res) => {
 // POST create trainer
 app.post('/api/trainers', async (req, res) => {
   try {
-    const { trainerId, name, phone, specialization, experience, status = 'Active', grade, custom_commission_percent, profileImage } = req.body;
+    const { trainerId, name, phone, specialization, experience, status = 'Active', grade, custom_commission_percent, profileImage, shiftStartTime, shiftEndTime } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
       return res.status(400).json({ error: 'Valid Grade (A_PRO_PT, A, B) is required.' });
     }
@@ -2664,9 +3258,9 @@ app.post('/api/trainers', async (req, res) => {
     const finalProfileImage = await saveImageToR2(profileImage, 'trainer', id, req.env);
 
     await db.prepare(`
-      INSERT INTO trainers (id, trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null);
+      INSERT INTO trainers (id, trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage, shiftStartTime, shiftEndTime)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, shiftStartTime || null, shiftEndTime || null);
 
     const newTrainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(id);
     res.status(201).json(newTrainer);
@@ -2678,7 +3272,7 @@ app.post('/api/trainers', async (req, res) => {
 // PUT update trainer
 app.put('/api/trainers/:id', async (req, res) => {
   try {
-    const { trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage } = req.body;
+    const { trainerId, name, phone, specialization, experience, status, grade, custom_commission_percent, profileImage, shiftStartTime, shiftEndTime } = req.body;
     if (!grade || !['A_PRO_PT', 'A', 'B'].includes(grade)) {
       return res.status(400).json({ error: 'Valid Grade (A_PRO_PT, A, B) is required.' });
     }
@@ -2690,9 +3284,9 @@ app.put('/api/trainers/:id', async (req, res) => {
 
     await db.prepare(`
       UPDATE trainers SET
-        trainerId = ?, name = ?, phone = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?
+        trainerId = ?, name = ?, phone = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?, shiftStartTime = ?, shiftEndTime = ?
       WHERE id = ? OR trainerId = ?
-    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, req.params.id, req.params.id);
+    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, shiftStartTime || null, shiftEndTime || null, req.params.id, req.params.id);
 
     const updated = await db.prepare('SELECT * FROM trainers WHERE id = ? OR trainerId = ?').get(req.params.id, req.params.id);
     res.json(updated);
@@ -3929,10 +4523,29 @@ app.post('/api/pt-advance-bookings/:id/activate', async (req, res) => {
     }
 
     if (!invoiceId) {
-      const paidAmtToPass = booking.paid_amount !== undefined && booking.paid_amount !== null ? booking.paid_amount : null;
-      const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), paidAmtToPass, booking.payment_method || 'UPI');
-      invoiceId = invoiceObj ? invoiceObj.billId : null;
-      billNo = invoiceObj ? invoiceObj.billNo : null;
+      // Find existing advance bill for this client to prevent duplicate collections
+      const existingAdvBill = await db.prepare(`
+        SELECT id, billNo FROM bills
+        WHERE (clientId = ? OR clientId = ?) AND (invoice_category = 'PTAdvance' OR planName LIKE '%Advance%')
+        ORDER BY timestamp DESC LIMIT 1
+      `).get(booking.client_id, booking.client_id);
+
+      if (existingAdvBill) {
+        invoiceId = existingAdvBill.id;
+        billNo = existingAdvBill.billNo;
+        await db.prepare(`
+          UPDATE bills 
+          SET joinDate = ?, expiryDate = ?, invoice_category = 'PT'
+          WHERE CAST(id AS TEXT) = ?
+        `).run(assignDate, expiryDate, String(invoiceId));
+        await db.prepare('UPDATE pt_advance_bookings SET invoice_id = ? WHERE id = ?').run(invoiceId, id);
+      } else {
+        // If no prior invoice existed at all, generate one
+        const paidAmtToPass = booking.paid_amount !== undefined && booking.paid_amount !== null ? booking.paid_amount : null;
+        const invoiceObj = await generatePtInvoice(booking.client_id, pkgName, booking.price_snapshot, assignDate, expiryDate, parseFloat(booking.discount_amount || 0), paidAmtToPass, booking.payment_method || 'UPI');
+        invoiceId = invoiceObj ? invoiceObj.billId : null;
+        billNo = invoiceObj ? invoiceObj.billNo : null;
+      }
     }
 
     // Complete any previous active PT assignment for this client
@@ -6500,26 +7113,99 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
       `Thank you for training with us! 💪🔥`
     );
 
-    if (documentUrl && isPublicUrl(documentUrl)) {
-      try {
-        await sendWhatsAppDocument(targetPhone, caption, documentUrl, filename, req.env);
-      } catch (docErr) {
-        console.warn('Document send error, falling back to text:', docErr.message);
-        await sendWhatsAppMessage(targetPhone, caption, req.env);
-      }
-    } else {
-      await sendWhatsAppMessage(targetPhone, caption, req.env);
-    }
+    // Send PDF document directly via APITxT / WhatsApp API (NEVER fall back to text message!)
+    await sendWhatsAppDocument(targetPhone, caption, documentUrl, filename, req.env, pdfBase64, name || 'Member');
 
     // Log it
     await db.prepare(
       'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), clientId || '', name || '', targetPhone, 'invoice_pdf');
 
-    res.json({ success: true, message: `Invoice sent to ${targetPhone} via WhatsApp!` });
+    res.json({ success: true, message: `Invoice PDF sent to ${targetPhone} via WhatsApp!` });
   } catch (err) {
     console.warn('WhatsApp invoice send failed, returning error to client:', err.message);
     res.status(400).json({ success: false, error: err.message, documentUrl: documentUrl || null });
+  }
+});
+
+// POST /api/whatsapp/send-payslip — Send payslip PDF directly to trainer via WhatsApp
+app.post('/api/whatsapp/send-payslip', async (req, res) => {
+  let documentUrl = req.body ? req.body.documentUrl : null;
+  try {
+    const { phone, trainerName, month, pdfBase64, totalPayable, basicPay, bonus, bonusNote, incentiveAmount, incentiveType, otherAmount, otherType, otherLabel, commissionSalary, trainerId } = req.body;
+
+    let targetPhone = String(phone || '').replace(/\D/g, '');
+    if (targetPhone.startsWith('00')) targetPhone = targetPhone.slice(2);
+    else if (targetPhone.startsWith('0') && targetPhone.length === 11) targetPhone = targetPhone.slice(1);
+    if (targetPhone.length === 10) targetPhone = `91${targetPhone}`;
+
+    if (!targetPhone || targetPhone.length < 10) {
+      if (trainerId) {
+        const trRow = await db.prepare('SELECT trainerPhone, phone FROM trainers WHERE id = ? OR trainerId = ? OR trainerCode = ?').get(trainerId, trainerId, trainerId);
+        if (trRow && (trRow.trainerPhone || trRow.phone)) {
+          targetPhone = String(trRow.trainerPhone || trRow.phone).replace(/\D/g, '');
+          if (targetPhone.startsWith('00')) targetPhone = targetPhone.slice(2);
+          else if (targetPhone.startsWith('0') && targetPhone.length === 11) targetPhone = targetPhone.slice(1);
+          if (targetPhone.length === 10) targetPhone = `91${targetPhone}`;
+        }
+      }
+    }
+
+    if (!targetPhone || targetPhone.length < 10) {
+      return res.status(400).json({ error: 'Valid trainer phone number is required to send WhatsApp payslip.' });
+    }
+
+    const filename = `Payslip_${(trainerName || 'Trainer').replace(/[^a-zA-Z0-9_-]/g, '_')}_${(month || 'Month').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+
+    // Cache PDF base64 and upload to storage to get public PDF document URL
+    if (!documentUrl && pdfBase64) {
+      try {
+        const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
+        const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+        const docId = `payslip_${(trainerId || 'tr').replace(/[^a-zA-Z0-9_-]/g, '')}_${Date.now()}`;
+        publicDocsCache.set(docId, {
+          buffer: pdfBuffer,
+          filename,
+          contentType: 'application/pdf',
+          timestamp: Date.now()
+        });
+
+        const savedUrl = await savePdfDocument(pdfBuffer, filename, req.env);
+        if (savedUrl) {
+          documentUrl = savedUrl;
+        }
+      } catch (pdfErr) {
+        console.warn('Payslip PDF cache creation notice:', pdfErr.message);
+      }
+    }
+
+    const incSign = incentiveType === 'Subtract' ? '-' : '+';
+    const othSign = otherType === 'Subtract' ? '-' : '+';
+
+    const caption = 
+      `Hi ${trainerName || 'Trainer'}! 👋\n\n` +
+      `Here is your official Payslip for *${month || ''}* from *OLYMPIA FITNESS* 🏋️‍♂️\n\n` +
+      `• PT Commission Salary: ₹${Number(commissionSalary || 0).toLocaleString('en-IN')}\n` +
+      `• Basic Pay: +₹${Number(basicPay || 0).toLocaleString('en-IN')}\n` +
+      `• Bonus: +₹${Number(bonus || 0).toLocaleString('en-IN')}${bonusNote ? ` (${bonusNote})` : ''}\n` +
+      `• Incentives: ${incSign}₹${Number(incentiveAmount || 0).toLocaleString('en-IN')}\n` +
+      `• ${otherLabel || 'Other Adjustment'}: ${othSign}₹${Number(otherAmount || 0).toLocaleString('en-IN')}\n` +
+      `---------------------------\n` +
+      `*TOTAL PAYABLE: ₹${Number(totalPayable || 0).toLocaleString('en-IN')}*\n\n` +
+      `Thank you for your dedicated training! 💪🔥`;
+
+    // Send PDF document directly via APITxT / WhatsApp API
+    await sendWhatsAppDocument(targetPhone, caption, documentUrl, filename, req.env, pdfBase64, trainerName || 'Trainer');
+
+    // Log in database
+    await db.prepare(
+      'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+    ).run(randomUUID(), trainerId || '', trainerName || '', targetPhone, 'payslip_pdf');
+
+    res.json({ success: true, message: `Payslip PDF sent successfully to ${targetPhone} via WhatsApp!` });
+  } catch (err) {
+    console.error('WhatsApp payslip send error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -7951,8 +8637,180 @@ app.post('/api/reset-operational-data', async (req, res) => {
   }
 });
 
+// ─── WEBSITE GALLERY API ENDPOINTS ──────────────────────────────────────────
+
+// GET /api/website-gallery — Public & Admin retrieval
+app.get('/api/website-gallery', async (req, res) => {
+  try {
+    const isAdmin = req.query.admin === 'true';
+    const query = isAdmin
+      ? 'SELECT * FROM website_gallery ORDER BY displayOrder ASC, createdAt DESC'
+      : 'SELECT * FROM website_gallery WHERE active = 1 ORDER BY displayOrder ASC, createdAt DESC';
+    const items = await db.prepare(query).all();
+    res.json(items || []);
+  } catch (err) {
+    console.error('Error fetching website gallery:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/website-gallery — Create gallery item
+app.post('/api/website-gallery', async (req, res) => {
+  try {
+    const { title, category, imageBase64, imageUrl, pdfBase64, pdfUrl, displayOrder } = req.body || {};
+    if (!title || (!imageBase64 && !imageUrl)) {
+      return res.status(400).json({ error: 'Title and an Image are required.' });
+    }
+
+    const id = randomUUID();
+    let finalImageUrl = imageUrl || '';
+    if (imageBase64) {
+      finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id);
+    }
+
+    let finalPdfUrl = pdfUrl || null;
+    if (pdfBase64 && typeof pdfBase64 === 'string' && pdfBase64.startsWith('data:')) {
+      try {
+        const match = pdfBase64.match(/^data:([^;]+);base64,(.+)$/);
+        if (match) {
+          const pdfBuffer = Buffer.from(match[2], 'base64');
+          const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
+          const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
+          fs.writeFileSync(pdfPath, pdfBuffer);
+          finalPdfUrl = `/api/images/${pdfFilename}`;
+        }
+      } catch (e) {
+        console.error('Error saving PDF file:', e);
+      }
+    }
+
+    const order = typeof displayOrder === 'number' ? displayOrder : 0;
+    const cat = category || 'Anniversary';
+
+    await db.prepare(
+      'INSERT INTO website_gallery (id, title, category, imageUrl, pdfUrl, displayOrder, active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+    ).run(id, title.trim(), cat.trim(), finalImageUrl, finalPdfUrl, order);
+
+    const newItem = await db.prepare('SELECT * FROM website_gallery WHERE id = ?').get(id);
+    res.status(201).json(newItem);
+  } catch (err) {
+    console.error('Error creating website gallery item:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/website-gallery/batch — Create multiple gallery items at once
+app.post('/api/website-gallery/batch', async (req, res) => {
+  try {
+    const { items } = req.body || {};
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Array of gallery items is required.' });
+    }
+
+    const createdItems = [];
+    for (const item of items) {
+      const { title, category, imageBase64, imageUrl, pdfBase64, pdfUrl, displayOrder } = item || {};
+      if (!title || (!imageBase64 && !imageUrl)) continue;
+
+      const id = randomUUID();
+      let finalImageUrl = imageUrl || '';
+      if (imageBase64) {
+        finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id);
+      }
+
+      let finalPdfUrl = pdfUrl || null;
+      if (pdfBase64 && typeof pdfBase64 === 'string' && pdfBase64.startsWith('data:')) {
+        try {
+          const match = pdfBase64.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            const pdfBuffer = Buffer.from(match[2], 'base64');
+            const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
+            const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
+            fs.writeFileSync(pdfPath, pdfBuffer);
+            finalPdfUrl = `/api/images/${pdfFilename}`;
+          }
+        } catch (e) {}
+      }
+
+      const order = typeof displayOrder === 'number' ? displayOrder : 0;
+      const cat = category || 'Anniversary';
+
+      await db.prepare(
+        'INSERT INTO website_gallery (id, title, category, imageUrl, pdfUrl, displayOrder, active) VALUES (?, ?, ?, ?, ?, ?, 1)'
+      ).run(id, title.trim(), cat.trim(), finalImageUrl, finalPdfUrl, order);
+
+      const newItem = await db.prepare('SELECT * FROM website_gallery WHERE id = ?').get(id);
+      if (newItem) createdItems.push(newItem);
+    }
+
+    res.status(201).json({ success: true, count: createdItems.length, items: createdItems });
+  } catch (err) {
+    console.error('Error batch uploading gallery items:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// PATCH /api/website-gallery/:id — Update gallery item details / status
+app.patch('/api/website-gallery/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, category, displayOrder, active, pdfUrl } = req.body || {};
+
+    const existing = await db.prepare('SELECT * FROM website_gallery WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Gallery item not found' });
+    }
+
+    const newTitle = title !== undefined ? String(title).trim() : existing.title;
+    const newCategory = category !== undefined ? String(category).trim() : existing.category;
+    const newOrder = typeof displayOrder === 'number' ? displayOrder : existing.displayOrder;
+    const newActive = active !== undefined ? (active ? 1 : 0) : existing.active;
+    const newPdfUrl = pdfUrl !== undefined ? pdfUrl : existing.pdfUrl;
+
+    await db.prepare(
+      'UPDATE website_gallery SET title = ?, category = ?, displayOrder = ?, active = ?, pdfUrl = ? WHERE id = ?'
+    ).run(newTitle, newCategory, newOrder, newActive, newPdfUrl, id);
+
+    const updated = await db.prepare('SELECT * FROM website_gallery WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating website gallery item:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// DELETE /api/website-gallery/:id — Delete gallery item
+app.delete('/api/website-gallery/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existing = await db.prepare('SELECT * FROM website_gallery WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ error: 'Gallery item not found' });
+    }
+
+    await db.prepare('DELETE FROM website_gallery WHERE id = ?').run(id);
+
+    // Try to remove local file if stored locally
+    if (existing.imageUrl && existing.imageUrl.startsWith('/api/images/')) {
+      const filename = path.basename(existing.imageUrl);
+      const filePath = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch (e) {}
+      }
+    }
+
+    res.json({ success: true, message: 'Gallery item deleted' });
+  } catch (err) {
+    console.error('Error deleting website gallery item:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Only serve static files from local disk in Node.js/Electron environments
 if (!process.env.CF_WORKER) {
+
   const distPath = process.env.DIST_PATH || path.join(__dirname, '../dist');
   app.use(express.static(distPath));
   app.use((req, res) => {

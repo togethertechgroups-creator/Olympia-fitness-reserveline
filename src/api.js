@@ -301,6 +301,32 @@ export const getAttendanceMonthly = async (clientId, year, month) => {
   return handleResponse(response);
 };
 
+// ─── ZKTECO ATTENDANCE APIs ──────────────────────────────────────────────────
+
+export const getZkClientAttendance = async (date) => {
+  const response = await fetch(`${BASE_URL}/attendance/clients?date=${date}`);
+  return handleResponse(response);
+};
+
+export const getZkTrainerAttendance = async (date) => {
+  const response = await fetch(`${BASE_URL}/attendance/trainers?date=${date}`);
+  return handleResponse(response);
+};
+
+export const getZkAbsentClients = async (date, minDays = 5) => {
+  const response = await fetch(`${BASE_URL}/attendance/absent-clients?date=${date}&minDays=${minDays}`);
+  return handleResponse(response);
+};
+
+export const pushZkTestScan = async (userId, timestamp = null, deviceId = 'SpeedFace-V5L-Web') => {
+  const response = await fetch(`${BASE_URL}/attendance/zk-push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, timestamp, deviceId })
+  });
+  return handleResponse(response);
+};
+
 export const getClientBills = async (clientId) => {
   const response = await fetch(`${BASE_URL}/bills/client/${clientId}`);
   return handleResponse(response);
@@ -1085,6 +1111,52 @@ export const getDashboardStats = async (startDate, endDate) => {
   const query = (startDate && endDate) ? `?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}` : '';
   return fetchWithCache(`${BASE_URL}/dashboard/stats${query}`, {}, false, 15000);
 };
+
+// ─── WEBSITE GALLERY API CALLS ────────────────────────────────────────────────
+export const getWebsiteGallery = async (admin = false) => {
+  const url = admin ? `${BASE_URL}/website-gallery?admin=true` : `${BASE_URL}/website-gallery`;
+  return fetchWithCache(url, {}, false, 15000);
+};
+
+export const addWebsiteGalleryItem = async (data) => {
+  clearApiCache();
+  const response = await fetch(`${BASE_URL}/website-gallery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const addWebsiteGalleryBatch = async (items) => {
+  clearApiCache();
+  const response = await fetch(`${BASE_URL}/website-gallery/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  return handleResponse(response);
+};
+
+
+export const updateWebsiteGalleryItem = async (id, data) => {
+  clearApiCache();
+  const response = await fetch(`${BASE_URL}/website-gallery/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  return handleResponse(response);
+};
+
+export const deleteWebsiteGalleryItem = async (id) => {
+  clearApiCache();
+  const response = await fetch(`${BASE_URL}/website-gallery/${id}`, {
+    method: 'DELETE',
+  });
+  return handleResponse(response);
+};
+
 
 
 

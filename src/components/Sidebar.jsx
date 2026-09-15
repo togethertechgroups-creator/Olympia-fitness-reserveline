@@ -81,6 +81,16 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle, userRole }) => {
           <span className="sidebar-tooltip">Manage Clients</span>
         </NavLink>
 
+        <NavLink to="/attendance" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/>
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <polyline points="16 11 18 13 22 9"/>
+          </svg>
+          <span className="sidebar-link-text">Attendance</span>
+          <span className="sidebar-tooltip">Attendance</span>
+        </NavLink>
+
         <NavLink to="/service-sales-history" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -249,7 +259,17 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle, userRole }) => {
 
 
         {/* ─── 7. SETTINGS ─── */}
-        {isSuperAdmin && !isCollapsed && <div className="sidebar-section-header">SYSTEM</div>}
+        {!isCollapsed && <div className="sidebar-section-header">WEBSITE & SYSTEM</div>}
+
+        <NavLink to="/website-gallery" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+            <circle cx="8.5" cy="8.5" r="1.5"/>
+            <polyline points="21 15 16 10 5 21"/>
+          </svg>
+          <span className="sidebar-link-text">Website Gallery</span>
+          <span className="sidebar-tooltip">Website Gallery</span>
+        </NavLink>
 
         {isSuperAdmin && (
           <NavLink to="/admin-credentials" className={({ isActive }) => `sidebar-global-link ${isActive ? 'active' : ''}`}>
@@ -262,6 +282,7 @@ const Sidebar = ({ onLogout, isCollapsed, onToggle, userRole }) => {
             <span className="sidebar-tooltip">Admin Credentials</span>
           </NavLink>
         )}
+
 
       </div>
 

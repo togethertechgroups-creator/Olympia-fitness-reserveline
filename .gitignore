@@ -33,6 +33,8 @@ server/.env
 scratch/
 check_db.js
 server/check.js
+server/uploads/gallery_*
+clean_live*
 keys
 cloudflare keys
 *keys*
