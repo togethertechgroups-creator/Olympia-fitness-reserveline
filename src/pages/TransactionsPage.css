@@ -35,7 +35,7 @@
     color: #ea580c !important;
 }
 
-.txn-payment-filter {
+.txn-payment-filter, .txn-category-filter {
     height: 42px;
     padding: 0 1rem;
     border-radius: 10px;
@@ -52,7 +52,8 @@
     box-sizing: border-box;
 }
 
-.txn-payment-filter:focus, .txn-payment-filter:hover {
+.txn-payment-filter:focus, .txn-payment-filter:hover,
+.txn-category-filter:focus, .txn-category-filter:hover {
     border-color: #ea580c;
 }
 

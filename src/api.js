@@ -710,14 +710,14 @@ export const sendPayslipWhatsApp = async (payslipPayload) => {
 
 const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
-  'x-user-role': localStorage.getItem('userRole') || ''
+  'x-user-role': (localStorage.getItem('userRole') || 'admin').toLowerCase()
 });
 
-export const getSupplements = async (activeOnly = false) => {
+export const getSupplements = async (activeOnly = false, forceRefresh = false) => {
   const url = activeOnly ? `${BASE_URL}/supplements?activeOnly=true` : `${BASE_URL}/supplements`;
   return fetchWithCache(url, {
     headers: getAuthHeaders()
-  }, false, 30000);
+  }, forceRefresh, 30000);
 };
 
 export const addSupplement = async (data) => {

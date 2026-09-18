@@ -6,8 +6,8 @@ const CATEGORIES = ['Protein', 'Creatine', 'Vitamins', 'Pre-Workout', 'Mass Gain
 const UNITS = ['bottle', 'kg', 'pack', 'box', 'tub', 'scoop', 'sachet', 'piece'];
 
 const SupplementCatalogPage = () => {
-  const userRole = localStorage.getItem('userRole');
-  const canManageSupplements = userRole === 'admin' || userRole === 'superadmin';
+  const userRole = (localStorage.getItem('userRole') || '').toLowerCase();
+  const canManageSupplements = !userRole || userRole === 'admin' || userRole === 'superadmin';
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -36,10 +36,10 @@ const SupplementCatalogPage = () => {
   });
   const [deleting, setDeleting] = useState(false);
 
-  const fetchCatalog = async () => {
+  const fetchCatalog = async (forceRefresh = false) => {
     try {
       setLoading(true);
-      const data = await getSupplements(false); // fetch all including inactive
+      const data = await getSupplements(false, forceRefresh); // fetch all including inactive
       setSupplements(data);
     } catch (err) {
       console.error('Failed to load supplements catalog', err);
@@ -49,7 +49,7 @@ const SupplementCatalogPage = () => {
   };
 
   useEffect(() => {
-    fetchCatalog();
+    fetchCatalog(true);
   }, []);
 
   const handleOpenModal = (item = null) => {
@@ -101,7 +101,7 @@ const SupplementCatalogPage = () => {
       } else {
         await addSupplement(formData);
       }
-      await fetchCatalog();
+      await fetchCatalog(true);
       handleCloseModal();
     } catch (err) {
       setError(err.message || 'Failed to save supplement');
@@ -113,7 +113,7 @@ const SupplementCatalogPage = () => {
   const handleToggleActive = async (id) => {
     try {
       await toggleSupplementActive(id);
-      fetchCatalog();
+      await fetchCatalog(true);
     } catch (err) {
       alert(err.message || 'Failed to toggle active status');
     }
@@ -129,7 +129,7 @@ const SupplementCatalogPage = () => {
       setDeleting(true);
       await deleteSupplement(deleteConfirm.item.id);
       setDeleteConfirm({ isOpen: false, item: null });
-      await fetchCatalog();
+      await fetchCatalog(true);
     } catch (err) {
       alert(err.message || 'Failed to delete supplement');
     } finally {

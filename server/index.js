@@ -570,8 +570,10 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
     const buffer = Buffer.from(base64Data, 'base64');
 
     // 1. Local Node Development Mode - Write to local disk first
-    const localFilePath = path.join(UPLOADS_DIR, filename);
-    fs.writeFileSync(localFilePath, buffer);
+    try {
+      const localFilePath = path.join(UPLOADS_DIR, filename);
+      fs.writeFileSync(localFilePath, buffer);
+    } catch (e) {}
 
     // 2. Cloudflare Worker R2 Binding (when deployed / running in Worker context)
     const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
@@ -2297,6 +2299,20 @@ async function processFaceScanRecord(rawUserId, rawTimeStr, rawDeviceId) {
       INSERT INTO zk_attendance (id, userId, userType, name, date, checkInTime, status, deviceId, memberId)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(newId, userIdStr, userType, userName, dateStr, timeStr, status, deviceId, memberId);
+
+    // Sync to main attendance table for clients if present
+    if (userType === 'client' && status === 'Present' && clientMatch) {
+      const attId = randomUUID();
+      try {
+        await db.prepare(`
+          INSERT INTO attendance (id, clientId, date, status, timestamp)
+          VALUES (?, ?, ?, 'Present', datetime('now'))
+          ON CONFLICT(clientId, date) DO UPDATE SET status = 'Present'
+        `).run(attId, clientMatch.id, dateStr);
+      } catch (attErr) {
+        console.error('[ZKTeco ADMS] Error updating client attendance table:', attErr);
+      }
+    }
 
     const insertedRecord = await db.prepare('SELECT * FROM zk_attendance WHERE id = ?').get(newId);
     return {
@@ -5537,7 +5553,9 @@ app.get('/api/transactions', async (req, res) => {
         t.id, t.clientId, t.billId, t.name, t.method, t.date, t.amount, t.status, t.timestamp,
         b.discount_amount as discount_amount,
         b.planAmount as bill_plan_amount,
-        b.totalPlanAmount as bill_total_amount
+        b.totalPlanAmount as bill_total_amount,
+        b.invoice_category as bill_invoice_category,
+        b.planName as bill_plan_name
       FROM transactions t
       LEFT JOIN bills b ON t.billId = b.id
       ORDER BY t.timestamp DESC
@@ -7898,7 +7916,7 @@ app.get('/api/dashboard/dynamic-stats', async (req, res) => {
 
 // ─── Middleware: Supplement Access Control (Admin & SuperAdmin) ───────────────
 const requireSupplementAccess = (req, res, next) => {
-  const role = req.headers['x-user-role'];
+  const role = (req.headers['x-user-role'] || '').toLowerCase();
   if (!role || (role !== 'admin' && role !== 'superadmin')) {
     return res.status(403).json({ error: 'Access denied: Admin or SuperAdmin privileges required' });
   }
@@ -7990,6 +8008,8 @@ app.patch('/api/supplements/:id/toggle-active', async (req, res) => {
 app.delete('/api/supplements/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    await db.prepare('DELETE FROM supplement_sales WHERE supplement_id = ?').run(id);
+    await db.prepare('DELETE FROM supplement_purchases WHERE supplement_id = ?').run(id);
     await db.prepare('DELETE FROM supplements WHERE id = ?').run(id);
     res.json({ message: 'Supplement deleted successfully' });
   } catch (err) {
@@ -8753,7 +8773,7 @@ app.post('/api/website-gallery', async (req, res) => {
     const id = randomUUID();
     let finalImageUrl = imageUrl || '';
     if (imageBase64) {
-      finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id);
+      finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id, req.env);
     }
 
     let finalPdfUrl = pdfUrl || null;
@@ -8763,9 +8783,19 @@ app.post('/api/website-gallery', async (req, res) => {
         if (match) {
           const pdfBuffer = Buffer.from(match[2], 'base64');
           const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
-          const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
-          fs.writeFileSync(pdfPath, pdfBuffer);
-          finalPdfUrl = `/api/images/${pdfFilename}`;
+          const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
+          if (r2Bucket && typeof r2Bucket.put === 'function') {
+            await r2Bucket.put(pdfFilename, pdfBuffer, {
+              httpMetadata: { contentType: 'application/pdf' }
+            });
+            finalPdfUrl = `/api/images/${pdfFilename}`;
+          } else {
+            try {
+              const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
+              fs.writeFileSync(pdfPath, pdfBuffer);
+              finalPdfUrl = `/api/images/${pdfFilename}`;
+            } catch (fsErr) {}
+          }
         }
       } catch (e) {
         console.error('Error saving PDF file:', e);
@@ -8803,7 +8833,7 @@ app.post('/api/website-gallery/batch', async (req, res) => {
       const id = randomUUID();
       let finalImageUrl = imageUrl || '';
       if (imageBase64) {
-        finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id);
+        finalImageUrl = await saveImageToR2(imageBase64, 'gallery', id, req.env);
       }
 
       let finalPdfUrl = pdfUrl || null;
@@ -8813,9 +8843,19 @@ app.post('/api/website-gallery/batch', async (req, res) => {
           if (match) {
             const pdfBuffer = Buffer.from(match[2], 'base64');
             const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
-            const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
-            fs.writeFileSync(pdfPath, pdfBuffer);
-            finalPdfUrl = `/api/images/${pdfFilename}`;
+            const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
+            if (r2Bucket && typeof r2Bucket.put === 'function') {
+              await r2Bucket.put(pdfFilename, pdfBuffer, {
+                httpMetadata: { contentType: 'application/pdf' }
+              });
+              finalPdfUrl = `/api/images/${pdfFilename}`;
+            } else {
+              try {
+                const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
+                fs.writeFileSync(pdfPath, pdfBuffer);
+                finalPdfUrl = `/api/images/${pdfFilename}`;
+              } catch (fsErr) {}
+            }
           }
         } catch (e) {}
       }

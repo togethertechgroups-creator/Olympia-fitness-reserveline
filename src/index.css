@@ -107,7 +107,15 @@ body {
 }
 
 /* Unified White Dropdown Input Tokens App-Wide */
+input,
+select,
+textarea {
+  box-sizing: border-box !important;
+  max-width: 100%;
+}
+
 select {
+  width: 100%;
   background-color: #ffffff !important;
   color: #0f172a !important;
   border: 1px solid var(--glass-border) !important;
@@ -131,6 +139,15 @@ select option {
   background-color: #ffffff !important;
   color: #0f172a !important;
   padding: 0.5rem 1rem !important;
+}
+
+/* Form layout overflow prevention */
+.form-group,
+.form-grid > *,
+.form-row > * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* SIDEBAR LAYOUT: Leaves space to accommodate the Flush Edge Classic Sidebar without overflow */

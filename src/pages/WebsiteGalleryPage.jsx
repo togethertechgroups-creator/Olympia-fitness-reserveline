@@ -67,39 +67,85 @@ const WebsiteGalleryPage = () => {
     setSelectedItems([]);
   };
 
-  const handleFilesChange = (e) => {
+  const compressImageFile = (file, maxWidth = 1920, maxHeight = 1080, quality = 0.82) => {
+    return new Promise((resolve) => {
+      if (!file || !file.type.startsWith('image/')) {
+        resolve(null);
+        return;
+      }
+      if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > maxWidth || height > maxHeight) {
+            const ratio = Math.min(maxWidth / width, maxHeight / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          try {
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+            resolve(compressedDataUrl);
+          } catch (err) {
+            resolve(readerEvent.target.result);
+          }
+        };
+        img.onerror = () => {
+          resolve(readerEvent.target.result);
+        };
+        img.src = readerEvent.target.result;
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFilesChange = async (e) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
     const validFiles = files.filter(file => {
-      if (file.size > 8 * 1024 * 1024) {
-        alert(`File "${file.name}" exceeds 8MB limit and was skipped.`);
+      if (file.size > 25 * 1024 * 1024) {
+        alert(`File "${file.name}" exceeds 25MB limit and was skipped.`);
         return false;
       }
       return true;
     });
 
-    const newItemsPromises = validFiles.map((file, idx) => {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const autoTitle = baseTitle.trim()
-            ? (validFiles.length > 1 ? `${baseTitle.trim()} - Photo ${idx + 1}` : baseTitle.trim())
-            : file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-          resolve({
-            id: `item_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
-            base64: reader.result,
-            previewUrl: reader.result,
-            title: autoTitle
-          });
-        };
-        reader.readAsDataURL(file);
-      });
+    const newItemsPromises = validFiles.map(async (file, idx) => {
+      const compressedBase64 = await compressImageFile(file);
+      if (!compressedBase64) return null;
+
+      const autoTitle = baseTitle.trim()
+        ? (validFiles.length > 1 ? `${baseTitle.trim()} - Photo ${idx + 1}` : baseTitle.trim())
+        : file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+
+      return {
+        id: `item_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+        base64: compressedBase64,
+        previewUrl: compressedBase64,
+        title: autoTitle
+      };
     });
 
-    Promise.all(newItemsPromises).then(items => {
-      setSelectedItems(prev => [...prev, ...items]);
-    });
+    const items = await Promise.all(newItemsPromises);
+    const validItems = items.filter(Boolean);
+    setSelectedItems(prev => [...prev, ...validItems]);
   };
 
   const handleBaseTitleChange = (newBaseTitle) => {

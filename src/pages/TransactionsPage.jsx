@@ -56,6 +56,7 @@ const TransactionsPage = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr());
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -116,7 +117,8 @@ const TransactionsPage = () => {
             discountAmount: discountVal,
             date: actualTxnDate,
             status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-            timestamp: b.created_at || actualTxnDate
+            timestamp: b.created_at || actualTxnDate,
+            categoryType: 'ADVANCE_GEN'
           };
         });
 
@@ -143,7 +145,8 @@ const TransactionsPage = () => {
             discountAmount: discountVal,
             date: actualTxnDate,
             status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
-            timestamp: b.created_at || actualTxnDate
+            timestamp: b.created_at || actualTxnDate,
+            categoryType: 'ADVANCE_PT'
           };
         });
 
@@ -169,7 +172,8 @@ const TransactionsPage = () => {
             discountAmount: discountVal,
             date: actualTxnDate,
             status: 'CAPTURED',
-            timestamp: a.created_at || a.assigned_date || ''
+            timestamp: a.created_at || a.assigned_date || '',
+            categoryType: 'PT'
           };
         });
 
@@ -194,7 +198,8 @@ const TransactionsPage = () => {
             discountAmount: discountVal,
             date: s.sale_date ? s.sale_date.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : ''),
             status: (s.paymentStatus === 'Cancelled' || s.status === 'Cancelled') ? 'CANCELLED' : (s.paymentStatus || 'CAPTURED').toUpperCase(),
-            timestamp: s.created_at || s.sale_date || ''
+            timestamp: s.created_at || s.sale_date || '',
+            categoryType: 'OTHER_SERVICE'
           };
         });
 
@@ -210,7 +215,8 @@ const TransactionsPage = () => {
           discountAmount: 0,
           date: e.date || '',
           status: 'EXPENSE',
-          timestamp: e.timestamp || e.date || ''
+          timestamp: e.timestamp || e.date || '',
+          categoryType: 'EXPENSE'
         };
       });
 
@@ -380,14 +386,75 @@ const TransactionsPage = () => {
       if (toDate && txnDateNorm > toDate) return false;
     }
 
-    if (paymentMethodFilter === 'ALL') return true;
-
-    const methodLower = (txn.method || '').toLowerCase();
-    if (paymentMethodFilter === 'UPI') return methodLower.includes('upi');
-    if (paymentMethodFilter === 'CASH') return methodLower.includes('cash');
-    if (paymentMethodFilter === 'BANK') {
-      return methodLower.includes('bank') || methodLower.includes('net banking') || methodLower.includes('card') || methodLower.includes('transfer');
+    if (paymentMethodFilter !== 'ALL') {
+      const methodLower = (txn.method || '').toLowerCase();
+      if (paymentMethodFilter === 'UPI' && !methodLower.includes('upi')) return false;
+      if (paymentMethodFilter === 'CASH' && !methodLower.includes('cash')) return false;
+      if (paymentMethodFilter === 'BANK' && (!methodLower.includes('bank') && !methodLower.includes('net banking') && !methodLower.includes('card') && !methodLower.includes('transfer'))) return false;
     }
+
+    // Category filtering
+    if (categoryFilter !== 'ALL') {
+      const catType = txn.categoryType || '';
+      const billCat = txn.bill_invoice_category || '';
+      const methodLower = (txn.method || '').toLowerCase();
+      const nameLower = (txn.name || '').toLowerCase();
+      const statusLower = (txn.status || '').toLowerCase();
+      const clientIdLower = String(txn.clientId || '').toLowerCase();
+      const txnIdLower = String(txn.id || '').toLowerCase();
+
+      const isExpense = 
+        catType === 'EXPENSE' ||
+        txnIdLower.startsWith('exp-') ||
+        statusLower === 'expense' ||
+        clientIdLower === 'expense' ||
+        methodLower.includes('expense');
+
+      const isPt = 
+        catType === 'PT' ||
+        catType === 'ADVANCE_PT' ||
+        txnIdLower.startsWith('pt-') ||
+        billCat === 'PT' ||
+        billCat === 'PTAdvance' ||
+        methodLower.includes('adv-pt') ||
+        nameLower.includes('personal training') ||
+        nameLower.includes('pt package') ||
+        nameLower.includes('pt -') ||
+        nameLower.includes(' pt');
+
+      const isOtherService = 
+        catType === 'OTHER_SERVICE' ||
+        txnIdLower.startsWith('other-svc-') ||
+        billCat === 'OtherService' ||
+        methodLower.includes('other service');
+
+      const isAdvance = 
+        catType === 'ADVANCE_GEN' ||
+        catType === 'ADVANCE_PT' ||
+        txnIdLower.startsWith('gen-adv-') ||
+        txnIdLower.startsWith('pt-adv-') ||
+        billCat === 'GeneralAdvance' ||
+        billCat === 'PTAdvance' ||
+        statusLower === 'advance' ||
+        methodLower.includes('adv-') ||
+        methodLower.includes('advance');
+
+      const isGeneral = 
+        catType === 'GENERAL' ||
+        catType === 'ADVANCE_GEN' ||
+        txnIdLower.startsWith('gen-') ||
+        billCat === 'GeneralPlan' ||
+        billCat === 'GeneralAdvance' ||
+        methodLower.includes('adv-gen') ||
+        (!isExpense && !isPt && !isOtherService);
+
+      if (categoryFilter === 'PT' && !isPt) return false;
+      if (categoryFilter === 'GENERAL' && !isGeneral) return false;
+      if (categoryFilter === 'OTHER_SERVICE' && !isOtherService) return false;
+      if (categoryFilter === 'ADVANCE_BOOKING' && !isAdvance) return false;
+      if (categoryFilter === 'EXPENSES' && !isExpense) return false;
+    }
+
     return true;
   });
 
@@ -433,6 +500,11 @@ const TransactionsPage = () => {
 
   const handlePaymentFilterChange = (e) => {
     setPaymentMethodFilter(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handleCategoryFilterChange = (e) => {
+    setCategoryFilter(e.target.value);
     setCurrentPage(1);
   };
 
@@ -501,6 +573,20 @@ const TransactionsPage = () => {
               <span>{isImporting ? 'IMPORTING...' : 'IMPORT DATA'}</span>
             </button>
           )}
+
+          <select
+            className="txn-category-filter"
+            value={categoryFilter}
+            onChange={handleCategoryFilterChange}
+            title="Filter by Category"
+          >
+            <option value="ALL">All Categories</option>
+            <option value="PT">PT (Personal Training)</option>
+            <option value="GENERAL">General</option>
+            <option value="OTHER_SERVICE">Other Service</option>
+            <option value="ADVANCE_BOOKING">Advance Booking</option>
+            <option value="EXPENSES">Expenses</option>
+          </select>
 
           <select
             className="txn-payment-filter"

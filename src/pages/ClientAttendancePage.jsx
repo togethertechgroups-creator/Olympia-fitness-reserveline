@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { getClients, getAttendanceByDate, markAttendance, getAttendanceMonthly, getClientBills } from '../api';
+  import React, { useState, useEffect, useRef } from 'react';
+import { getClients, getAttendanceByDate, markAttendance, getAttendanceMonthly, getClientBills, pushZkTestScan } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatShortId } from '../utils/formatShortId';
 import './ClientAttendancePage.css';
@@ -75,6 +75,22 @@ const ClientAttendancePage = () => {
     } catch (e) { console.error(e); }
   };
 
+  const handleSimulateZkScan = async (client) => {
+    try {
+      const res = await pushZkTestScan(client.clientId || client.id, null, 'SpeedFace-V5L-HomeTest');
+      if (res && res.success) {
+        playSound('Present');
+        alert(`📷 Face ID Scan Simulated for ${client.name}!\n\nStatus: ${res.record?.status || 'Present'}\nCheck-in Time: ${res.record?.checkInTime || 'Just Now'}`);
+        fetchData(selectedDate);
+      } else {
+        alert(`Face ID Scan result: ${res?.reason || 'Failed'}`);
+      }
+    } catch (e) {
+      console.error('Error simulating ZK scan:', e);
+      alert('Failed to simulate Face ID scan: ' + e.message);
+    }
+  };
+
   // ── Report ──────────────────────────────────────────────────────────────────
   const openReport = async (client) => {
     setReportClient(client);
@@ -147,9 +163,21 @@ const ClientAttendancePage = () => {
               <span className="stat-value red">{absentCount}</span>
             </div>
           </div>
-          <div className="date-picker-group">
+          <div className="date-picker-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <input type="date" className="date-picker" value={selectedDate}
               onChange={e => setSelectedDate(e.target.value)} />
+            <button 
+              type="button"
+              style={{ height: '36px', padding: '0 0.85rem', background: 'linear-gradient(to right, #ea580c, #db2777)', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 6px rgba(234, 88, 12, 0.25)' }}
+              onClick={() => {
+                const targetClient = clients.find(c => c.name.toLowerCase().includes(searchTerm.toLowerCase()) || (c.clientId || '').toLowerCase().includes(searchTerm.toLowerCase())) || clients[0];
+                if (targetClient) handleSimulateZkScan(targetClient);
+                else alert('No clients available to test scan');
+              }}
+              title="Test ZK Face ID Attendance Scan from Home"
+            >
+              📷 Test Face ID Scan
+            </button>
           </div>
         </div>
       </header>
@@ -181,9 +209,10 @@ const ClientAttendancePage = () => {
                         {status === 'Present' ? '✅ Present' : '❌ Absent'}
                       </span>
                     ) : (
-                      <div className="inline-mark-btns">
+                      <div className="inline-mark-btns" style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
                         <button className="mark-btn present" onClick={e => { e.stopPropagation(); handleMark(client, 'Present'); }}>✅ Present</button>
                         <button className="mark-btn absent"  onClick={e => { e.stopPropagation(); handleMark(client, 'Absent');  }}>❌ Absent</button>
+                        <button className="mark-btn" style={{ background: '#0284c7', color: '#fff', fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', border: 'none', cursor: 'pointer' }} onClick={e => { e.stopPropagation(); handleSimulateZkScan(client); }} title="Test Face ID Scan from Home">📷 Scan</button>
                       </div>
                     )}
                   </div>
