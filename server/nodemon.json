@@ -1,0 +1,13 @@
+{
+  "watch": ["index.js", "db.js", "migrate-pg.js"],
+  "ext": "js,json",
+  "ignore": [
+    "*.db",
+    "*.db-wal",
+    "*.db-shm",
+    "*.db.bak",
+    "uploads/**",
+    "data/**",
+    "node_modules/**"
+  ]
+}

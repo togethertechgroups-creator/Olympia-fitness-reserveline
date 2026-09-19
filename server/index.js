@@ -958,9 +958,6 @@ async function initDb() {
     dateAdded     TEXT DEFAULT (datetime('now'))
   );
 
-  try { db.prepare("ALTER TABLE trainers ADD COLUMN shiftStartTime TEXT").run(); } catch(e) {}
-  try { db.prepare("ALTER TABLE trainers ADD COLUMN shiftEndTime TEXT").run(); } catch(e) {}
-
   CREATE TABLE IF NOT EXISTS staff (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL,
@@ -1171,6 +1168,8 @@ async function initDb() {
   );
 `);
 
+    try { db.prepare('ALTER TABLE trainers ADD COLUMN shiftStartTime TEXT').run(); } catch (e) {}
+    try { db.prepare('ALTER TABLE trainers ADD COLUMN shiftEndTime TEXT').run(); } catch (e) {}
     try { db.prepare('ALTER TABLE website_gallery ADD COLUMN pdfUrl TEXT').run(); } catch (e) {}
 
 
@@ -1409,7 +1408,13 @@ async function initDb() {
       try {
         const assignSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='pt_assignments'").get()?.sql || '';
         if (assignSql && !assignSql.includes('Expired')) {
+          console.log('Migrating pt_assignments table to include Expired status...');
+          const cols = db.prepare("PRAGMA table_info(pt_assignments)").all().map(c => c.name);
+          const colList = cols.join(', ');
+
+          db.exec('PRAGMA foreign_keys=OFF;');
           db.exec(`
+          DROP TABLE IF EXISTS pt_assignments_new;
           CREATE TABLE pt_assignments_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id TEXT NOT NULL REFERENCES clients(id),
@@ -1422,15 +1427,24 @@ async function initDb() {
             status TEXT CHECK(status IN ('Active','Completed','Cancelled','Expired')) DEFAULT 'Active',
             assigned_date DATE NOT NULL,
             expiry_date DATE NOT NULL,
+            timing TEXT,
+            invoice_id TEXT REFERENCES bills(id),
+            paid_amount REAL,
+            due_amount REAL DEFAULT 0,
+            payment_method TEXT DEFAULT 'CASH',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
           );
-          INSERT INTO pt_assignments_new (id, client_id, pt_package_id, trainer_id, package_price_snapshot, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, created_at)
-          SELECT id, client_id, pt_package_id, trainer_id, package_price_snapshot, total_classes_snapshot, classes_completed, status, assigned_date, COALESCE(assigned_date, date('now')), created_at FROM pt_assignments;
+          INSERT INTO pt_assignments_new (${colList})
+          SELECT ${colList} FROM pt_assignments;
           DROP TABLE pt_assignments;
           ALTER TABLE pt_assignments_new RENAME TO pt_assignments;
         `);
+          db.exec('PRAGMA foreign_keys=ON;');
+          console.log('pt_assignments migration finished successfully.');
         }
-      } catch (e) { }
+      } catch (e) {
+        console.error('pt_assignments migration error:', e);
+      }
 
       try {
         db.prepare("ALTER TABLE pt_assignments ADD COLUMN discount_amount REAL DEFAULT 0").run();
