@@ -75,9 +75,34 @@ export default {
         if (request.method === 'GET' || request.method === 'HEAD') {
           const objectKey = decodeURIComponent(url.pathname.replace('/api/images/', ''));
           if (env.GYM_PROFILE_PICTURES) {
-            const object = request.method === 'HEAD'
+            let object = request.method === 'HEAD'
               ? await env.GYM_PROFILE_PICTURES.head(objectKey)
               : await env.GYM_PROFILE_PICTURES.get(objectKey);
+
+            // Fallback: try alternative key prefixes if not directly matched
+            if (!object) {
+              const candidates = [];
+              if (objectKey.startsWith('profile_photos/')) {
+                const stripped = objectKey.replace(/^profile_photos\//, '');
+                candidates.push(stripped);
+                candidates.push(`gallery/${stripped}`);
+              } else if (objectKey.startsWith('gallery/')) {
+                const stripped = objectKey.replace(/^gallery\//, '');
+                candidates.push(stripped);
+                candidates.push(`profile_photos/${stripped}`);
+              } else {
+                candidates.push(`gallery/${objectKey}`);
+                candidates.push(`profile_photos/${objectKey}`);
+              }
+
+              for (const cand of candidates) {
+                object = request.method === 'HEAD'
+                  ? await env.GYM_PROFILE_PICTURES.head(cand)
+                  : await env.GYM_PROFILE_PICTURES.get(cand);
+                if (object) break;
+              }
+            }
+
             if (object) {
               const headers = new Headers();
               object.writeHttpMetadata(headers);

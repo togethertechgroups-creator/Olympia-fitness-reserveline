@@ -650,7 +650,7 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 const LEGACY_UPLOADS_DIR = path.join(__dirname, 'uploads');
 
-app.get(/^\/api\/images\/(.*)/, (req, res) => {
+app.get(/^\/api\/images\/(.*)/, async (req, res) => {
   const relPath = req.params[0] || '';
   const basename = path.basename(relPath);
   const checkPaths = [
@@ -664,6 +664,20 @@ app.get(/^\/api\/images\/(.*)/, (req, res) => {
       return res.sendFile(fp);
     }
   }
+
+  // Fallback: Proxy from live Cloudflare R2 bucket via worker
+  try {
+    const liveUrl = `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${relPath}`;
+    const remoteResp = await fetch(liveUrl);
+    if (remoteResp.ok) {
+      const ct = remoteResp.headers.get('content-type') || (relPath.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      res.setHeader('Content-Type', ct);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      const arrayBuffer = await remoteResp.arrayBuffer();
+      return res.send(Buffer.from(arrayBuffer));
+    }
+  } catch (err) {}
+
   res.status(404).json({ error: 'Image not found' });
 });
 app.use('/api/images', express.static(UPLOADS_DIR));
@@ -681,7 +695,7 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
     const base64Data = match[2];
     const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
     const filename = `${entityType}_${entityId || randomUUID()}_${Date.now()}.${ext}`;
-    const objectKey = `profile_photos/${filename}`;
+    const objectKey = entityType === 'gallery' ? `gallery/${filename}` : `profile_photos/${filename}`;
 
     const buffer = Buffer.from(base64Data, 'base64');
 
@@ -698,23 +712,35 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
         await r2Bucket.put(objectKey, buffer, {
           httpMetadata: { contentType: mimeType }
         });
+        if (objectKey !== filename) {
+          try {
+            await r2Bucket.put(filename, buffer, {
+              httpMetadata: { contentType: mimeType }
+            });
+          } catch (_) {}
+        }
         console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket gym-profile-pictures (Worker)`);
         return `/api/images/${objectKey}`;
-      } catch (e) {}
+      } catch (e) {
+        console.error('R2 put error in worker:', e);
+      }
     }
 
     // Async Wrangler CLI sync if available
     try {
-      const { exec } = require('child_process');
-      const cmd = `npx wrangler r2 object put gym-profile-pictures/${objectKey} --file "${localFilePath}" --remote --content-type "${mimeType}"`;
-      exec(cmd, (err) => {
-        if (!err) {
-          console.log(`✅ Uploaded ${objectKey} to remote Cloudflare R2 bucket gym-profile-pictures via Wrangler CLI`);
-        }
-      });
+      const localFilePath = path.join(UPLOADS_DIR, filename);
+      if (fs.existsSync(localFilePath)) {
+        const { exec } = require('child_process');
+        const cmd = `npx wrangler r2 object put "gym-profile-pictures/${objectKey}" --file "${localFilePath}" --content-type "${mimeType}"`;
+        exec(cmd, (err) => {
+          if (!err) {
+            console.log(`✅ Uploaded ${objectKey} to remote Cloudflare R2 bucket gym-profile-pictures via Wrangler CLI`);
+          }
+        });
+      }
     } catch (e) {}
 
-    return `/api/images/${filename}`;
+    return `/api/images/${objectKey}`;
   } catch (err) {
     console.error('Failed to save image:', err);
     return profileImage;
@@ -8991,12 +9017,16 @@ app.post('/api/website-gallery', async (req, res) => {
         if (match) {
           const pdfBuffer = Buffer.from(match[2], 'base64');
           const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
+          const pdfObjectKey = `gallery/${pdfFilename}`;
           const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
           if (r2Bucket && typeof r2Bucket.put === 'function') {
+            await r2Bucket.put(pdfObjectKey, pdfBuffer, {
+              httpMetadata: { contentType: 'application/pdf' }
+            });
             await r2Bucket.put(pdfFilename, pdfBuffer, {
               httpMetadata: { contentType: 'application/pdf' }
             });
-            finalPdfUrl = `/api/images/${pdfFilename}`;
+            finalPdfUrl = `/api/images/${pdfObjectKey}`;
           } else {
             try {
               const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
@@ -9051,12 +9081,16 @@ app.post('/api/website-gallery/batch', async (req, res) => {
           if (match) {
             const pdfBuffer = Buffer.from(match[2], 'base64');
             const pdfFilename = `pdf_${id}_${Date.now()}.pdf`;
+            const pdfObjectKey = `gallery/${pdfFilename}`;
             const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
             if (r2Bucket && typeof r2Bucket.put === 'function') {
+              await r2Bucket.put(pdfObjectKey, pdfBuffer, {
+                httpMetadata: { contentType: 'application/pdf' }
+              });
               await r2Bucket.put(pdfFilename, pdfBuffer, {
                 httpMetadata: { contentType: 'application/pdf' }
               });
-              finalPdfUrl = `/api/images/${pdfFilename}`;
+              finalPdfUrl = `/api/images/${pdfObjectKey}`;
             } else {
               try {
                 const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
