@@ -7,6 +7,10 @@
     "*.db-shm",
     "*.db.bak",
     "uploads/**",
+    "../uploads/**",
+    "invoices/**",
+    "*.pdf",
+    "*.sqlite",
     "data/**",
     "node_modules/**"
   ]

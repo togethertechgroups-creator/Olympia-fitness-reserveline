@@ -172,7 +172,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
           const opt = {
             margin: [0, 0, 0, 0],
             filename: `Invoice_${String(client.billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
-            image: { type: 'jpeg', quality: 1.0 },
+            image: { type: 'jpeg', quality: 0.95 },
             html2canvas: {
               scale: 2,
               useCORS: true,

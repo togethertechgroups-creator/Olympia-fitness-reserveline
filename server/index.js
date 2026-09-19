@@ -644,25 +644,30 @@ app.use((req, res, next) => {
   }
   next();
 });
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
 }
+const LEGACY_UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 app.get(/^\/api\/images\/(.*)/, (req, res) => {
   const relPath = req.params[0] || '';
   const basename = path.basename(relPath);
-  const filePath = path.join(UPLOADS_DIR, basename);
-  if (fs.existsSync(filePath)) {
-    return res.sendFile(filePath);
-  }
-  const exactPath = path.join(UPLOADS_DIR, relPath);
-  if (fs.existsSync(exactPath)) {
-    return res.sendFile(exactPath);
+  const checkPaths = [
+    path.join(UPLOADS_DIR, basename),
+    path.join(UPLOADS_DIR, relPath),
+    path.join(LEGACY_UPLOADS_DIR, basename),
+    path.join(LEGACY_UPLOADS_DIR, relPath)
+  ];
+  for (const fp of checkPaths) {
+    if (fs.existsSync(fp)) {
+      return res.sendFile(fp);
+    }
   }
   res.status(404).json({ error: 'Image not found' });
 });
 app.use('/api/images', express.static(UPLOADS_DIR));
+app.use('/api/images', express.static(LEGACY_UPLOADS_DIR));
 
 const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
   if (!profileImage || typeof profileImage !== 'string') return profileImage || null;
@@ -7242,14 +7247,18 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
     }
 
     // 2. Local Node Development Mode
-    const localDir = path.join(UPLOADS_DIR, 'invoices');
-    if (!fs.existsSync(localDir)) {
-      try { fs.mkdirSync(localDir, { recursive: true }); } catch (e) {}
+    try {
+      const localDir = path.join(UPLOADS_DIR, 'invoices');
+      if (!fs.existsSync(localDir)) {
+        fs.mkdirSync(localDir, { recursive: true });
+      }
+      const localFilePath = path.join(localDir, filename);
+      fs.writeFileSync(localFilePath, pdfBuffer);
+    } catch (fsErr) {
+      console.warn('Local PDF save notice:', fsErr.message);
     }
-    const localFilePath = path.join(localDir, filename);
-    fs.writeFileSync(localFilePath, pdfBuffer);
 
-    // Sync to remote Cloudflare R2 so Metamerged cloud can always download the PDF
+    // Sync to remote Cloudflare R2 so Metamerged / APITxT cloud can always download the PDF
     try {
       const uploadResp = await fetch('https://admin.olympiafitnessmadurai.com/api/invoices/upload-pdf', {
         method: 'POST',
