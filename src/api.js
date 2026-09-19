@@ -12,16 +12,31 @@ const BASE_URL = getBaseUrl();
 
 
 const handleResponse = async (response) => {
-  let data;
+  let data = null;
   try {
-    const text = await response.text();
-    data = text ? JSON.parse(text) : {};
+    let text = '';
+    try {
+      text = await response.clone().text();
+    } catch (_) {
+      text = await response.text();
+    }
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (_) {
+        data = { message: text };
+      }
+    } else {
+      data = {};
+    }
   } catch (err) {
     data = null;
   }
 
   if (!response.ok) {
-    const errorMsg = (data && data.error) ? data.error : `Server Error (${response.status}: ${response.statusText || 'Unable to communicate with server'})`;
+    const errorMsg = (data && (data.error || data.message))
+      ? (data.error || data.message)
+      : `Server Error (${response.status}: ${response.statusText || 'Unable to communicate with server'})`;
     const err = new Error(errorMsg);
     err.data = data;
     throw err;

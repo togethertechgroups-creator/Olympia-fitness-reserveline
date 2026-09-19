@@ -13,12 +13,11 @@ export function expressToFetch(expressApp) {
   return async function fetchHandler(request, env, ctx) {
     const url = new URL(request.url);
 
-    // ── 1. Read request body safely (ONLY for POST, PUT, PATCH) ──────────────
+    // ── 1. Read request body safely ──────────────────────────────────────────
     let rawBody = '';
     let parsedBody = undefined;
-    const hasBodyMethod = ['POST', 'PUT', 'PATCH'].includes(request.method.toUpperCase());
 
-    if (hasBodyMethod && request.body && !request.bodyUsed) {
+    if (request.body && !request.bodyUsed) {
       try {
         const buffer = await request.arrayBuffer();
         rawBody = new TextDecoder().decode(buffer);
@@ -68,13 +67,8 @@ export function expressToFetch(expressApp) {
         }
         req.push(null); // Signal EOF to Stream.Readable
 
-        if (hasBodyMethod) {
-          req.body = parsedBody !== undefined ? parsedBody : {};
-          req._body = true;
-        } else if (parsedBody !== undefined) {
-          req.body = parsedBody;
-          req._body = true;
-        }
+        req.body = parsedBody !== undefined ? parsedBody : {};
+        req._body = true;
 
         // ── 5. Mock ServerResponse ──────────────────────────────────────────
         const res = new http.ServerResponse(req);

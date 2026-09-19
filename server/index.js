@@ -8008,12 +8008,14 @@ app.patch('/api/supplements/:id/toggle-active', async (req, res) => {
 app.delete('/api/supplements/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await db.prepare('DELETE FROM supplement_sales WHERE supplement_id = ?').run(id);
-    await db.prepare('DELETE FROM supplement_purchases WHERE supplement_id = ?').run(id);
-    await db.prepare('DELETE FROM supplements WHERE id = ?').run(id);
+    const suppId = parseInt(id, 10) || id;
+    await db.prepare('DELETE FROM supplement_sales WHERE supplement_id = ?').run(suppId);
+    await db.prepare('DELETE FROM supplement_purchases WHERE supplement_id = ?').run(suppId);
+    await db.prepare('DELETE FROM supplements WHERE id = ?').run(suppId);
     res.json({ message: 'Supplement deleted successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Delete supplement error:', err);
+    res.status(500).json({ error: err.message || 'Failed to delete supplement' });
   }
 });
 

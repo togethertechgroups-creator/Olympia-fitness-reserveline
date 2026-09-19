@@ -410,7 +410,13 @@ const TransactionsPage = () => {
         clientIdLower === 'expense' ||
         methodLower.includes('expense');
 
-      const isPt = 
+      const isOtherService = 
+        catType === 'OTHER_SERVICE' ||
+        txnIdLower.startsWith('other-svc-') ||
+        billCat === 'OtherService' ||
+        methodLower.includes('other service');
+
+      const isPt = !isOtherService && !isExpense && (
         catType === 'PT' ||
         catType === 'ADVANCE_PT' ||
         txnIdLower.startsWith('pt-') ||
@@ -418,15 +424,8 @@ const TransactionsPage = () => {
         billCat === 'PTAdvance' ||
         methodLower.includes('adv-pt') ||
         nameLower.includes('personal training') ||
-        nameLower.includes('pt package') ||
-        nameLower.includes('pt -') ||
-        nameLower.includes(' pt');
-
-      const isOtherService = 
-        catType === 'OTHER_SERVICE' ||
-        txnIdLower.startsWith('other-svc-') ||
-        billCat === 'OtherService' ||
-        methodLower.includes('other service');
+        nameLower.includes('pt package')
+      );
 
       const isAdvance = 
         catType === 'ADVANCE_GEN' ||

@@ -359,6 +359,23 @@ const ManageClientsPage = () => {
 
   const handleDeleteHistoryItem = async (item) => {
     if (!item) return;
+
+    const isPtRecord = (item.type || '').includes('PT') || (item.type || '').includes('Personal Training');
+    const isPtCompleted = isPtRecord && (
+      item.ptObj?.status === 'Completed' ||
+      item.ptObj?.status === 'Expired' ||
+      item.bookingStatus === 'Completed' ||
+      item.paymentStatus === 'Completed' ||
+      item.paymentStatus === 'Expired' ||
+      (item.totalClasses > 0 && Number(item.classesCompleted || 0) >= Number(item.totalClasses)) ||
+      (item.expiryDate && new Date(String(item.expiryDate).split(' ')[0]) < new Date(new Date().setHours(0,0,0,0)))
+    );
+
+    if (isPtCompleted) {
+      alert('Completed or Expired PT records cannot be deleted.');
+      return;
+    }
+
     const label = item.planName || item.type || 'this record';
     if (!window.confirm(`Are you sure you want to delete ${label}?`)) return;
 
@@ -1824,12 +1841,14 @@ const ManageClientsPage = () => {
         const ptAssignments = viewClientModal.ptAssignments || [];
         const activePt = ptAssignments.find(pt => pt.status === 'Active') || ptAssignments[0];
 
-        // Bookings and Services
+        // Bookings and Services (only pending / scheduled advance bookings)
         const clientGenBookings = (advanceBookings.general || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && 
+          b.status !== 'Cancelled' && b.status !== 'Active' && b.status !== 'Completed' && b.status !== 'Activated'
         );
         const clientPtBookings = (advanceBookings.pt || []).filter(b => 
-          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && b.status !== 'Cancelled'
+          (b.client_id === c.id || b.clientId === c.id || b.clientCode === c.clientId) && 
+          b.status !== 'Cancelled' && b.status !== 'Active' && b.status !== 'Completed' && b.status !== 'Activated'
         );
         const otherServices = viewClientModal.otherServices || [];
 
@@ -2178,136 +2197,151 @@ const ManageClientsPage = () => {
                             </tr>
                           </thead>
                           <tbody>
-                            {historicPlans.map((item, idx) => (
-                              <tr key={`${item.id}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
-                                <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: '#94a3b8' }}>
-                                  {idx + 1}
-                                </td>
-                                <td style={{ padding: '12px 16px' }}>
-                                  <span className="category-badge" style={{
-                                    background: item.type.includes('PT') ? '#f3e8ff' : (item.type.includes('Service') ? '#e0e7ff' : (item.type.includes('Advance') ? '#fff7ed' : '#e0f2fe')),
-                                    color: item.type.includes('PT') ? '#7e22ce' : (item.type.includes('Service') ? '#4338ca' : (item.type.includes('Advance') ? '#c2410c' : '#0369a1')),
-                                    border: `1px solid ${item.type.includes('PT') ? '#d8b4fe' : (item.type.includes('Service') ? '#c7d2fe' : (item.type.includes('Advance') ? '#ffedd5' : '#bae6fd'))}`,
-                                    padding: '4px 9px',
-                                    borderRadius: '6px',
-                                    fontWeight: '800',
-                                    fontSize: '0.75rem',
-                                    whiteSpace: 'nowrap'
-                                  }}>
-                                    {item.type}
-                                  </span>
-                                </td>
+                            {historicPlans.map((item, idx) => {
+                              const isPtRecord = (item.type || '').includes('PT') || (item.type || '').includes('Personal Training');
+                              const isPtCompleted = isPtRecord && (
+                                item.ptObj?.status === 'Completed' ||
+                                item.ptObj?.status === 'Expired' ||
+                                item.bookingStatus === 'Completed' ||
+                                item.paymentStatus === 'Completed' ||
+                                item.paymentStatus === 'Expired' ||
+                                (item.totalClasses > 0 && Number(item.classesCompleted || 0) >= Number(item.totalClasses)) ||
+                                (item.expiryDate && new Date(String(item.expiryDate).split(' ')[0]) < new Date(new Date().setHours(0,0,0,0)))
+                              );
 
-                                <td style={{ padding: '12px 16px' }}>
-                                  <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.9rem' }}>{item.planName}</strong>
-                                  {item.billNo && (
-                                    <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '600' }}>
-                                      Invoice #{item.billNo}
+                              return (
+                                <tr key={`${item.id}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9', background: idx % 2 === 0 ? '#ffffff' : '#fafafa' }}>
+                                  <td style={{ padding: '12px 16px', textAlign: 'center', fontWeight: '700', color: '#94a3b8' }}>
+                                    {idx + 1}
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <span className="category-badge" style={{
+                                      background: item.type.includes('PT') ? '#f3e8ff' : (item.type.includes('Service') ? '#e0e7ff' : (item.type.includes('Advance') ? '#fff7ed' : '#e0f2fe')),
+                                      color: item.type.includes('PT') ? '#7e22ce' : (item.type.includes('Service') ? '#4338ca' : (item.type.includes('Advance') ? '#c2410c' : '#0369a1')),
+                                      border: `1px solid ${item.type.includes('PT') ? '#d8b4fe' : (item.type.includes('Service') ? '#c7d2fe' : (item.type.includes('Advance') ? '#ffedd5' : '#bae6fd'))}`,
+                                      padding: '4px 9px',
+                                      borderRadius: '6px',
+                                      fontWeight: '800',
+                                      fontSize: '0.75rem',
+                                      whiteSpace: 'nowrap'
+                                    }}>
+                                      {item.type}
                                     </span>
-                                  )}
-                                </td>
+                                  </td>
 
-                                <td style={{ padding: '12px 16px', fontWeight: '700', color: '#334155', whiteSpace: 'nowrap' }}>
-                                  {formatDateDDMMYYYY(item.startDate)} → {formatDateDDMMYYYY(item.expiryDate)}
-                                </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <strong style={{ color: '#0f172a', display: 'block', fontSize: '0.9rem' }}>{item.planName}</strong>
+                                    {item.billNo && (
+                                      <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '600' }}>
+                                        Invoice #{item.billNo}
+                                      </span>
+                                    )}
+                                  </td>
 
-                                <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: '#475569' }}>
-                                  {item.trainerName ? (
-                                    <div>
-                                      <strong>Trainer:</strong> {item.trainerName}
-                                      {item.totalClasses ? ` (${item.classesCompleted || 0}/${item.totalClasses} classes)` : ''}
+                                  <td style={{ padding: '12px 16px', fontWeight: '700', color: '#334155', whiteSpace: 'nowrap' }}>
+                                    {formatDateDDMMYYYY(item.startDate)} → {formatDateDDMMYYYY(item.expiryDate)}
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px', fontSize: '0.82rem', color: '#475569' }}>
+                                    {item.trainerName ? (
+                                      <div>
+                                        <strong>Trainer:</strong> {item.trainerName}
+                                        {item.totalClasses ? ` (${item.classesCompleted || 0}/${item.totalClasses} classes)` : ''}
+                                      </div>
+                                    ) : item.totalClasses ? (
+                                      <div><strong>Classes:</strong> {item.classesCompleted || 0}/{item.totalClasses}</div>
+                                    ) : (
+                                      <div>—</div>
+                                    )}
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <div style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.92rem' }}>₹{item.amount.toLocaleString()}</div>
+                                    <span className="mc-status" style={{
+                                      background: item.dueAmount > 0 ? '#fff7ed' : '#dcfce7',
+                                      color: item.dueAmount > 0 ? '#c2410c' : '#15803d',
+                                      border: `1px solid ${item.dueAmount > 0 ? '#ffedd5' : '#bbf7d0'}`,
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.72rem',
+                                      fontWeight: '800',
+                                      display: 'inline-block',
+                                      marginTop: '2px'
+                                    }}>
+                                      {item.dueAmount > 0 ? `Due ₹${item.dueAmount.toLocaleString()}` : (item.paymentStatus || 'Paid')}
+                                    </span>
+                                  </td>
+
+                                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                    <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                                      <button
+                                        type="button"
+                                        style={{
+                                          padding: '0.35rem 0.7rem',
+                                          fontSize: '0.76rem',
+                                          background: '#e0f2fe',
+                                          color: '#0284c7',
+                                          border: '1px solid #bae6fd',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: '800',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px',
+                                          boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                        }}
+                                        onClick={() => handleOpenPdf(item)}
+                                        title="View Invoice PDF"
+                                      >
+                                        📄 PDF
+                                      </button>
+                                      <button
+                                        type="button"
+                                        style={{
+                                          padding: '0.35rem 0.7rem',
+                                          fontSize: '0.76rem',
+                                          background: '#fef3c7',
+                                          color: '#d97706',
+                                          border: '1px solid #fde68a',
+                                          borderRadius: '6px',
+                                          cursor: 'pointer',
+                                          fontWeight: '800',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px'
+                                        }}
+                                        onClick={() => handleEditHistoryItem(item)}
+                                        title="Edit Plan Details"
+                                      >
+                                        ✏️ Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isPtCompleted}
+                                        style={{
+                                          padding: '0.35rem 0.7rem',
+                                          fontSize: '0.76rem',
+                                          background: isPtCompleted ? '#f1f5f9' : '#fee2e2',
+                                          color: isPtCompleted ? '#94a3b8' : '#dc2626',
+                                          border: `1px solid ${isPtCompleted ? '#cbd5e1' : '#fecaca'}`,
+                                          borderRadius: '6px',
+                                          cursor: isPtCompleted ? 'not-allowed' : 'pointer',
+                                          opacity: isPtCompleted ? 0.5 : 1,
+                                          fontWeight: '800',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '3px'
+                                        }}
+                                        onClick={() => !isPtCompleted && handleDeleteHistoryItem(item)}
+                                        title={isPtCompleted ? "Completed or Expired PT records cannot be deleted" : "Delete Plan Record"}
+                                      >
+                                        🗑️ Delete
+                                      </button>
                                     </div>
-                                  ) : item.totalClasses ? (
-                                    <div><strong>Classes:</strong> {item.classesCompleted || 0}/{item.totalClasses}</div>
-                                  ) : (
-                                    <div>—</div>
-                                  )}
-                                </td>
-
-                                <td style={{ padding: '12px 16px' }}>
-                                  <div style={{ fontWeight: '900', color: '#0f172a', fontSize: '0.92rem' }}>₹{item.amount.toLocaleString()}</div>
-                                  <span className="mc-status" style={{
-                                    background: item.dueAmount > 0 ? '#fff7ed' : '#dcfce7',
-                                    color: item.dueAmount > 0 ? '#c2410c' : '#15803d',
-                                    border: `1px solid ${item.dueAmount > 0 ? '#ffedd5' : '#bbf7d0'}`,
-                                    padding: '2px 7px',
-                                    borderRadius: '4px',
-                                    fontSize: '0.72rem',
-                                    fontWeight: '800',
-                                    display: 'inline-block',
-                                    marginTop: '2px'
-                                  }}>
-                                    {item.dueAmount > 0 ? `Due ₹${item.dueAmount.toLocaleString()}` : (item.paymentStatus || 'Paid')}
-                                  </span>
-                                </td>
-
-                                <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                  <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
-                                    <button
-                                      type="button"
-                                      style={{
-                                        padding: '0.35rem 0.7rem',
-                                        fontSize: '0.76rem',
-                                        background: '#e0f2fe',
-                                        color: '#0284c7',
-                                        border: '1px solid #bae6fd',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontWeight: '800',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '3px',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                      }}
-                                      onClick={() => handleOpenPdf(item)}
-                                      title="View Invoice PDF"
-                                    >
-                                      📄 PDF
-                                    </button>
-                                    <button
-                                      type="button"
-                                      style={{
-                                        padding: '0.35rem 0.7rem',
-                                        fontSize: '0.76rem',
-                                        background: '#fef3c7',
-                                        color: '#d97706',
-                                        border: '1px solid #fde68a',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontWeight: '800',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '3px'
-                                      }}
-                                      onClick={() => handleEditHistoryItem(item)}
-                                      title="Edit Plan Details"
-                                    >
-                                      ✏️ Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      style={{
-                                        padding: '0.35rem 0.7rem',
-                                        fontSize: '0.76rem',
-                                        background: '#fee2e2',
-                                        color: '#dc2626',
-                                        border: '1px solid #fecaca',
-                                        borderRadius: '6px',
-                                        cursor: 'pointer',
-                                        fontWeight: '800',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '3px'
-                                      }}
-                                      onClick={() => handleDeleteHistoryItem(item)}
-                                      title="Delete Plan Record"
-                                    >
-                                      🗑️ Delete
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>

@@ -517,7 +517,7 @@ const SupplementPurchasePage = () => {
             {editError && <div className="alert-box error-alert">{editError}</div>}
 
             <form onSubmit={handleSaveEdit} className="purchase-form" style={{ marginTop: '1rem' }}>
-              <div className="form-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+              <div className="modal-form-grid">
                 {/* Supplement */}
                 <div className="form-group full-width">
                   <label>Supplement Item *</label>
