@@ -46,7 +46,7 @@ const getWaKey = (workerEnv) => {
 
 // Helper: get WhatsApp Project ID
 const getWaProjectId = (workerEnv) => {
-  return workerEnv?.WHATSAPP_PROJECT_ID || process.env.WHATSAPP_PROJECT_ID || 'PROJ_4610ef2839c8';
+  return workerEnv?.WHATSAPP_PROJECT_ID || process.env.WHATSAPP_PROJECT_ID || 'PROJ_458f4b5c4bc4';
 };
 
 // Helper: normalize phone number to international format with 91 in front (e.g. 918530613447)
@@ -230,6 +230,11 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
     }
   }
 
+  const detailErr = lastErrMsg || '';
+  if (detailErr.includes('131037') || detailErr.includes('display name approval')) {
+    throw new Error('Meta approval required: Business phone number display name is pending approval in Meta Business Manager (#131037).');
+  }
+
   const is24hWindowError = lastErrMsg && (
     lastErrMsg.includes('24-hour') ||
     lastErrMsg.includes('outside the 24-hour') ||
@@ -243,6 +248,112 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   console.warn(`[WhatsApp API] Direct text send failed for ${phone}: ${finalError}`);
   throw new Error(finalError);
 };
+
+// Helper: send an approved WhatsApp template via APITxT (sendWA) or Meta Cloud API
+const sendWhatsAppTemplate = async (toPhone, templateName, bodyParams = [], workerEnv) => {
+  const phone = normalizePhone(toPhone);
+  if (!phone) {
+    throw new Error('Valid recipient phone number is required.');
+  }
+
+  const waKey = getWaKey(workerEnv);
+  const waProjectId = getWaProjectId(workerEnv);
+  const waPhoneId = workerEnv?.WHATSAPP_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const rawToken = workerEnv?.WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN || '';
+
+  let lastErrMsg = '';
+
+  // 1. Try Meta Cloud API if WHATSAPP_TOKEN starts with EAA
+  if (rawToken.startsWith('EAA') && waPhoneId) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const resp = await fetch(`https://graph.facebook.com/v19.0/${waPhoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${rawToken.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: phone,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: 'en_US' },
+            components: [
+              {
+                type: 'body',
+                parameters: bodyParams.map(param => ({ type: 'text', text: String(param) }))
+              }
+            ]
+          }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
+        console.log(`[WhatsApp Meta Cloud API] Sent template ${templateName} to ${phone} successfully:`, data);
+        return data;
+      }
+      lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
+    } catch (metaErr) {
+      lastErrMsg = metaErr.message;
+    }
+  }
+
+  // 2. APITxT sendWA (https://apitxt.com/api/sendWA)
+  if (waKey && !waKey.startsWith('EAA')) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch('https://apitxt.com/api/sendWA', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${waKey}`,
+          'authkey': waKey
+        },
+        body: JSON.stringify({
+          authkey: waKey,
+          project_ref_id: waProjectId,
+          project_id: waProjectId,
+          mobiles: phone,
+          to: phone,
+          template_name: templateName,
+          body_params: bodyParams
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await resp.json().catch(() => ({}));
+      const detailError = data?.details?.[0]?.error;
+      if (detailError) {
+        if (detailError.includes('131037') || detailError.includes('display name approval')) {
+          throw new Error('Meta approval required: Business phone number display name is pending approval in Meta Business Manager (#131037).');
+        }
+        throw new Error(detailError);
+      }
+
+      if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true || (data.sent && data.sent > 0))) {
+        console.log(`[APITxT sendWA Template] Sent ${templateName} to ${phone} successfully:`, data);
+        return data;
+      }
+      lastErrMsg = data.detail || data.message || data.error || `HTTP ${resp.status}`;
+    } catch (tmplErr) {
+      if (tmplErr.message.includes('display name approval') || tmplErr.message.includes('131037')) {
+        throw tmplErr;
+      }
+      lastErrMsg = tmplErr.message;
+    }
+  }
+
+  throw new Error(`WhatsApp template send failed: ${lastErrMsg || 'Unknown error'}`);
+};
+
 
 // Helper: send a WhatsApp document message via APITxT, Metamerged, or Meta Cloud API
 const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, workerEnv, pdfBase64, recipientName) => {
@@ -258,22 +369,22 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   
   let finalDocUrl = documentUrl;
 
-  // If no public HTTPS documentUrl but pdfBase64 is provided, sync to Cloudflare R2 worker
+  // If no public HTTPS documentUrl but pdfBase64 is provided, sync to Cloudflare R2
   if ((!finalDocUrl || !finalDocUrl.startsWith('http')) && pdfBase64) {
     try {
       const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
-      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pdfBase64: cleanBase64,
-          filename: cleanFilename
-        })
-      });
-      const uploadJson = await uploadResp.json().catch(() => ({}));
-      if (uploadJson?.url) {
-        finalDocUrl = uploadJson.url;
-        console.log(`[WhatsApp Document] Uploaded PDF to R2 public URL: ${finalDocUrl}`);
+      const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+      const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+      if (r2Bucket && typeof r2Bucket.put === 'function') {
+        const objectKey = `invoices/${cleanFilename}`;
+        await r2Bucket.put(objectKey, pdfBuffer, {
+          httpMetadata: {
+            contentType: 'application/pdf',
+            contentDisposition: `inline; filename="${cleanFilename}"`
+          }
+        });
+        finalDocUrl = `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
+        console.log(`[WhatsApp Document] Directly uploaded PDF to R2: ${finalDocUrl}`);
       }
     } catch (upErr) {
       console.warn('[WhatsApp Document] R2 upload sync notice:', upErr.message);
@@ -7004,6 +7115,16 @@ app.get('/api/whatsapp/reminders', async (req, res) => {
   }
 });
 
+// Helper: format date cleanly for WhatsApp templates (DD-MM-YYYY)
+const formatDateForWa = (d) => {
+  const dt = parseAnyDate(d);
+  if (!dt) return String(d || 'soon');
+  const day = String(dt.getDate()).padStart(2, '0');
+  const month = String(dt.getMonth() + 1).padStart(2, '0');
+  const year = dt.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
 // POST /api/whatsapp/send — Send a message to a single client
 app.post('/api/whatsapp/send', async (req, res) => {
   try {
@@ -7011,20 +7132,68 @@ app.post('/api/whatsapp/send', async (req, res) => {
     if (!phone) return res.status(400).json({ error: 'Phone number is required' });
 
     const client = { name: clientName, phone };
-    // Fetch expiry from DB for template
+    // Fetch client details from DB for template variables
     const dbClient = clientId ? await db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId) : null;
     if (dbClient) {
       client.plan = dbClient.plan;
       client.expiryDate = dbClient.expiryDate;
+      client.dueAmount = dbClient.dueAmount;
     }
 
-    const message = customMessage || (
-      type === 'expiring_soon'
-        ? buildExpiringSoonMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(7) })
-        : buildExpiredMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(0) })
-    );
+    const templatePaymentDue = req.env?.WHATSAPP_TEMPLATE_PAYMENT_DUE || process.env.WHATSAPP_TEMPLATE_PAYMENT_DUE || 'payment_due_reminder';
+    const templateExpiry = req.env?.WHATSAPP_TEMPLATE_EXPIRY || process.env.WHATSAPP_TEMPLATE_EXPIRY || 'membership_expiry_reminder';
 
-    await sendWhatsAppMessage(phone, message, req.env);
+    let sentWithTemplate = false;
+
+    // Extract fallback fields from customMessage if not found in dbClient
+    if (!client.dueAmount && customMessage) {
+      const dueMatch = customMessage.match(/due amount of ₹([0-9,]+)/i);
+      if (dueMatch) client.dueAmount = dueMatch[1].replace(/,/g, '');
+    }
+    if (!client.plan && customMessage) {
+      const planMatch = customMessage.match(/membership plan \(([^)]+)\)/i);
+      if (planMatch) client.plan = planMatch[1];
+    }
+    if (!client.expiryDate && customMessage) {
+      const expiryMatch = customMessage.match(/valid until ([0-9]{2}[-/][0-9]{2}[-/][0-9]{4})/i);
+      if (expiryMatch) client.expiryDate = expiryMatch[1];
+    }
+
+    // 1. If payment reminder, use approved payment_due_reminder template: [name, dueAmount, plan]
+    if (type === 'payment_reminder' || (client.dueAmount && Number(client.dueAmount) > 0 && type !== 'expired' && type !== 'expiring_soon')) {
+      try {
+        const dueVal = String(client.dueAmount || '0');
+        const planVal = client.plan || 'Gym Membership';
+        await sendWhatsAppTemplate(phone, templatePaymentDue, [client.name || 'Member', dueVal, planVal], req.env);
+        sentWithTemplate = true;
+      } catch (tmplErr) {
+        console.warn('Template payment_due_reminder error:', tmplErr.message);
+        throw tmplErr;
+      }
+    }
+
+    // 2. If expiry / renewal reminder, use approved membership_expiry_reminder template: [name, plan, expiryDate]
+    if (!sentWithTemplate && (type === 'expiring_soon' || type === 'expired' || type === 'reminder')) {
+      try {
+        const planVal = client.plan || 'Gym Membership';
+        const expiryFormatted = formatDateForWa(client.expiryDate || new Date());
+        await sendWhatsAppTemplate(phone, templateExpiry, [client.name || 'Member', planVal, expiryFormatted], req.env);
+        sentWithTemplate = true;
+      } catch (tmplErr) {
+        console.warn('Template membership_expiry_reminder error:', tmplErr.message);
+        throw tmplErr;
+      }
+    }
+
+    // 3. Fallback to direct text only for general custom messages
+    if (!sentWithTemplate) {
+      const message = customMessage || (
+        type === 'expiring_soon'
+          ? buildExpiringSoonMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(7) })
+          : buildExpiredMsg({ ...client, plan: client.plan || 'Membership', expiryDate: client.expiryDate || getDateOffsetISO(0) })
+      );
+      await sendWhatsAppMessage(phone, message, req.env);
+    }
 
     // Log to DB
     await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
@@ -7033,7 +7202,7 @@ app.post('/api/whatsapp/send', async (req, res) => {
     res.json({ success: true, message: 'WhatsApp message sent!' });
   } catch (err) {
     console.error('WhatsApp send error:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -7049,10 +7218,13 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
     const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
     if (r2Bucket && typeof r2Bucket.put === 'function') {
       await r2Bucket.put(objectKey, pdfBuffer, {
-        httpMetadata: { contentType: 'application/pdf' }
+        httpMetadata: {
+          contentType: 'application/pdf',
+          contentDisposition: `inline; filename="${filename}"`
+        }
       });
       console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket`);
-      return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+      return `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
     }
 
     // 2. Local Node Development Mode
@@ -7065,7 +7237,7 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
 
     // Sync to remote Cloudflare R2 so Metamerged cloud can always download the PDF
     try {
-      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
+      const uploadResp = await fetch('https://admin.olympiafitnessmadurai.com/api/invoices/upload-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7082,7 +7254,7 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
       console.warn('Cloudflare R2 sync notice:', syncErr.message);
     }
 
-    return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    return `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
   } catch (err) {
     console.error('Failed to save PDF document:', err);
     return null;
@@ -7102,11 +7274,14 @@ app.post('/api/invoices/upload-pdf', async (req, res) => {
     const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
     if (r2Bucket && typeof r2Bucket.put === 'function') {
       await r2Bucket.put(objectKey, pdfBuffer, {
-        httpMetadata: { contentType: 'application/pdf' }
+        httpMetadata: {
+          contentType: 'application/pdf',
+          contentDisposition: `inline; filename="${safeFilename}"`
+        }
       });
     }
 
-    const publicUrl = `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    const publicUrl = `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
     res.json({ success: true, url: publicUrl });
   } catch (err) {
     console.error('Upload PDF error:', err.message);
@@ -7309,15 +7484,23 @@ app.post('/api/whatsapp/send-payment-reminder', async (req, res) => {
 
     if (client.dueAmount <= 0) return res.status(400).json({ error: 'No pending due amount' });
 
-    const message = buildPaymentReminderMsg(client);
-    await sendWhatsAppMessage(client.phone, message, req.env);
+    const templatePaymentDue = req.env?.WHATSAPP_TEMPLATE_PAYMENT_DUE || process.env.WHATSAPP_TEMPLATE_PAYMENT_DUE || 'payment_due_reminder';
+    try {
+      await sendWhatsAppTemplate(client.phone, templatePaymentDue, [client.name || 'Member', String(client.dueAmount), client.plan || 'Gym Membership'], req.env);
+    } catch (tmplErr) {
+      if (tmplErr.message.includes('display name approval') || tmplErr.message.includes('131037')) {
+        throw tmplErr;
+      }
+      const message = buildPaymentReminderMsg(client);
+      await sendWhatsAppMessage(client.phone, message, req.env);
+    }
 
     await db.prepare('INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
     ).run(randomUUID(), client.id, client.name, client.phone, 'payment_reminder');
 
     res.json({ success: true, message: 'Payment reminder sent!' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

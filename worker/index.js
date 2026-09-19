@@ -53,28 +53,51 @@ export default {
       if (env.WHATSAPP_PHONE_NUMBER_ID)     process.env.WHATSAPP_PHONE_NUMBER_ID     = env.WHATSAPP_PHONE_NUMBER_ID;
       if (env.WHATSAPP_BUSINESS_ACCOUNT_ID) process.env.WHATSAPP_BUSINESS_ACCOUNT_ID = env.WHATSAPP_BUSINESS_ACCOUNT_ID;
       if (env.WHATSAPP_TEMPLATE_INVOICE)    process.env.WHATSAPP_TEMPLATE_INVOICE    = env.WHATSAPP_TEMPLATE_INVOICE;
+      if (env.WHATSAPP_TEMPLATE_PAYMENT_DUE) process.env.WHATSAPP_TEMPLATE_PAYMENT_DUE = env.WHATSAPP_TEMPLATE_PAYMENT_DUE;
+      if (env.WHATSAPP_TEMPLATE_EXPIRY)     process.env.WHATSAPP_TEMPLATE_EXPIRY     = env.WHATSAPP_TEMPLATE_EXPIRY;
+      if (env.WHATSAPP_TEMPLATE_REMINDER)   process.env.WHATSAPP_TEMPLATE_REMINDER   = env.WHATSAPP_TEMPLATE_REMINDER;
       if (env.COUNTRY_CODE)                 process.env.COUNTRY_CODE                 = env.COUNTRY_CODE;
 
       const url = new URL(request.url);
 
-      // ── Route 0: R2 Profile Pictures (/api/images/*) ──
-      if (request.method === 'GET' && url.pathname.startsWith('/api/images/')) {
-        const objectKey = decodeURIComponent(url.pathname.replace('/api/images/', ''));
-        if (env.GYM_PROFILE_PICTURES) {
-          const object = await env.GYM_PROFILE_PICTURES.get(objectKey);
-          if (object) {
-            const headers = new Headers();
-            object.writeHttpMetadata(headers);
-            if (objectKey.endsWith('.pdf') || !headers.has('Content-Type')) {
-              headers.set('Content-Type', 'application/pdf');
+      // ── Route 0: R2 Profile Pictures & Invoices (/api/images/*) ──
+      if (url.pathname.startsWith('/api/images/')) {
+        if (request.method === 'OPTIONS') {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+              'Access-Control-Allow-Headers': '*'
             }
-            headers.set('etag', object.httpEtag);
-            headers.set('Cache-Control', 'public, max-age=31536000');
-            headers.set('Access-Control-Allow-Origin', '*');
-            return new Response(object.body, { headers });
-          }
+          });
         }
-        return new Response('Image or Document not found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        if (request.method === 'GET' || request.method === 'HEAD') {
+          const objectKey = decodeURIComponent(url.pathname.replace('/api/images/', ''));
+          if (env.GYM_PROFILE_PICTURES) {
+            const object = request.method === 'HEAD'
+              ? await env.GYM_PROFILE_PICTURES.head(objectKey)
+              : await env.GYM_PROFILE_PICTURES.get(objectKey);
+            if (object) {
+              const headers = new Headers();
+              object.writeHttpMetadata(headers);
+              const isPdf = objectKey.endsWith('.pdf');
+              headers.set('Content-Type', isPdf ? 'application/pdf' : (headers.get('Content-Type') || 'image/jpeg'));
+              if (object.size !== undefined) {
+                headers.set('Content-Length', String(object.size));
+              }
+              headers.set('Accept-Ranges', 'bytes');
+              headers.set('etag', object.httpEtag);
+              headers.set('Cache-Control', 'public, max-age=31536000');
+              headers.set('Access-Control-Allow-Origin', '*');
+              headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+              const safeBasename = objectKey.split('/').pop() || 'document.pdf';
+              headers.set('Content-Disposition', `inline; filename="${safeBasename}"`);
+              return new Response(request.method === 'HEAD' ? null : object.body, { headers });
+            }
+          }
+          return new Response('Image or Document not found', { status: 404, headers: { 'Access-Control-Allow-Origin': '*' } });
+        }
       }
 
       // ── Route 1: Backend API calls (/api/*) ──
