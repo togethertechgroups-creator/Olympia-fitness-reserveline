@@ -187,17 +187,29 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
             pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
           };
-          const pdfBlob = await html2pdfModule().set(opt).from(element).output('blob');
-          if (pdfBlob && pdfBlob.size > 0) {
-            pdfBase64 = await new Promise((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                const res = reader.result;
-                resolve(typeof res === 'string' && res.includes(',') ? res.split(',')[1] : res);
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(pdfBlob);
-            });
+          const pdfWorker = html2pdfModule().set(opt).from(element);
+          let rawDataUri = null;
+          try {
+            rawDataUri = await pdfWorker.outputPdf('datauristring');
+          } catch (e) {
+            console.warn('outputPdf datauristring failed, trying blob:', e);
+          }
+
+          if (rawDataUri && typeof rawDataUri === 'string' && rawDataUri.startsWith('data:application/pdf')) {
+            pdfBase64 = rawDataUri.split(',')[1];
+          } else {
+            const pdfBlob = await pdfWorker.output('blob');
+            if (pdfBlob && pdfBlob.size > 0) {
+              pdfBase64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const res = reader.result;
+                  resolve(typeof res === 'string' && res.includes(',') ? res.split(',')[1] : res);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(pdfBlob);
+              });
+            }
           }
         }
       } catch (pdfErr) {

@@ -369,22 +369,22 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
   
   let finalDocUrl = documentUrl;
 
-  // If no public HTTPS documentUrl but pdfBase64 is provided, sync to Cloudflare R2 worker
+  // If no public HTTPS documentUrl but pdfBase64 is provided, sync to Cloudflare R2
   if ((!finalDocUrl || !finalDocUrl.startsWith('http')) && pdfBase64) {
     try {
       const cleanBase64 = pdfBase64.includes(',') ? pdfBase64.split(',')[1] : pdfBase64;
-      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          pdfBase64: cleanBase64,
-          filename: cleanFilename
-        })
-      });
-      const uploadJson = await uploadResp.json().catch(() => ({}));
-      if (uploadJson?.url) {
-        finalDocUrl = uploadJson.url;
-        console.log(`[WhatsApp Document] Uploaded PDF to R2 public URL: ${finalDocUrl}`);
+      const pdfBuffer = Buffer.from(cleanBase64, 'base64');
+      const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+      if (r2Bucket && typeof r2Bucket.put === 'function') {
+        const objectKey = `invoices/${cleanFilename}`;
+        await r2Bucket.put(objectKey, pdfBuffer, {
+          httpMetadata: {
+            contentType: 'application/pdf',
+            contentDisposition: `inline; filename="${cleanFilename}"`
+          }
+        });
+        finalDocUrl = `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
+        console.log(`[WhatsApp Document] Directly uploaded PDF to R2: ${finalDocUrl}`);
       }
     } catch (upErr) {
       console.warn('[WhatsApp Document] R2 upload sync notice:', upErr.message);
@@ -7218,10 +7218,13 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
     const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
     if (r2Bucket && typeof r2Bucket.put === 'function') {
       await r2Bucket.put(objectKey, pdfBuffer, {
-        httpMetadata: { contentType: 'application/pdf' }
+        httpMetadata: {
+          contentType: 'application/pdf',
+          contentDisposition: `inline; filename="${filename}"`
+        }
       });
       console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket`);
-      return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+      return `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
     }
 
     // 2. Local Node Development Mode
@@ -7234,7 +7237,7 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
 
     // Sync to remote Cloudflare R2 so Metamerged cloud can always download the PDF
     try {
-      const uploadResp = await fetch('https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/invoices/upload-pdf', {
+      const uploadResp = await fetch('https://admin.olympiafitnessmadurai.com/api/invoices/upload-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7251,7 +7254,7 @@ const savePdfDocument = async (pdfBuffer, filename, workerEnv) => {
       console.warn('Cloudflare R2 sync notice:', syncErr.message);
     }
 
-    return `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    return `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
   } catch (err) {
     console.error('Failed to save PDF document:', err);
     return null;
@@ -7271,11 +7274,14 @@ app.post('/api/invoices/upload-pdf', async (req, res) => {
     const r2Bucket = req.env?.GYM_PROFILE_PICTURES;
     if (r2Bucket && typeof r2Bucket.put === 'function') {
       await r2Bucket.put(objectKey, pdfBuffer, {
-        httpMetadata: { contentType: 'application/pdf' }
+        httpMetadata: {
+          contentType: 'application/pdf',
+          contentDisposition: `inline; filename="${safeFilename}"`
+        }
       });
     }
 
-    const publicUrl = `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${objectKey}`;
+    const publicUrl = `https://admin.olympiafitnessmadurai.com/api/images/${objectKey}`;
     res.json({ success: true, url: publicUrl });
   } catch (err) {
     console.error('Upload PDF error:', err.message);
