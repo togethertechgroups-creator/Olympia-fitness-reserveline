@@ -27,8 +27,11 @@ CF_WORKER = "1"
 COUNTRY_CODE = "91"
 WHATSAPP_KEY = "-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4"
 WHATSAPP_TOKEN = "-L9l2IAppr6_hvev2z7JFKwFTtzsoAEGBBLVjs_gzp4"
-WHATSAPP_PROJECT_ID = "PROJ_4610ef2839c8"
+WHATSAPP_PROJECT_ID = "PROJ_458f4b5c4bc4"
 WHATSAPP_TEMPLATE_INVOICE = "olympia_invoice_delivery"
+WHATSAPP_TEMPLATE_PAYMENT_DUE = "payment_due_reminder"
+WHATSAPP_TEMPLATE_EXPIRY = "membership_expiry_reminder"
+WHATSAPP_TEMPLATE_REMINDER = "membership_expiry_reminder"
 
 # ─── esbuild define (build-time constants) ────────────────────────────────────
 [define]
