@@ -2,6 +2,7 @@
 import { getClients, getAttendanceByDate, markAttendance, getAttendanceMonthly, getClientBills, pushZkTestScan } from '../api';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { formatShortId } from '../utils/formatShortId';
+import { handleImageError } from '../utils/imageUtils';
 import './ClientAttendancePage.css';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -249,7 +250,11 @@ const ClientAttendancePage = () => {
                     <div key={client.id} className="record-item">
                       <div className="record-info">
                         <div className="record-avatar">
-                          {client.profileImage ? <img src={client.profileImage} alt={client.name} /> : <span>{client.name.charAt(0).toUpperCase()}</span>}
+                          {client.profileImage ? (
+                            <img src={client.profileImage} alt={client.name} onError={handleImageError('avatar')} />
+                          ) : (
+                            <span>{client.name ? client.name.charAt(0).toUpperCase() : 'C'}</span>
+                          )}
                         </div>
                         <div className="record-details">
                           <span className="record-name" onClick={() => openReport(client)} style={{ cursor: 'pointer', textDecoration: 'underline dotted' }}>{client.name}</span>

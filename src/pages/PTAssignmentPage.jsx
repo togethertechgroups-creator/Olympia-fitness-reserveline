@@ -1386,34 +1386,36 @@ const PTAssignmentPage = () => {
 
                               return (
                                 <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenEditModal(item)}
-                                    disabled={isEditDisabled}
-                                    style={{
-                                      padding: '0.35rem 0.65rem',
-                                      fontSize: '0.78rem',
-                                      fontWeight: '700',
-                                      borderRadius: '6px',
-                                      border: '1px solid #cbd5e1',
-                                      background: isEditDisabled ? '#f1f5f9' : '#ffffff',
-                                      color: isEditDisabled ? '#94a3b8' : '#334155',
-                                      cursor: isEditDisabled ? 'not-allowed' : 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                      opacity: isEditDisabled ? 0.6 : 1
-                                    }}
-                                    title={
-                                      isClassesStarted
-                                        ? 'Cannot edit: PT classes have already started'
-                                        : isCompleted || isCancelled
-                                          ? `Cannot edit: PT assignment is ${displayStatus}`
-                                          : 'Edit PT Assignment Details'
-                                    }
-                                  >
-                                    ✏️ Edit
-                                  </button>
+                                  {isSuperAdmin && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditModal(item)}
+                                      disabled={isEditDisabled}
+                                      style={{
+                                        padding: '0.35rem 0.65rem',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '700',
+                                        borderRadius: '6px',
+                                        border: '1px solid #cbd5e1',
+                                        background: isEditDisabled ? '#f1f5f9' : '#ffffff',
+                                        color: isEditDisabled ? '#94a3b8' : '#334155',
+                                        cursor: isEditDisabled ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        opacity: isEditDisabled ? 0.6 : 1
+                                      }}
+                                      title={
+                                        isClassesStarted
+                                          ? 'Cannot edit: PT classes have already started'
+                                          : isCompleted || isCancelled
+                                            ? `Cannot edit: PT assignment is ${displayStatus}`
+                                            : 'Edit PT Assignment Details'
+                                      }
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                  )}
 
                                   {isSuperAdmin && (
                                     <button

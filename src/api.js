@@ -10,6 +10,37 @@ const getBaseUrl = () => {
 
 const BASE_URL = getBaseUrl();
 
+export const apiFetch = async (url, options = {}) => {
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('authToken') : null;
+  const role = typeof localStorage !== 'undefined' ? localStorage.getItem('userRole') : null;
+  const headers = { ...(options.headers || {}) };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (role) {
+    headers['x-user-role'] = role;
+  }
+  const opts = { ...options, headers };
+  const response = await globalThis.fetch(url, opts);
+
+  // If unauthorized and not the login request itself, clear auth state and redirect
+  if (response.status === 401 && !url.includes('/auth/login')) {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('isLoggedIn');
+      localStorage.removeItem('userRole');
+    }
+    if (typeof window !== 'undefined' && !window.location.hash.includes('login') && !window.location.pathname.includes('login')) {
+      window.location.hash = '#/login';
+    }
+  }
+
+  return response;
+};
+
+// Route all internal fetch calls in this module through authenticated apiFetch
+const fetch = apiFetch;
+
 
 const handleResponse = async (response) => {
   let data = null;
@@ -241,7 +272,13 @@ export const loginUser = async (credentials) => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   });
-  return handleResponse(response);
+  const data = await handleResponse(response);
+  if (data.token && typeof localStorage !== 'undefined') {
+    localStorage.setItem('authToken', data.token);
+    localStorage.setItem('userRole', data.role);
+    localStorage.setItem('isLoggedIn', 'true');
+  }
+  return data;
 };
 
 export const getCredentials = async () => {
@@ -338,6 +375,52 @@ export const pushZkTestScan = async (userId, timestamp = null, deviceId = 'Speed
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, timestamp, deviceId })
+  });
+  return handleResponse(response);
+};
+
+// ─── EASYTIMEPRO BIOMETRIC INTEGRATION ────────────────────────────────────────
+
+export const getEasyTimeProStatus = async () => {
+  const response = await fetch(`${BASE_URL}/easytimepro/status`);
+  return handleResponse(response);
+};
+
+export const getEasyTimeProConfig = async () => {
+  const response = await fetch(`${BASE_URL}/easytimepro/config`);
+  return handleResponse(response);
+};
+
+export const saveEasyTimeProConfig = async (config) => {
+  const response = await fetch(`${BASE_URL}/easytimepro/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config)
+  });
+  return handleResponse(response);
+};
+
+export const testEasyTimeProConnection = async (config = null) => {
+  const response = await fetch(`${BASE_URL}/easytimepro/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config || {})
+  });
+  return handleResponse(response);
+};
+
+export const triggerEasyTimeProSync = async () => {
+  const response = await fetch(`${BASE_URL}/easytimepro/sync-now`, {
+    method: 'POST'
+  });
+  return handleResponse(response);
+};
+
+export const unlockEasyTimeProTerminal = async (sn) => {
+  const response = await fetch(`${BASE_URL}/easytimepro/unlock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sn })
   });
   return handleResponse(response);
 };
@@ -520,8 +603,8 @@ export const deleteClientMeasurement = async (clientId, id) => {
 // ─── PT MODULE API ────────────────────────────────────────────────────────────
 
 // PT Packages
-export const getPtPackages = async () => {
-  return fetchWithCache(`${BASE_URL}/pt-packages`, {}, false, 60000);
+export const getPtPackages = async (forceRefresh = false) => {
+  return fetchWithCache(`${BASE_URL}/pt-packages`, {}, forceRefresh, 60000);
 };
 
 export const addPtPackage = async (packageData) => {
@@ -989,8 +1072,8 @@ export const renewExpiredClient = async (clientId, planData) => {
 
 // ─── OTHER SERVICES TARIFF & SALES API ───────────────────────────────────────
 
-export const getOtherServices = async () => {
-  return fetchWithCache(`${BASE_URL}/other-services`, {}, false, 60000);
+export const getOtherServices = async (forceRefresh = false) => {
+  return fetchWithCache(`${BASE_URL}/other-services`, {}, forceRefresh, 60000);
 };
 
 export const addOtherService = async (serviceData) => {

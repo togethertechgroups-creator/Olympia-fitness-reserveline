@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { apiFetch } from '../api';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './WhatsAppRemindersPage.css';
 
 const getApiBase = () => {
@@ -70,7 +72,7 @@ const ClientRow = ({ client, type, onSent }) => {
     setStatus('sending');
     setErrMsg('');
     try {
-      const res = await fetch(`${API}/api/whatsapp/send`, {
+      const res = await apiFetch(`${API}/api/whatsapp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -141,8 +143,8 @@ const WhatsAppRemindersPage = () => {
     setLoading(true);
     try {
       const [remRes, logRes] = await Promise.all([
-        fetch(`${API}/api/whatsapp/reminders`),
-        fetch(`${API}/api/whatsapp/log`)
+        apiFetch(`${API}/api/whatsapp/reminders`),
+        apiFetch(`${API}/api/whatsapp/log`)
       ]);
       const remData = await remRes.json();
       const logData = await logRes.json();
@@ -166,7 +168,7 @@ const WhatsAppRemindersPage = () => {
     setBulkStatus('sending');
     setBulkResult(null);
     try {
-      const res = await fetch(`${API}/api/whatsapp/send-bulk`, {
+      const res = await apiFetch(`${API}/api/whatsapp/send-bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type })
@@ -289,10 +291,7 @@ const WhatsAppRemindersPage = () => {
             {/* Client list */}
             <div className="wa-list">
               {loading ? (
-                <div className="wa-empty">
-                  <span className="wa-spinner-lg" />
-                  <p>Loading clients…</p>
-                </div>
+                <LoadingSpinner size="md" text="Loading clients…" style={{ padding: '3rem' }} />
               ) : currentList.length === 0 ? (
                 <div className="wa-empty">
                   <div className="wa-empty-icon">✅</div>

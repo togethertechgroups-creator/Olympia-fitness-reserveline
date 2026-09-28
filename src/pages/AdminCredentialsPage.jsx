@@ -117,7 +117,7 @@ const AdminCredentialsPage = () => {
                         <span style={{ background: 'linear-gradient(to right, #ea580c, #db2777)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Management</span>
                     </div>
                     <img 
-                        src="./password_19027973.gif" 
+                        src="/password_19027973.gif" 
                         alt="Security" 
                         style={{ width: '58px', height: '58px', objectFit: 'contain', mixBlendMode: 'multiply' }} 
                     />

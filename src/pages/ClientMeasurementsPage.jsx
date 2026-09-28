@@ -7,6 +7,7 @@ import {
   deleteClientMeasurement 
 } from '../api';
 import { formatShortId } from '../utils/formatShortId';
+import { handleImageError } from '../utils/imageUtils';
 import {
   LineChart,
   Line,
@@ -347,9 +348,9 @@ const ClientMeasurementsPage = () => {
           <div className="selected-client-quickbadge">
             <div className="avatar">
               {selectedClient.profileImage ? (
-                <img src={selectedClient.profileImage} alt={selectedClient.name} />
+                <img src={selectedClient.profileImage} alt={selectedClient.name} onError={handleImageError('avatar')} />
               ) : (
-                <span>{selectedClient.name.charAt(0).toUpperCase()}</span>
+                <span>{selectedClient.name ? selectedClient.name.charAt(0).toUpperCase() : 'C'}</span>
               )}
             </div>
             <div>
@@ -365,7 +366,7 @@ const ClientMeasurementsPage = () => {
         {/* Left Side: Client Selector */}
         <div className="client-selector-card">
           <div className="search-box-wrapper">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: 'var(--primary-neon)' }}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" /></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: 'var(--primary-neon)' }}><circle cx="11" cy="8" r="8" /><path d="m21 21-4.3-4.3" /></svg>
             <input 
               type="text" 
               placeholder="SEARCH CLIENTS..." 
@@ -388,9 +389,9 @@ const ClientMeasurementsPage = () => {
                 >
                   <div className="client-avatar-thumb">
                     {client.profileImage ? (
-                      <img src={client.profileImage} alt={client.name} />
+                      <img src={client.profileImage} alt={client.name} onError={handleImageError('avatar')} />
                     ) : (
-                      <span>{client.name.charAt(0).toUpperCase()}</span>
+                      <span>{client.name ? client.name.charAt(0).toUpperCase() : 'C'}</span>
                     )}
                   </div>
                   <div className="client-info-text">
@@ -611,7 +612,7 @@ const ClientMeasurementsPage = () => {
                     <div className="chart-card-box">
                       <h4>Weight Progression (kg)</h4>
                       <div style={{ width: '100%', height: 220 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                           <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                             <XAxis dataKey="name" stroke="var(--text-dim)" fontSize={11} />
@@ -626,7 +627,7 @@ const ClientMeasurementsPage = () => {
                     <div className="chart-card-box">
                       <h4>Body Fat % Progression</h4>
                       <div style={{ width: '100%', height: 220 }}>
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
                           <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                             <XAxis dataKey="name" stroke="var(--text-dim)" fontSize={11} />

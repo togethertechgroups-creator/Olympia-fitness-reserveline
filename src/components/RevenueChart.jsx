@@ -19,7 +19,7 @@ const RevenueChart = ({ data = [] }) => {
       </div>
       
       <div className="chart-body">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={165}>
           <BarChart data={data} margin={{ top: 10, right: 15, left: 0, bottom: 10 }}>
             <XAxis 
               dataKey="month" 

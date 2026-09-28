@@ -64,18 +64,23 @@
 .invoice-preview-container {
   flex: 1;
   background: #cbd5e1;
-  padding: 2rem;
-  overflow-y: auto;
+  padding: 1.5rem;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
 .invoice-iframe {
   width: 794px;
+  min-height: 1123px;
   height: 1123px;
   background: white;
   border: none;
   box-shadow: 0 10px 25px rgba(0,0,0,0.1);
   margin: 0 auto;
   display: block;
+  flex-shrink: 0;
 }
 
 .invoice-modal-footer {

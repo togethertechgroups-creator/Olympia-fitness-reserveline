@@ -304,7 +304,7 @@ const AdvanceBookingPage = () => {
       ]);
       setClients(clientsRes);
       setSettings(settingsRes);
-      setPtPackages(pkgRes.filter(p => p.active));
+      setPtPackages(pkgRes.filter(p => p.active && !p.is_custom && !(p.name || '').toLowerCase().includes('custom pt')));
       setTrainers(trainerRes.filter(t => t.status === 'Active'));
       setGeneralBookings(genRes);
       setPtBookings(ptRes);
@@ -527,7 +527,14 @@ const AdvanceBookingPage = () => {
   // Available Tariff Keys from settings (dynamically deduplicated & filtered)
   const availableTariffs = (() => {
     const customKeys = Object.keys(settings)
-      .filter(k => k.endsWith('_Strengthening') && !k.startsWith('PT_') && !k.startsWith('Diet'))
+      .filter(k => {
+        if (!k.endsWith('_Strengthening')) return false;
+        const lower = k.toLowerCase();
+        if (lower.startsWith('pt_') || lower.startsWith('diet') || lower.startsWith('other') || lower.startsWith('service') || lower.startsWith('custom')) {
+          return false;
+        }
+        return true;
+      })
       .map(k => k.replace('_Strengthening', ''));
     const fallbackDefaults = ['Monthly', 'Quarterly', 'Half-Yearly', 'Annual'];
     const keysToProcess = customKeys.length > 0 ? customKeys : fallbackDefaults;

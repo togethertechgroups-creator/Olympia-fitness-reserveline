@@ -1,0 +1,84 @@
+.olympia-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  padding: 1.5rem;
+}
+
+.olympia-spinner-container.full-screen {
+  min-height: 55vh;
+}
+
+.olympia-spinner-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Dual-ring spinning gradient */
+.olympia-spinner-ring {
+  border-radius: 50%;
+  animation: olympia-spin 0.9s cubic-bezier(0.5, 0.1, 0.4, 0.9) infinite;
+  box-sizing: border-box;
+}
+
+.olympia-spinner-ring.sm {
+  width: 20px;
+  height: 20px;
+  border: 2.5px solid rgba(234, 88, 12, 0.2);
+  border-top-color: #ea580c;
+  border-right-color: #db2777;
+}
+
+.olympia-spinner-ring.md {
+  width: 38px;
+  height: 38px;
+  border: 3.5px solid rgba(234, 88, 12, 0.2);
+  border-top-color: #ea580c;
+  border-right-color: #db2777;
+}
+
+.olympia-spinner-ring.lg {
+  width: 54px;
+  height: 54px;
+  border: 4px solid rgba(234, 88, 12, 0.2);
+  border-top-color: #ea580c;
+  border-right-color: #db2777;
+}
+
+.olympia-spinner-pulse {
+  position: absolute;
+  width: 35%;
+  height: 35%;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ea580c 0%, #db2777 100%);
+  animation: olympia-pulse 1.4s ease-in-out infinite alternate;
+  opacity: 0.75;
+}
+
+.olympia-spinner-text {
+  font-family: 'Outfit', -apple-system, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: #64748b;
+  animation: olympia-text-glow 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes olympia-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes olympia-pulse {
+  0% { transform: scale(0.65); opacity: 0.4; }
+  100% { transform: scale(1.15); opacity: 0.9; }
+}
+
+@keyframes olympia-text-glow {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; color: #ea580c; }
+}

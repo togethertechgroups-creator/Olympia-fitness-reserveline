@@ -7,7 +7,7 @@ const UNITS = ['bottle', 'kg', 'pack', 'box', 'tub', 'scoop', 'sachet', 'piece']
 
 const SupplementCatalogPage = () => {
   const userRole = (localStorage.getItem('userRole') || '').toLowerCase();
-  const canManageSupplements = !userRole || userRole === 'admin' || userRole === 'superadmin';
+  const canManageSupplements = userRole === 'superadmin';
   const [supplements, setSupplements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -100,6 +100,7 @@ const SupplementCatalogPage = () => {
         await updateSupplement(editingItem.id, formData);
       } else {
         await addSupplement(formData);
+        setStockFilter('ALL');
       }
       await fetchCatalog(true);
       handleCloseModal();
@@ -137,6 +138,8 @@ const SupplementCatalogPage = () => {
     }
   };
 
+  const liveStockCount = supplements.filter(item => Number(item.current_stock || 0) > 0).length;
+
   const lowStockCount = supplements.filter(item => {
     const stock = Number(item.current_stock || 0);
     const thresh = Number(item.low_stock_threshold ?? 5);
@@ -160,7 +163,9 @@ const SupplementCatalogPage = () => {
     const stock = Number(item.current_stock || 0);
     const thresh = Number(item.low_stock_threshold ?? 5);
 
-    if (stockFilter === 'AVAILABLE') {
+    if (stockFilter === 'LIVE_STOCK') {
+      matchesStock = stock > 0;
+    } else if (stockFilter === 'AVAILABLE') {
       matchesStock = stock > thresh;
     } else if (stockFilter === 'LOW_STOCK') {
       matchesStock = stock > 0 && stock <= thresh;
@@ -215,6 +220,7 @@ const SupplementCatalogPage = () => {
                 className="catalog-select"
                 style={{ fontWeight: '700' }}
               >
+                <option value="LIVE_STOCK">Live Stock ({liveStockCount})</option>
                 <option value="AVAILABLE">Available ({availableCount})</option>
                 <option value="LOW_STOCK">Low Stock ({lowStockCount})</option>
                 <option value="OUT_OF_STOCK">Out of Stock ({outOfStockCount})</option>
@@ -231,10 +237,58 @@ const SupplementCatalogPage = () => {
                 ))}
               </select>
             </div>
-          </div>
-
-          {/* Quick Stock Filter Pills */}
+          </div>          {/* Quick Stock Filter Pills */}
           <div className="stock-filter-pills" style={{ display: 'flex', gap: '0.6rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setStockFilter('ALL')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'ALL' ? '1.5px solid #6366f1' : '1px solid #cbd5e1',
+                background: stockFilter === 'ALL' ? '#e0e7ff' : '#ffffff',
+                color: stockFilter === 'ALL' ? '#4338ca' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'ALL' ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
+              }}
+            >
+              <span>All Catalog Items</span>
+              <span style={{ background: stockFilter === 'ALL' ? '#6366f1' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {supplements.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setStockFilter('LIVE_STOCK')}
+              style={{
+                padding: '0.45rem 1rem',
+                borderRadius: '10px',
+                border: stockFilter === 'LIVE_STOCK' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                background: stockFilter === 'LIVE_STOCK' ? '#e0f2fe' : '#ffffff',
+                color: stockFilter === 'LIVE_STOCK' ? '#0369a1' : '#475569',
+                fontWeight: '800',
+                fontSize: '0.82rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: stockFilter === 'LIVE_STOCK' ? '0 2px 8px rgba(2, 132, 199, 0.2)' : 'none'
+              }}
+            >
+              <span>In Stock</span>
+              <span style={{ background: stockFilter === 'LIVE_STOCK' ? '#0284c7' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
+                {liveStockCount}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={() => setStockFilter('AVAILABLE')}
@@ -254,7 +308,7 @@ const SupplementCatalogPage = () => {
                 boxShadow: stockFilter === 'AVAILABLE' ? '0 2px 8px rgba(22, 163, 74, 0.2)' : 'none'
               }}
             >
-              <span>Available</span>
+              <span>Optimal Stock</span>
               <span style={{ background: stockFilter === 'AVAILABLE' ? '#16a34a' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
                 {availableCount}
               </span>
@@ -307,31 +361,6 @@ const SupplementCatalogPage = () => {
               <span>Out of Stock</span>
               <span style={{ background: stockFilter === 'OUT_OF_STOCK' ? '#dc2626' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
                 {outOfStockCount}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setStockFilter('ALL')}
-              style={{
-                padding: '0.45rem 1rem',
-                borderRadius: '10px',
-                border: stockFilter === 'ALL' ? '1.5px solid #6366f1' : '1px solid #cbd5e1',
-                background: stockFilter === 'ALL' ? '#e0e7ff' : '#ffffff',
-                color: stockFilter === 'ALL' ? '#4338ca' : '#475569',
-                fontWeight: '800',
-                fontSize: '0.82rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxShadow: stockFilter === 'ALL' ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
-              }}
-            >
-              <span>All Items</span>
-              <span style={{ background: stockFilter === 'ALL' ? '#6366f1' : '#94a3b8', color: '#ffffff', padding: '1px 7px', borderRadius: '100px', fontSize: '0.72rem', fontWeight: '800' }}>
-                {supplements.length}
               </span>
             </button>
           </div>

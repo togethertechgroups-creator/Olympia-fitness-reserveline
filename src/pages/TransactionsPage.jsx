@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchTransactions, getClients, restoreData, getGeneralBookings, getPtAdvanceBookings, getPtAssignments, getOtherServicesSales, getExpenses } from '../api';
+import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { utils, writeFile, read } from 'xlsx';
 import { formatDateDDMMYYYY } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
@@ -57,11 +58,15 @@ const TransactionsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [whatsappFilter, setWhatsappFilter] = useState('ALL');
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthStr());
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
   const [clientsMap, setClientsMap] = useState({});
+  const [clientsById, setClientsById] = useState({});
+  const [clientsList, setClientsList] = useState([]);
+  const [invoiceModal, setInvoiceModal] = useState({ isOpen: false, data: null });
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
@@ -118,7 +123,8 @@ const TransactionsPage = () => {
             date: actualTxnDate,
             status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
             timestamp: b.created_at || actualTxnDate,
-            categoryType: 'ADVANCE_GEN'
+            categoryType: 'ADVANCE_GEN',
+            whatsapp_sent: b.whatsapp_sent || 0
           };
         });
 
@@ -146,14 +152,17 @@ const TransactionsPage = () => {
             date: actualTxnDate,
             status: b.status === 'Cancelled' ? 'CANCELLED' : 'ADVANCE',
             timestamp: b.created_at || actualTxnDate,
-            categoryType: 'ADVANCE_PT'
+            categoryType: 'ADVANCE_PT',
+            whatsapp_sent: b.whatsapp_sent || 0
           };
         });
+
+      const advBookingInvoiceIds = new Set((ptBookings || []).map(b => String(b.invoice_id)).filter(Boolean));
 
       const mappedPtAssignments = (ptAssignmentsData || [])
         .filter(a => {
           if (a.status === 'Cancelled') return false;
-          if (a.invoice_id && existingBillIds.has(a.invoice_id)) return false;
+          if (a.invoice_id && (existingBillIds.has(a.invoice_id) || advBookingInvoiceIds.has(String(a.invoice_id)))) return false;
           if (a.id && existingTxnIds.has(String(a.id))) return false;
           return true;
         })
@@ -173,7 +182,8 @@ const TransactionsPage = () => {
             date: actualTxnDate,
             status: 'CAPTURED',
             timestamp: a.created_at || a.assigned_date || '',
-            categoryType: 'PT'
+            categoryType: 'PT',
+            whatsapp_sent: a.whatsapp_sent || 0
           };
         });
 
@@ -199,7 +209,8 @@ const TransactionsPage = () => {
             date: s.sale_date ? s.sale_date.split(' ')[0] : (s.created_at ? s.created_at.split(' ')[0] : ''),
             status: (s.paymentStatus === 'Cancelled' || s.status === 'Cancelled') ? 'CANCELLED' : (s.paymentStatus || 'CAPTURED').toUpperCase(),
             timestamp: s.created_at || s.sale_date || '',
-            categoryType: 'OTHER_SERVICE'
+            categoryType: 'OTHER_SERVICE',
+            whatsapp_sent: s.whatsapp_sent || 0
           };
         });
 
@@ -216,7 +227,8 @@ const TransactionsPage = () => {
           date: e.date || '',
           status: 'EXPENSE',
           timestamp: e.timestamp || e.date || '',
-          categoryType: 'EXPENSE'
+          categoryType: 'EXPENSE',
+          whatsapp_sent: null
         };
       });
 
@@ -264,7 +276,8 @@ const TransactionsPage = () => {
           ...t,
           amount: amt,
           grossAmount: gross,
-          discountAmount: disc
+          discountAmount: disc,
+          whatsapp_sent: (t.whatsapp_sent === 1 || t.whatsapp_sent === true || t.whatsappSent) ? 1 : 0
         };
       });
 
@@ -284,6 +297,8 @@ const TransactionsPage = () => {
       });
 
       setClientsMap(map);
+      setClientsById(clientsMapById);
+      setClientsList(clientsData || []);
       setTransactions(combinedTxns);
     } catch (error) {
       console.error("Failed to fetch data:", error);
@@ -391,6 +406,12 @@ const TransactionsPage = () => {
       if (paymentMethodFilter === 'UPI' && !methodLower.includes('upi')) return false;
       if (paymentMethodFilter === 'CASH' && !methodLower.includes('cash')) return false;
       if (paymentMethodFilter === 'BANK' && (!methodLower.includes('bank') && !methodLower.includes('net banking') && !methodLower.includes('card') && !methodLower.includes('transfer'))) return false;
+    }
+
+    if (whatsappFilter !== 'ALL') {
+      const isSent = !!(txn.whatsapp_sent === 1 || txn.whatsapp_sent === true || txn.whatsappSent);
+      if (whatsappFilter === 'SENT' && !isSent) return false;
+      if (whatsappFilter === 'NOT_SENT' && (isSent || txn.status === 'EXPENSE' || txn.clientId === 'EXPENSE')) return false;
     }
 
     // Category filtering
@@ -522,6 +543,49 @@ const TransactionsPage = () => {
     return 'N/A';
   };
 
+  const handleViewInvoice = (txn) => {
+    if (!txn || txn.status === 'EXPENSE' || txn.clientId === 'EXPENSE') return;
+
+    const matchedClient = clientsById[txn.clientId] || clientsList.find(c => String(c.id) === String(txn.clientId) || String(c.clientId) === String(txn.clientId) || c.name === txn.name);
+
+    const clientPhone = txn.clientPhone || matchedClient?.phone || '';
+    const billNo = txn.billNo || (txn.billId && txn.billId.startsWith('INV-') ? txn.billId : `INV-${txn.id}`);
+    const grossPrice = txn.grossAmount !== undefined && txn.grossAmount !== null ? parseFloat(txn.grossAmount) : (parseFloat(txn.amount || 0) + parseFloat(txn.discountAmount || 0));
+    const paidAmt = parseFloat(txn.amount || 0);
+    const discAmt = parseFloat(txn.discountAmount || txn.discount_amount || 0);
+    const dueAmt = Math.max(0, grossPrice - discAmt - paidAmt);
+    const planLabel = txn.bill_plan_name || txn.plan || txn.serviceName || txn.name || 'Gym Membership';
+
+    const invoiceObj = {
+      id: txn.billId || txn.id,
+      billNo: billNo,
+      clientId: txn.clientId || matchedClient?.clientId || formatShortId(txn.clientId),
+      clientName: txn.name ? txn.name.split(' - ')[0].trim() : (matchedClient?.name || 'Client'),
+      name: txn.name ? txn.name.split(' - ')[0].trim() : (matchedClient?.name || 'Client'),
+      phone: clientPhone,
+      mobile: clientPhone,
+      plan: planLabel,
+      planName: planLabel,
+      amount: paidAmt,
+      paidAmount: paidAmt,
+      planAmount: paidAmt,
+      totalPlanAmount: grossPrice,
+      remainingBalance: dueAmt,
+      dueAmount: dueAmt,
+      paymentStatus: dueAmt <= 0 ? 'Paid' : (paidAmt > 0 ? 'Partial' : 'Due'),
+      paymentMethod: txn.method || 'CASH',
+      invoiceDate: txn.bill_invoice_date || txn.date || txn.timestamp || new Date().toISOString().split('T')[0],
+      joinDate: txn.bill_join_date || txn.date || txn.timestamp || '',
+      fromDate: txn.bill_join_date || txn.date || txn.timestamp || '',
+      expiryDate: txn.bill_expiry_date || txn.expiryDate || matchedClient?.expiryDate || '',
+      discount_amount: discAmt,
+      invoice_category: txn.categoryType || txn.bill_invoice_category || 'General',
+      client_gstin: txn.bill_gstin || txn.clientGstin || matchedClient?.gstin || ''
+    };
+
+    setInvoiceModal({ isOpen: true, data: invoiceObj });
+  };
+
   return (
     <div className="premium-dashboard">
       <main className="dashboard-main" style={{ paddingBottom: '5rem' }}>
@@ -533,7 +597,7 @@ const TransactionsPage = () => {
                         <span style={{ background: 'linear-gradient(to right, #ea580c, #db2777)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Transactions</span>
                     </div>
                     <img 
-                        src="./transfer_19005129.gif" 
+                        src="/transfer_19005129.gif" 
                         alt="Transfer" 
                         style={{ width: '58px', height: '58px', objectFit: 'contain', mixBlendMode: 'multiply' }} 
                     />
@@ -595,7 +659,18 @@ const TransactionsPage = () => {
             <option value="ALL">All Payment Modes</option>
             <option value="UPI">UPI</option>
             <option value="CASH">Cash</option>
-            <option value="BANK">Bank / Net Banking / Card</option>
+            <option value="BANK">Bank Transfer / Card</option>
+          </select>
+
+          <select
+            className="txn-payment-filter"
+            value={whatsappFilter}
+            onChange={(e) => { setWhatsappFilter(e.target.value); setCurrentPage(1); }}
+            title="Filter by WhatsApp Status"
+          >
+            <option value="ALL">All WhatsApp Status</option>
+            <option value="SENT">WhatsApp Invoice Sent</option>
+            <option value="NOT_SENT">WhatsApp Invoice Not Sent</option>
           </select>
           
           <div className="txn-month-filter">
@@ -717,13 +792,15 @@ const TransactionsPage = () => {
                 <th>DATE</th>
                 <th>AMOUNT</th>
                 <th>STATUS</th>
+                <th>WHATSAPP INVOICE</th>
+                <th style={{ textAlign: 'center', width: '100px' }}>INVOICE</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="6" className="text-center">Loading transactions...</td></tr>
+                <tr><td colSpan="8" className="text-center">Loading transactions...</td></tr>
               ) : filteredTxns.length === 0 ? (
-                <tr><td colSpan="6" className="text-center">No transactions found.</td></tr>
+                <tr><td colSpan="8" className="text-center">No transactions found.</td></tr>
               ) : currentTxns.map(txn => (
                 <tr key={txn.id}>
                   <td className="id-col">{getDisplayClientId(txn)}</td>
@@ -755,6 +832,49 @@ const TransactionsPage = () => {
                       }></div>
                       {txn.status}
                     </span>
+                  </td>
+                  <td className="wa-invoice-col">
+                    {txn.status === 'EXPENSE' || txn.clientId === 'EXPENSE' ? (
+                      <span className="wa-invoice-na">—</span>
+                    ) : (txn.whatsapp_sent === 1 || txn.whatsapp_sent === true || txn.whatsappSent) ? (
+                      <span 
+                        className="wa-invoice-badge sent" 
+                        title="Invoice PDF was delivered to client via WhatsApp"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.669-.699c.969.539 1.772.814 2.791.814 3.18 0 5.766-2.587 5.766-5.766 0-3.18-2.586-5.766-5.766-5.766zm9.969 5.828c0 5.523-4.477 10-10 10-1.782 0-3.456-.468-4.908-1.284l-5.092 1.284 1.332-4.965c-.938-1.516-1.332-3.12-1.332-5.035 0-5.523 4.477-10 10-10s10 4.477 10 10z"/>
+                        </svg>
+                        Sent
+                      </span>
+                    ) : (
+                      <span 
+                        className="wa-invoice-badge not-sent" 
+                        title="Invoice has not been sent via WhatsApp yet"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                          <line x1="18" y1="6" x2="6" y2="18"></line>
+                          <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Not Sent
+                      </span>
+                    )}
+                  </td>
+                  <td className="action-invoice-col" style={{ textAlign: 'center' }}>
+                    {txn.status === 'EXPENSE' || txn.clientId === 'EXPENSE' ? (
+                      <span className="wa-invoice-na">—</span>
+                    ) : (
+                      <button
+                        className="btn-txn-invoice"
+                        onClick={() => handleViewInvoice(txn)}
+                        title="View / Print Invoice"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <span>Invoice</span>
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -807,6 +927,13 @@ const TransactionsPage = () => {
           </div>
         )}
       </div>
+
+      <InvoicePreviewModal
+        isOpen={invoiceModal.isOpen}
+        onClose={() => setInvoiceModal({ isOpen: false, data: null })}
+        client={invoiceModal.data}
+        title="Transaction Invoice"
+      />
       </main>
     </div>
   );

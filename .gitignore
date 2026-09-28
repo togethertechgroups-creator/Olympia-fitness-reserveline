@@ -29,6 +29,8 @@ server/.env
 *.db
 *.db-shm
 *.db-wal
+*.db.bak*
+*.sqlite*
 *.bak
 scratch/
 check_db.js

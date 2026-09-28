@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getWebsiteGallery, addWebsiteGalleryBatch, updateWebsiteGalleryItem, deleteWebsiteGalleryItem } from '../api';
+import { handleImageError, DEFAULT_GALLERY_IMAGE } from '../utils/imageUtils';
 import './WebsiteGalleryPage.css';
 
 const WebsiteGalleryPage = () => {
@@ -67,7 +68,7 @@ const WebsiteGalleryPage = () => {
     setSelectedItems([]);
   };
 
-  const compressImageFile = (file, maxWidth = 1920, maxHeight = 1080, quality = 0.82) => {
+  const compressImageFile = (file, maxWidth = 1200, maxHeight = 900, quality = 0.75) => {
     return new Promise((resolve) => {
       if (!file || !file.type.startsWith('image/')) {
         resolve(null);
@@ -360,7 +361,11 @@ const WebsiteGalleryPage = () => {
               {filteredItems.map(item => (
                 <div key={item.id} className={`gallery-card ${!item.active ? 'is-hidden-card' : ''}`}>
                   <div className="gallery-img-wrapper">
-                    <img src={item.imageUrl} alt={item.title} />
+                    <img
+                      src={item.imageUrl || DEFAULT_GALLERY_IMAGE}
+                      alt={item.title}
+                      onError={handleImageError('gallery')}
+                    />
                     <span className="category-tag">{item.category}</span>
                     <span className={`status-pill ${item.active ? 'active' : 'hidden'}`}>
                       {item.active ? '● Live' : '○ Hidden'}
@@ -491,7 +496,12 @@ const WebsiteGalleryPage = () => {
                             >
                               ✕
                             </button>
-                            <img src={item.previewUrl} alt={item.title} className="batch-thumb" />
+                            <img
+                              src={item.previewUrl || DEFAULT_GALLERY_IMAGE}
+                              alt={item.title}
+                              className="batch-thumb"
+                              onError={handleImageError('gallery')}
+                            />
                             <input
                               type="text"
                               value={item.title}

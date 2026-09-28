@@ -69,11 +69,11 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
       const filename = `Invoice_${String(rawBillNo).replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
 
       if (html2pdfModule) {
-        const element = iframeDoc.querySelector('.page') || iframeDoc.body;
+        const element = iframeDoc.getElementById('invoice-root') || iframeDoc.querySelector('.page') || iframeDoc.body;
         const opt = {
           margin: [0, 0, 0, 0],
           filename,
-          image: { type: 'jpeg', quality: 1.0 },
+          image: { type: 'jpeg', quality: 0.98 },
           html2canvas: {
             scale: 2,
             useCORS: true,
@@ -86,7 +86,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
             logging: false
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'], before: '.page-2' }
         };
         await html2pdfModule().set(opt).from(element).save();
         setToastType('success');
@@ -168,11 +168,11 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
         const iframeDoc = iframeRef.current?.contentDocument;
         if (iframeDoc) {
           const html2pdfModule = (await import('html2pdf.js')).default;
-          const element = iframeDoc.querySelector('.page') || iframeDoc.body;
+          const element = iframeDoc.getElementById('invoice-root') || iframeDoc.querySelector('.page') || iframeDoc.body;
           const opt = {
             margin: [0, 0, 0, 0],
             filename: `Invoice_${String(client.billNo || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
-            image: { type: 'jpeg', quality: 0.95 },
+            image: { type: 'jpeg', quality: 0.98 },
             html2canvas: {
               scale: 2,
               useCORS: true,
@@ -185,7 +185,7 @@ const InvoicePreviewModal = ({ isOpen, onClose, client, title }) => {
               logging: false
             },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
-            pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            pagebreak: { mode: ['avoid-all', 'css', 'legacy'], before: '.page-2' }
           };
           const pdfWorker = html2pdfModule().set(opt).from(element);
           let rawDataUri = null;

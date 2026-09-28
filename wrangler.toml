@@ -17,9 +17,9 @@ database_name = "olympia-fitness-db"
 database_id = "ed446766-e8b8-49bf-ad46-16d0ae326ec3"
 
 # ─── Cloudflare R2 Bucket Binding ─────────────────────────────────────────────
-[[r2_buckets]]
-binding = "GYM_PROFILE_PICTURES"
-bucket_name = "gym-profile-pictures"
+# [[r2_buckets]]
+# binding = "GYM_PROFILE_PICTURES"
+# bucket_name = "gym-profile-pictures"
 
 # ─── Environment Variables (non-secret) ──────────────────────────────────────
 [vars]
@@ -32,6 +32,7 @@ WHATSAPP_TEMPLATE_INVOICE = "olympia_invoice_delivery"
 WHATSAPP_TEMPLATE_PAYMENT_DUE = "payment_due_reminder"
 WHATSAPP_TEMPLATE_EXPIRY = "membership_expiry_reminder"
 WHATSAPP_TEMPLATE_REMINDER = "membership_expiry_reminder"
+JWT_SECRET = "olympia-jwt-sec-2026-c98f12a3d7e5b"
 
 # ─── esbuild define (build-time constants) ────────────────────────────────────
 [define]

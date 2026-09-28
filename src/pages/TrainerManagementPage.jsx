@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getTrainers, getNextTrainerId, addTrainer, updateTrainer, deleteTrainer, getTrainerDailyStatus, saveTrainerDailyStatus } from '../api';
+import { handleImageError, DEFAULT_AVATAR, compressImageFile } from '../utils/imageUtils';
 import './TrainerManagementPage.css';
 
 const TrainerManagementPage = () => {
@@ -31,7 +32,25 @@ const TrainerManagementPage = () => {
     shiftEndTime: ''
   });
 
-  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '' });
+  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '', trainerId: null, trainerName: '' });
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Photo file size should be less than 10MB.');
+      return;
+    }
+    try {
+      const compressed = await compressImageFile(file, 600, 600, 0.82);
+      if (compressed) {
+        setFormData(prev => ({ ...prev, profileImage: compressed }));
+        setIsDirty(true);
+      }
+    } catch (err) {
+      console.error('Image compression error:', err);
+    }
+  };
 
   const formatTime12h = (time24) => {
     if (!time24) return '';
@@ -50,21 +69,6 @@ const TrainerManagementPage = () => {
     if (start && end) return `${formatTime12h(start)} - ${formatTime12h(end)}`;
     if (start) return `From ${formatTime12h(start)}`;
     return `Until ${formatTime12h(end)}`;
-  };
-
-  const handlePhotoUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      alert('Photo file size should be less than 2MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setFormData(prev => ({ ...prev, profileImage: reader.result }));
-      setIsDirty(true);
-    };
-    reader.readAsDataURL(file);
   };
 
   useEffect(() => {
@@ -222,10 +226,11 @@ const TrainerManagementPage = () => {
     }
     try {
       setIsDirty(false);
+      const submitPayload = { ...formData, profileImage: formData.profileImage || null };
       if (currentTrainer) {
-        await updateTrainer(currentTrainer.id, formData);
+        await updateTrainer(currentTrainer.id, submitPayload);
       } else {
-        await addTrainer(formData);
+        await addTrainer(submitPayload);
       }
       fetchTrainers();
       handleCloseModal();
@@ -249,6 +254,26 @@ const TrainerManagementPage = () => {
         setTrainers(trainers.filter(t => t.id !== id));
       } catch (error) {
         alert('Failed to delete trainer');
+      }
+    }
+  };
+
+  const handleRemoveTrainerPhoto = async (id, trainerName) => {
+    if (!id) return;
+    if (window.confirm(`Are you sure you want to remove the profile photo for ${trainerName || 'this trainer'}?`)) {
+      try {
+        const trainer = trainers.find(t => t.id === id);
+        if (!trainer) return;
+        await updateTrainer(id, { ...trainer, profileImage: null });
+        setTrainers(trainers.map(t => t.id === id ? { ...t, profileImage: null } : t));
+        if (currentTrainer && currentTrainer.id === id) {
+          setCurrentTrainer(prev => prev ? { ...prev, profileImage: null } : null);
+          setFormData(prev => ({ ...prev, profileImage: '' }));
+        }
+        setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', trainerId: null, trainerName: '' });
+      } catch (error) {
+        console.error('Failed to remove trainer photo:', error);
+        alert('Failed to remove trainer photo: ' + (error.message || 'Unknown error'));
       }
     }
   };
@@ -330,21 +355,24 @@ const TrainerManagementPage = () => {
                     onClick={() => trainer.profileImage && setViewImageModal({
                       isOpen: true,
                       imageUrl: trainer.profileImage,
+                      trainerId: trainer.id,
+                      trainerName: trainer.name,
                       title: trainer.name,
                       subtitle: `${trainer.trainerId || ''} • ${trainer.specialization || 'General Trainer'}`
                     })}
                     style={{ 
-                      width: '56px', 
-                      height: '56px', 
+                      width: '54px', 
+                      height: '54px', 
                       borderRadius: '50%', 
                       overflow: 'hidden', 
                       flexShrink: 0, 
-                      background: 'linear-gradient(135deg, #f1f5f9, #cbd5e1)', 
+                      background: 'linear-gradient(135deg, #4338ca, #6366f1)', 
                       display: 'flex', 
                       alignItems: 'center', 
                       justifyContent: 'center', 
                       border: '2px solid #ffffff', 
                       boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      color: '#ffffff',
                       cursor: trainer.profileImage ? 'pointer' : 'default',
                       position: 'relative'
                     }}
@@ -352,13 +380,18 @@ const TrainerManagementPage = () => {
                   >
                     {trainer.profileImage ? (
                       <>
-                        <img src={trainer.profileImage} alt={trainer.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img 
+                          src={trainer.profileImage} 
+                          alt={trainer.name} 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          onError={handleImageError('avatar')}
+                        />
                         <div className="avatar-hover-overlay">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                         </div>
                       </>
                     ) : (
-                      <span style={{ fontWeight: '900', fontSize: '1.2rem', color: '#475569' }}>
+                      <span style={{ fontWeight: '800', fontSize: '1.25rem', color: '#ffffff' }}>
                         {trainer.name ? trainer.name.charAt(0).toUpperCase() : 'T'}
                       </span>
                     )}
@@ -441,6 +474,29 @@ const TrainerManagementPage = () => {
                     {isAbsentToday ? 'Mark Present' : 'Mark Absent Today'}
                   </button>
                   <div className="trainer-card-actions-sub">
+                    {trainer.profileImage && isSuperAdmin && (
+                      <button 
+                        className="btn-remove-photo"
+                        onClick={() => handleRemoveTrainerPhoto(trainer.id, trainer.name)}
+                        title="Remove profile photo"
+                        style={{
+                          background: 'rgba(220, 38, 38, 0.08)',
+                          border: '1px solid rgba(220, 38, 38, 0.3)',
+                          color: '#dc2626',
+                          fontSize: '0.78rem',
+                          fontWeight: '700',
+                          padding: '4px 8px',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '3px'
+                        }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        Remove Photo
+                      </button>
+                    )}
                     {isSuperAdmin && (
                       <button className="btn-edit" onClick={() => handleOpenModal(trainer)}>
                         EDIT
@@ -496,7 +552,12 @@ const TrainerManagementPage = () => {
                   >
                     {formData.profileImage ? (
                       <>
-                        <img src={formData.profileImage} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img 
+                          src={formData.profileImage} 
+                          alt="Preview" 
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                          onError={handleImageError('avatar')}
+                        />
                         <div className="avatar-hover-overlay">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                         </div>
@@ -507,35 +568,62 @@ const TrainerManagementPage = () => {
                   </div>
                   <div>
                     <input type="file" accept="image/*" onChange={handlePhotoUpload} style={{ fontSize: '0.82rem' }} />
-                    <small style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', marginTop: '4px' }}>PNG, JPG or WEBP under 2MB</small>
+                    <small style={{ display: 'block', color: '#64748b', fontSize: '0.72rem', marginTop: '4px' }}>PNG, JPG or WEBP under 10MB</small>
                     {formData.profileImage && (
-                      <button
-                        type="button"
-                        className="btn-view-full-image"
-                        onClick={() => setViewImageModal({
-                          isOpen: true,
-                          imageUrl: formData.profileImage,
-                          title: formData.name || 'Trainer Profile Photo',
-                          subtitle: formData.trainerId ? `Trainer ID: ${formData.trainerId}` : ''
-                        })}
-                        style={{
-                          marginTop: '6px',
-                          fontSize: '0.78rem',
-                          color: '#ea580c',
-                          background: 'rgba(234, 88, 12, 0.08)',
-                          border: '1px solid rgba(234, 88, 12, 0.3)',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          padding: '3px 8px',
-                          fontWeight: '700',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-                        View Full Image
-                      </button>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn-view-full-image"
+                          onClick={() => setViewImageModal({
+                            isOpen: true,
+                            imageUrl: formData.profileImage,
+                            trainerId: currentTrainer?.id,
+                            trainerName: formData.name,
+                            title: formData.name || 'Trainer Profile Photo',
+                            subtitle: formData.trainerId ? `Trainer ID: ${formData.trainerId}` : ''
+                          })}
+                          style={{
+                            fontSize: '0.78rem',
+                            color: '#ea580c',
+                            background: 'rgba(234, 88, 12, 0.08)',
+                            border: '1px solid rgba(234, 88, 12, 0.3)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            padding: '3px 8px',
+                            fontWeight: '700',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                          View Full Image
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-remove-photo"
+                          onClick={() => {
+                            setFormData(prev => ({ ...prev, profileImage: '' }));
+                            setIsDirty(true);
+                          }}
+                          style={{
+                            fontSize: '0.78rem',
+                            color: '#dc2626',
+                            background: 'rgba(220, 38, 38, 0.08)',
+                            border: '1px solid rgba(220, 38, 38, 0.3)',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            padding: '3px 8px',
+                            fontWeight: '700',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                          Remove Photo
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -688,20 +776,45 @@ const TrainerManagementPage = () => {
                 <h3>{viewImageModal.title || 'Trainer Profile Photo'}</h3>
                 {viewImageModal.subtitle && <p>{viewImageModal.subtitle}</p>}
               </div>
-              <button
-                type="button"
-                className="image-lightbox-close"
-                onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '' })}
-                title="Close (Esc)"
-              >
-                &times;
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {viewImageModal.trainerId && isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTrainerPhoto(viewImageModal.trainerId, viewImageModal.trainerName || viewImageModal.title)}
+                    style={{
+                      background: 'rgba(220, 38, 38, 0.15)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(220, 38, 38, 0.4)',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Remove Photo
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="image-lightbox-close"
+                  onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', trainerId: null, trainerName: '' })}
+                  title="Close (Esc)"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
             <div className="image-lightbox-body">
               <img 
                 src={viewImageModal.imageUrl} 
                 alt={viewImageModal.title || 'Full Profile Photo'} 
                 className="image-lightbox-img"
+                onError={handleImageError('avatar')}
               />
             </div>
           </div>

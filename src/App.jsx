@@ -3,6 +3,7 @@ import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'reac
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import ErrorBoundary from './components/ErrorBoundary';
+import LoadingSpinner from './components/LoadingSpinner';
 
 // Lazy-loaded route components for high-speed initial bundle delivery
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -40,27 +41,7 @@ const WebsiteGalleryPage = lazy(() => import('./pages/WebsiteGalleryPage'));
 
 
 const PageLoadingFallback = () => (
-  <div style={{
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '60vh',
-    gap: '1rem',
-    color: '#38bdf8',
-    fontSize: '0.95rem',
-    fontWeight: '600'
-  }}>
-    <div style={{
-      width: '32px',
-      height: '32px',
-      border: '3px solid rgba(56, 189, 248, 0.2)',
-      borderTopColor: '#38bdf8',
-      borderRadius: '50%',
-      animation: 'spin 0.8s linear infinite'
-    }} />
-    <span>Loading module...</span>
-  </div>
+  <LoadingSpinner size="lg" text="Loading module..." fullScreen />
 );
 
 const RoleProtectedRoute = ({ children, isLoggedIn, userRole, allowedRoles }) => {
@@ -78,9 +59,14 @@ const RoleProtectedRoute = ({ children, isLoggedIn, userRole, allowedRoles }) =>
 };
 
 function App() {
-  const [auth, setAuth] = useState({
-    isLoggedIn: localStorage.getItem('isLoggedIn') === 'true',
-    userRole: localStorage.getItem('userRole') || ''
+  const [auth, setAuth] = useState(() => {
+    const isLoggedIn = localStorage.getItem('isLoggedIn') === 'true';
+    const authToken = localStorage.getItem('authToken');
+    const userRole = localStorage.getItem('userRole') || '';
+    if (isLoggedIn && !authToken) {
+      return { isLoggedIn: false, userRole: '' };
+    }
+    return { isLoggedIn, userRole };
   });
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -95,16 +81,18 @@ function App() {
     });
   };
 
-  const handleLogin = (role) => {
+  const handleLogin = (role, token) => {
     setAuth({ isLoggedIn: true, userRole: role });
     localStorage.setItem('isLoggedIn', 'true');
     localStorage.setItem('userRole', role);
+    if (token) localStorage.setItem('authToken', token);
   };
 
   const handleLogout = () => {
     setAuth({ isLoggedIn: false, userRole: '' });
     localStorage.removeItem('isLoggedIn');
     localStorage.removeItem('userRole');
+    localStorage.removeItem('authToken');
     localStorage.removeItem('alertSnoozed');
   };
 

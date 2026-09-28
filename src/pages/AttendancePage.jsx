@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { getZkClientAttendance, getZkTrainerAttendance, getZkAbsentClients, pushZkTestScan, sendWhatsAppText } from '../api';
+import { 
+  getZkClientAttendance, 
+  getZkTrainerAttendance, 
+  getZkAbsentClients, 
+  pushZkTestScan, 
+  sendWhatsAppText,
+  getEasyTimeProStatus,
+  getEasyTimeProConfig,
+  saveEasyTimeProConfig,
+  testEasyTimeProConnection,
+  triggerEasyTimeProSync,
+  unlockEasyTimeProTerminal
+} from '../api';
 import { formatShortId } from '../utils/formatShortId';
 import './AttendancePage.css';
 
@@ -17,6 +29,124 @@ const AttendancePage = () => {
   const [testUserId, setTestUserId] = useState('');
   const [simulating, setSimulating] = useState(false);
   const [simMessage, setSimMessage] = useState(null);
+
+  // EasyTimePro Integration State
+  const [easyStatus, setEasyStatus] = useState(null);
+  const [showEasyModal, setShowEasyModal] = useState(false);
+  const [easyForm, setEasyForm] = useState({
+    url: '',
+    username: '',
+    password: '',
+    autoSync: true,
+    syncIntervalMinutes: 1
+  });
+  const [easyTesting, setEasyTesting] = useState(false);
+  const [easyTestResult, setEasyTestResult] = useState(null);
+  const [easySyncing, setEasySyncing] = useState(false);
+  const [easySyncMsg, setEasySyncMsg] = useState(null);
+  const [unlockSn, setUnlockSn] = useState('');
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockMsg, setUnlockMsg] = useState(null);
+
+  const fetchEasyStatus = async () => {
+    try {
+      const st = await getEasyTimeProStatus();
+      setEasyStatus(st);
+    } catch (e) {
+      // Quiet fallback
+    }
+  };
+
+  const handleOpenEasyModal = async () => {
+    setShowEasyModal(true);
+    setEasyTestResult(null);
+    setEasySyncMsg(null);
+    setUnlockMsg(null);
+    try {
+      const [cfg, st] = await Promise.all([getEasyTimeProConfig(), getEasyTimeProStatus()]);
+      setEasyForm({
+        url: cfg.url || '',
+        username: cfg.username || '',
+        password: '',
+        autoSync: cfg.autoSync !== false,
+        syncIntervalMinutes: cfg.syncIntervalMinutes || 1
+      });
+      setEasyStatus(st);
+    } catch (e) {
+      console.warn('Error loading EasyTimePro config:', e.message);
+    }
+  };
+
+  const handleSaveEasyConfig = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await saveEasyTimeProConfig(easyForm);
+      if (res.success) {
+        setEasyStatus(res.status);
+        setEasyTestResult({ success: true, message: 'EasyTimePro configuration saved successfully!' });
+      }
+    } catch (err) {
+      setEasyTestResult({ success: false, error: err.message });
+    }
+  };
+
+  const handleTestEasyConnection = async () => {
+    setEasyTesting(true);
+    setEasyTestResult(null);
+    try {
+      const res = await testEasyTimeProConnection(easyForm);
+      setEasyTestResult(res);
+      fetchEasyStatus();
+    } catch (err) {
+      setEasyTestResult({ success: false, error: err.message });
+    } finally {
+      setEasyTesting(false);
+    }
+  };
+
+  const handleTriggerEasySync = async () => {
+    setEasySyncing(true);
+    setEasySyncMsg(null);
+    try {
+      const res = await triggerEasyTimeProSync();
+      if (res.success) {
+        setEasySyncMsg({
+          type: 'success',
+          text: `Synced ${res.recordsProcessed || 0} punch(es) from EasyTimePro!`
+        });
+        fetchAttendanceData(selectedDate);
+      } else {
+        setEasySyncMsg({
+          type: 'error',
+          text: res.error || res.message || 'Sync failed.'
+        });
+      }
+      fetchEasyStatus();
+    } catch (err) {
+      setEasySyncMsg({ type: 'error', text: err.message });
+    } finally {
+      setEasySyncing(false);
+    }
+  };
+
+  const handleUnlockTerminal = async (e) => {
+    e.preventDefault();
+    if (!unlockSn.trim()) return;
+    setUnlocking(true);
+    setUnlockMsg(null);
+    try {
+      const res = await unlockEasyTimeProTerminal(unlockSn.trim());
+      if (res.success) {
+        setUnlockMsg({ type: 'success', text: `Unlock command sent to terminal (${unlockSn.trim()})!` });
+      } else {
+        setUnlockMsg({ type: 'error', text: res.error || 'Unlock command failed.' });
+      }
+    } catch (err) {
+      setUnlockMsg({ type: 'error', text: err.message });
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const fetchAttendanceData = async (dateStr) => {
     setLoading(true);
@@ -38,9 +168,11 @@ const AttendancePage = () => {
 
   useEffect(() => {
     fetchAttendanceData(selectedDate);
+    fetchEasyStatus();
     // Auto polling every 10 seconds for real-time biometric scan sync
     const interval = setInterval(() => {
       fetchAttendanceData(selectedDate);
+      fetchEasyStatus();
     }, 10000);
     return () => clearInterval(interval);
   }, [selectedDate]);
@@ -209,6 +341,42 @@ const AttendancePage = () => {
         </div>
 
         <div className="header-actions">
+          {/* EasyTimePro Connection Status Button */}
+          <button 
+            type="button"
+            className={`easytimepro-badge-btn ${easyStatus?.configured ? (easyStatus?.lastError ? 'has-error' : 'connected') : 'not-configured'}`}
+            onClick={handleOpenEasyModal}
+            title="Configure or test EasyTimePro ZKTeco connection"
+          >
+            <span className="status-dot"></span>
+            <span className="badge-text">
+              {easyStatus?.configured 
+                ? (easyStatus?.lastError ? 'EasyTimePro Notice' : 'EasyTimePro Connected') 
+                : 'Connect EasyTimePro'}
+            </span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: '4px' }}>
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
+
+          {easyStatus?.configured && (
+            <button
+              type="button"
+              className="quick-sync-btn"
+              onClick={handleTriggerEasySync}
+              disabled={easySyncing}
+              title="Sync punches immediately from EasyTimePro"
+            >
+              <svg className={easySyncing ? 'spin-icon' : ''} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+              {easySyncing ? 'Syncing...' : 'Sync Punches'}
+            </button>
+          )}
+
           <div className="date-picker-wrapper">
             <span className="date-label">Select Date:</span>
             <input
@@ -717,6 +885,192 @@ const AttendancePage = () => {
         )}
 
       </div>
+
+      {/* ── EasyTimePro Settings & Diagnostics Modal ── */}
+      {showEasyModal && (
+        <div className="easy-modal-backdrop" onClick={() => setShowEasyModal(false)}>
+          <div className="easy-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="easy-modal-header">
+              <div className="easy-modal-title">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ea580c" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                  <line x1="6" y1="6" x2="6.01" y2="6"/>
+                  <line x1="6" y1="18" x2="6.01" y2="18"/>
+                </svg>
+                <div>
+                  <h3>ZKTeco EasyTimePro Connection</h3>
+                  <p>Centralized Time-Attendance & Turnstile REST API Integration</p>
+                </div>
+              </div>
+              <button 
+                type="button" 
+                className="easy-modal-close" 
+                onClick={() => setShowEasyModal(false)}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="easy-modal-body">
+              {/* Status Banner */}
+              <div className={`easy-status-card ${easyStatus?.configured ? (easyStatus?.lastError ? 'status-warn' : 'status-ok') : 'status-idle'}`}>
+                <div className="status-icon-bubble">
+                  {easyStatus?.configured ? (easyStatus?.lastError ? '⚠️' : '✅') : '⚙️'}
+                </div>
+                <div className="status-details">
+                  <strong>
+                    {easyStatus?.configured 
+                      ? (easyStatus?.lastError ? 'Connected with notice' : 'Ready & Connected') 
+                      : 'Not Configured Yet'}
+                  </strong>
+                  <div className="status-sub">
+                    {easyStatus?.configured ? (
+                      <>
+                        <span>Server: <code>{easyStatus.url}</code></span>
+                        {easyStatus.lastSyncTime && (
+                          <span> • Last synced: {new Date(easyStatus.lastSyncTime).toLocaleTimeString()} ({easyStatus.lastSyncCount} punches)</span>
+                        )}
+                      </>
+                    ) : (
+                      <span>Enter your EasyTimePro server IP, port, and credentials below.</span>
+                    )}
+                  </div>
+                  {easyStatus?.lastError && (
+                    <div className="status-error-hint">
+                      Notice: {easyStatus.lastError}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Configuration Form */}
+              <form onSubmit={handleSaveEasyConfig} className="easy-config-form">
+                <div className="easy-form-group">
+                  <label>EasyTimePro Server URL / IP</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. http://192.168.1.100:8088 or http://localhost:8088"
+                    value={easyForm.url}
+                    onChange={(e) => setEasyForm({ ...easyForm, url: e.target.value })}
+                    required
+                  />
+                  <small>IP address and port where EasyTimePro software is running.</small>
+                </div>
+
+                <div className="easy-form-row">
+                  <div className="easy-form-group">
+                    <label>API Username</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. admin"
+                      value={easyForm.username}
+                      onChange={(e) => setEasyForm({ ...easyForm, username: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="easy-form-group">
+                    <label>API Password {easyStatus?.hasPassword && '(leave blank to keep unchanged)'}</label>
+                    <input
+                      type="password"
+                      placeholder={easyStatus?.hasPassword ? '••••••••' : 'Enter password'}
+                      value={easyForm.password}
+                      onChange={(e) => setEasyForm({ ...easyForm, password: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="easy-form-row checkbox-row">
+                  <label className="easy-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={easyForm.autoSync}
+                      onChange={(e) => setEasyForm({ ...easyForm, autoSync: e.target.checked })}
+                    />
+                    <span>Automatically sync scans in background (Every 1 minute)</span>
+                  </label>
+                </div>
+
+                {easyTestResult && (
+                  <div className={`easy-feedback-box ${easyTestResult.success ? 'success' : 'error'}`}>
+                    {easyTestResult.success ? (
+                      <span>✅ {easyTestResult.message} {easyTestResult.terminalsFound ? `(${easyTestResult.terminalsFound} terminal(s) found)` : ''}</span>
+                    ) : (
+                      <span>❌ {easyTestResult.error || 'Connection failed'}</span>
+                    )}
+                  </div>
+                )}
+
+                {easySyncMsg && (
+                  <div className={`easy-feedback-box ${easySyncMsg.type}`}>
+                    {easySyncMsg.text}
+                  </div>
+                )}
+
+                <div className="easy-actions-bar">
+                  <button
+                    type="button"
+                    className="btn-easy-test"
+                    onClick={handleTestEasyConnection}
+                    disabled={easyTesting || !easyForm.url || !easyForm.username}
+                  >
+                    {easyTesting ? 'Testing...' : 'Test Connection'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-easy-sync"
+                    onClick={handleTriggerEasySync}
+                    disabled={easySyncing || !easyStatus?.configured}
+                  >
+                    {easySyncing ? 'Syncing...' : 'Sync Punches Now'}
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="btn-easy-save"
+                  >
+                    Save Settings
+                  </button>
+                </div>
+              </form>
+
+              {/* Terminal Remote Unlock Section */}
+              <div className="easy-terminal-unlock-box">
+                <h4>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+                  </svg>
+                  Remote Turnstile / Door Unlock Test
+                </h4>
+                <p>Send an instant unlock pulse to a ZKTeco terminal via EasyTimePro:</p>
+                <form onSubmit={handleUnlockTerminal} className="easy-unlock-form">
+                  <input
+                    type="text"
+                    placeholder="Terminal Serial Number (SN, e.g. BYEL201260001)"
+                    value={unlockSn}
+                    onChange={(e) => setUnlockSn(e.target.value)}
+                  />
+                  <button 
+                    type="submit" 
+                    className="btn-easy-unlock"
+                    disabled={unlocking || !unlockSn.trim() || !easyStatus?.configured}
+                  >
+                    {unlocking ? 'Sending...' : 'Unlock Door'}
+                  </button>
+                </form>
+                {unlockMsg && (
+                  <div className={`easy-feedback-box ${unlockMsg.type}`} style={{ marginTop: '8px' }}>
+                    {unlockMsg.text}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

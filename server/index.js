@@ -24,10 +24,12 @@ loadEnvFile(path.join(__dirname, '.env'));
 loadEnvFile(path.join(__dirname, '../.env'));
 const express = require('express');
 const cors = require('cors');
-const { randomUUID } = require('crypto');
+const crypto = require('crypto');
+const { randomUUID } = crypto;
 const cron = require('node-cron');
 // Use global fetch (Workers / Node 18+) or fall back to node-fetch
 const fetch = globalThis.fetch ?? require('node-fetch');
+const easyTimeProService = require('./easyTimeProService');
 
 // ─── WhatsApp Metamerged API Config ──────────────────────────────────────────
 const COUNTRY_CODE = process.env.COUNTRY_CODE || '91';
@@ -71,6 +73,14 @@ const normalizePhone = (phone) => {
   return digits;
 };
 
+// Helper: mask phone number for safe logging (e.g. 919876543210 -> 9198****3210)
+const maskPhone = (phone) => {
+  if (!phone) return '****';
+  const str = String(phone).replace(/\D/g, '');
+  if (str.length <= 6) return '****';
+  return str.slice(0, 4) + '****' + str.slice(-2);
+};
+
 // Helper: send a WhatsApp text message via APITxT (sendWAMessage for text) or Meta Cloud API
 const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
   const phone = normalizePhone(toPhone);
@@ -109,7 +119,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
-        console.log(`[WhatsApp Meta Cloud API] Sent text to ${phone} successfully:`, data);
+        console.log(`[WhatsApp Meta Cloud API] Sent text to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
@@ -156,11 +166,11 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWAMessage POST] Sent text to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWAMessage POST] Sent text to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
-      console.warn('[APITxT sendWAMessage POST] Returned error:', data);
+      console.warn('[APITxT sendWAMessage POST] Returned error:', lastErrMsg);
     } catch (postErr) {
       lastErrMsg = postErr.message;
       console.warn('[APITxT sendWAMessage POST] Failed:', postErr.message);
@@ -183,7 +193,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWAMessage GET] Sent text to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWAMessage GET] Sent text to ${maskPhone(phone)} successfully`);
         return data;
       }
       if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
@@ -221,7 +231,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
 
         const data = await resp.json().catch(() => ({}));
         if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-          console.log(`[APITxT sendWA Template POST] Sent text to ${phone} successfully:`, data);
+          console.log(`[APITxT sendWA Template POST] Sent text to ${maskPhone(phone)} successfully`);
           return data;
         }
       } catch (tmplErr) {
@@ -245,7 +255,7 @@ const sendWhatsAppMessage = async (toPhone, message, workerEnv) => {
     ? 'Recipient is outside the 24-hour WhatsApp customer service window. Use an approved template in APITxT (sendWA), or ask the member to send a message to the gym WhatsApp number first.'
     : `Direct WhatsApp message sending failed (${lastErrMsg || 'Invalid API key or network error'}).`;
 
-  console.warn(`[WhatsApp API] Direct text send failed for ${phone}: ${finalError}`);
+  console.warn(`[WhatsApp API] Direct text send failed for ${maskPhone(phone)}: ${finalError}`);
   throw new Error(finalError);
 };
 
@@ -295,7 +305,7 @@ const sendWhatsAppTemplate = async (toPhone, templateName, bodyParams = [], work
       clearTimeout(timeoutId);
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
-        console.log(`[WhatsApp Meta Cloud API] Sent template ${templateName} to ${phone} successfully:`, data);
+        console.log(`[WhatsApp Meta Cloud API] Sent template ${templateName} to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
@@ -339,7 +349,7 @@ const sendWhatsAppTemplate = async (toPhone, templateName, bodyParams = [], work
       }
 
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true || (data.sent && data.sent > 0))) {
-        console.log(`[APITxT sendWA Template] Sent ${templateName} to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWA Template] Sent ${templateName} to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data.detail || data.message || data.error || `HTTP ${resp.status}`;
@@ -446,7 +456,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data?.messages?.[0]?.id || data?.messaging_product === 'whatsapp')) {
-        console.log(`[WhatsApp Meta Cloud API Template] Sent document template to ${phone} successfully:`, data);
+        console.log(`[WhatsApp Meta Cloud API Template] Sent document template to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data?.error?.message || `Meta API HTTP ${resp.status}`;
@@ -522,7 +532,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWA Document Template POST] Sent document template to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWA Document Template POST] Sent document template to ${maskPhone(phone)} successfully`);
         return data;
       }
       if (data.message) {
@@ -531,7 +541,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
           console.warn(`[APITxT Document Template POST] Notice: Template '${templateName}' is pending approval or not created in APITxT dashboard.`);
         }
       }
-      console.warn('[APITxT sendWA Document Template POST] Response:', data);
+      console.warn('[APITxT sendWA Document Template POST] Response:', lastErrMsg || data?.message);
     } catch (tmplErr) {
       console.warn('[APITxT sendWA Document Template POST] Notice:', tmplErr.message);
     }
@@ -554,11 +564,11 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWAMessage GET] Sent document to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWAMessage GET] Sent document to ${maskPhone(phone)} successfully`);
         return data;
       }
       lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
-      console.warn('[APITxT sendWAMessage GET Document] Returned error:', data);
+      console.warn('[APITxT sendWAMessage GET Document] Returned error:', lastErrMsg);
     } catch (getErr) {
       lastErrMsg = getErr.message;
       console.warn('[APITxT sendWAMessage GET Document] Failed:', getErr.message);
@@ -603,7 +613,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
 
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && (data.status === 200 || data.status === '200' || data.message === 'success' || data.success === true)) {
-        console.log(`[APITxT sendWAMessage POST] Sent document to ${phone} successfully:`, data);
+        console.log(`[APITxT sendWAMessage POST] Sent document to ${maskPhone(phone)} successfully`);
         return data;
       }
       if (!lastErrMsg) lastErrMsg = data.detail || data.message || data.msg || data.error || `HTTP ${resp.status}`;
@@ -612,7 +622,7 @@ const sendWhatsAppDocument = async (toPhone, message, documentUrl, fileName, wor
     }
   }
 
-  console.warn(`[WhatsApp API] Direct document send failed for ${phone}: ${lastErrMsg || 'No active API key'}`);
+  console.warn(`[WhatsApp API] Direct document send failed for ${maskPhone(phone)}: ${lastErrMsg || 'No active API key'}`);
   throw new Error(`Direct WhatsApp PDF API sending failed (${lastErrMsg || 'Invalid API key or network error'}).`);
 };
 
@@ -644,44 +654,267 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// ─── Response Error Sanitization Middleware ─────────────────────────────────
+// Guarantees that internal database errors, SQL queries, or stack traces never leak to client responses
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = function(data) {
+    if (res.statusCode >= 500 && data && typeof data === 'object' && data.error) {
+      const rawError = String(data.error);
+      if (/SQLITE_|D1_|syntax error|table|column|SELECT|INSERT|UPDATE|DELETE|prepare|constraint|at\s+/i.test(rawError)) {
+        console.error('[Internal Error Suppressed from Client]:', rawError);
+        data.error = 'An unexpected server error occurred. Please try again or contact support.';
+      }
+    }
+    return originalJson(data);
+  };
+  next();
+});
 const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch (e) {}
-}
 const LEGACY_UPLOADS_DIR = path.join(__dirname, 'uploads');
 
+// Ensure all uploads directories and subdirectories exist
+[
+  UPLOADS_DIR,
+  path.join(UPLOADS_DIR, 'profile_photos'),
+  path.join(UPLOADS_DIR, 'gallery'),
+  path.join(UPLOADS_DIR, 'invoices'),
+  LEGACY_UPLOADS_DIR,
+  path.join(LEGACY_UPLOADS_DIR, 'profile_photos'),
+  path.join(LEGACY_UPLOADS_DIR, 'gallery'),
+  path.join(LEGACY_UPLOADS_DIR, 'invoices')
+].forEach(dir => {
+  try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+});
+
 app.get(/^\/api\/images\/(.*)/, async (req, res) => {
-  const relPath = req.params[0] || '';
+  const rawPath = req.params[0] || '';
+  const relPath = decodeURIComponent(rawPath).replace(/^[\\\/]+/, '');
   const basename = path.basename(relPath);
-  const checkPaths = [
-    path.join(UPLOADS_DIR, basename),
-    path.join(UPLOADS_DIR, relPath),
-    path.join(LEGACY_UPLOADS_DIR, basename),
-    path.join(LEGACY_UPLOADS_DIR, relPath)
+
+  const searchDirs = [
+    UPLOADS_DIR,
+    LEGACY_UPLOADS_DIR,
+    path.join(UPLOADS_DIR, 'profile_photos'),
+    path.join(UPLOADS_DIR, 'gallery'),
+    path.join(UPLOADS_DIR, 'invoices'),
+    path.join(LEGACY_UPLOADS_DIR, 'profile_photos'),
+    path.join(LEGACY_UPLOADS_DIR, 'gallery'),
+    path.join(LEGACY_UPLOADS_DIR, 'invoices')
   ];
-  for (const fp of checkPaths) {
-    if (fs.existsSync(fp)) {
-      return res.sendFile(fp);
+
+  // 1. Direct path & basename check
+  for (const dir of searchDirs) {
+    const p1 = path.join(dir, relPath);
+    if (fs.existsSync(p1) && fs.statSync(p1).isFile()) return res.sendFile(p1);
+    const p2 = path.join(dir, basename);
+    if (fs.existsSync(p2) && fs.statSync(p2).isFile()) return res.sendFile(p2);
+  }
+
+  // 2. Extension fuzzy check (e.g., requested .jpg but stored as .png or vice-versa)
+  const nameWithoutExt = basename.replace(/\.[^/.]+$/, '');
+  const extensions = ['.png', '.jpg', '.jpeg', '.webp'];
+  for (const dir of searchDirs) {
+    for (const ext of extensions) {
+      const p = path.join(dir, nameWithoutExt + ext);
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) return res.sendFile(p);
     }
   }
 
-  // Fallback: Proxy from live Cloudflare R2 bucket via worker
+  // 3. Fallback: Proxy from live Cloudflare R2 bucket via worker (with timeout)
   try {
     const liveUrl = `https://togethertech-olympiagym.olympiafitnessreserveline.workers.dev/api/images/${relPath}`;
-    const remoteResp = await fetch(liveUrl);
-    if (remoteResp.ok) {
-      const ct = remoteResp.headers.get('content-type') || (relPath.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      res.setHeader('Content-Type', ct);
+    const remoteResp = await fetch(liveUrl, { signal: AbortSignal.timeout(3000) });
+    const ct = remoteResp.headers.get('content-type') || '';
+    if (remoteResp.ok && !ct.includes('application/json')) {
+      res.setHeader('Content-Type', ct || (relPath.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'));
       res.setHeader('Cache-Control', 'public, max-age=86400');
       const arrayBuffer = await remoteResp.arrayBuffer();
       return res.send(Buffer.from(arrayBuffer));
     }
   } catch (err) {}
 
-  res.status(404).json({ error: 'Image not found' });
+  // 4. If still not found, return clean SVG placeholder so <img> tags in browser never break
+  const isGallery = relPath.toLowerCase().includes('gallery');
+  const isPdf = relPath.toLowerCase().endsWith('.pdf');
+  if (isPdf) {
+    return res.status(404).json({ error: 'PDF not found' });
+  }
+
+  const svgPlaceholder = isGallery
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400" fill="none">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0f172a"/>
+            <stop offset="100%" stop-color="#1e293b"/>
+          </linearGradient>
+          <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#38bdf8"/>
+            <stop offset="100%" stop-color="#818cf8"/>
+          </linearGradient>
+        </defs>
+        <rect width="600" height="400" rx="12" fill="url(#bg)"/>
+        <rect x="2" y="2" width="596" height="396" rx="10" fill="none" stroke="#334155" stroke-width="2"/>
+        <circle cx="300" cy="165" r="48" fill="#1e293b" stroke="url(#accent)" stroke-width="2.5"/>
+        <path d="M280 178l14-18 12 14 8-10 16 17h-50z" fill="url(#accent)"/>
+        <circle cx="288" cy="150" r="5" fill="#facc15"/>
+        <text x="300" y="250" text-anchor="middle" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="700" letter-spacing="1.5">OLYMPIA FITNESS</text>
+        <text x="300" y="275" text-anchor="middle" fill="#64748b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500">Gallery Image</text>
+      </svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" fill="none">
+        <defs>
+          <linearGradient id="avatarBg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#1e293b"/>
+            <stop offset="100%" stop-color="#0f172a"/>
+          </linearGradient>
+        </defs>
+        <rect width="160" height="160" rx="80" fill="url(#avatarBg)"/>
+        <circle cx="80" cy="62" r="28" fill="#94a3b8"/>
+        <path d="M36 136c0-24.3 19.7-44 44-44s44 19.7 44 44v4H36v-4z" fill="#94a3b8"/>
+      </svg>`;
+
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  return res.status(200).send(svgPlaceholder);
 });
+
 app.use('/api/images', express.static(UPLOADS_DIR));
 app.use('/api/images', express.static(LEGACY_UPLOADS_DIR));
+
+// ─── JWT Authentication Utilities & Middleware ──────────────────────────────
+const getJwtSecret = (workerEnv) => {
+  return workerEnv?.JWT_SECRET || process.env.JWT_SECRET || workerEnv?.WHATSAPP_KEY || process.env.WHATSAPP_KEY || 'olympia-jwt-secret-key-2026-togethertech';
+};
+
+const signJwt = (payload, workerEnv, expiresInSec = 30 * 24 * 60 * 60) => {
+  const secret = getJwtSecret(workerEnv);
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload = {
+    ...payload,
+    iat: now,
+    exp: now + expiresInSec
+  };
+  const encHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encPayload = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(`${encHeader}.${encPayload}`).digest('base64url');
+  return `${encHeader}.${encPayload}.${sig}`;
+};
+
+const verifyJwt = (token, workerEnv) => {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.trim().split('.');
+  if (parts.length !== 3) return null;
+  const [encHeader, encPayload, sig] = parts;
+  const secret = getJwtSecret(workerEnv);
+  const expectedSig = crypto.createHmac('sha256', secret).update(`${encHeader}.${encPayload}`).digest('base64url');
+  
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(encPayload, 'base64url').toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) {
+      return null;
+    }
+    return payload;
+  } catch (err) {
+    return null;
+  }
+};
+
+const authenticateApi = (req, res, next) => {
+  const reqUrl = req.originalUrl || req.url || req.path || '';
+  const reqPath = reqUrl.split('?')[0];
+
+  // Only protect /api routes
+  if (!reqPath.startsWith('/api')) {
+    return next();
+  }
+
+  // 1. Allow CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
+  // 2. Whitelist public endpoints
+  // - Admin Login
+  if (reqPath === '/api/auth/login') {
+    return next();
+  }
+  // - Profile images & uploaded invoice documents
+  if (reqPath.startsWith('/api/images')) {
+    return next();
+  }
+  // - Public website gallery (GET only)
+  if (reqPath === '/api/website-gallery' && req.method === 'GET') {
+    return next();
+  }
+  // - Public temporary invoice document viewer (GET only)
+  if (reqPath.startsWith('/api/public-docs') && req.method === 'GET') {
+    return next();
+  }
+
+  // 3. Extract Bearer token from Authorization or x-auth-token header
+  const authHeader = req.headers['authorization'] || req.headers['x-auth-token'];
+  let token = null;
+  if (authHeader && typeof authHeader === 'string') {
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+    } else {
+      token = authHeader.trim();
+    }
+  }
+
+  if (!token) {
+    return res.status(401).json({
+      error: 'Unauthorized: Authentication token is required to access this resource.'
+    });
+  }
+
+  const decoded = verifyJwt(token, req.env);
+  if (!decoded) {
+    return res.status(401).json({
+      error: 'Unauthorized: Invalid or expired session token. Please log in again.'
+    });
+  }
+
+  // Attach decoded user payload to request
+  req.user = decoded;
+
+  // 4. Role-based restrictions: Only superadmin can access master credentials, execute destructive resets, or delete critical records
+  const superAdminOnlyPaths = [
+    '/api/auth/credentials',
+    '/api/payroll-locks',
+    '/api/restore',
+    '/api/reset-operational-data',
+    '/api/gst/settings',
+    '/api/gst/backfill'
+  ];
+
+  const requiresSuperAdmin = superAdminOnlyPaths.some(p => reqPath === p || reqPath.startsWith(p + '/'));
+  const isSuperAdminDelete = req.method === 'DELETE' && (
+    reqPath.startsWith('/api/clients') ||
+    reqPath.startsWith('/api/bills') ||
+    reqPath.startsWith('/api/expenses') ||
+    reqPath.startsWith('/api/other-services/sales/all')
+  );
+
+  if ((requiresSuperAdmin || isSuperAdminDelete) && req.user.role !== 'superadmin') {
+    return res.status(403).json({
+      error: 'Forbidden: Super Admin access is required for this action.'
+    });
+  }
+
+  next();
+};
+
+app.use(authenticateApi);
 
 const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
   if (!profileImage || typeof profileImage !== 'string') return profileImage || null;
@@ -695,18 +928,15 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
     const base64Data = match[2];
     const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
     const filename = `${entityType}_${entityId || randomUUID()}_${Date.now()}.${ext}`;
-    const objectKey = entityType === 'gallery' ? `gallery/${filename}` : `profile_photos/${filename}`;
+    const subfolder = entityType === 'gallery' ? 'gallery' : 'profile_photos';
+    const objectKey = `${subfolder}/${filename}`;
 
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // 1. Local Node Development Mode - Write to local disk first
-    try {
-      const localFilePath = path.join(UPLOADS_DIR, filename);
-      fs.writeFileSync(localFilePath, buffer);
-    } catch (e) {}
-
-    // 2. Cloudflare Worker R2 Binding (when deployed / running in Worker context)
+    const isWorker = !!(workerEnv || (typeof process !== 'undefined' && process.env?.CF_WORKER === '1') || globalThis.WebSocketPair);
     const r2Bucket = workerEnv?.GYM_PROFILE_PICTURES;
+
+    // 1. Cloudflare Worker R2 Binding (when deployed with active R2 bucket)
     if (r2Bucket && typeof r2Bucket.put === 'function') {
       try {
         await r2Bucket.put(objectKey, buffer, {
@@ -722,25 +952,39 @@ const saveImageToR2 = async (profileImage, entityType, entityId, workerEnv) => {
         console.log(`✅ Uploaded ${objectKey} to Cloudflare R2 bucket gym-profile-pictures (Worker)`);
         return `/api/images/${objectKey}`;
       } catch (e) {
-        console.error('R2 put error in worker:', e);
+        console.error('R2 put error in worker:', e.message);
+        // Fall back to returning base64 directly so the image data is safely persisted in D1!
+        return profileImage;
       }
     }
 
-    // Async Wrangler CLI sync if available
-    try {
-      const localFilePath = path.join(UPLOADS_DIR, filename);
-      if (fs.existsSync(localFilePath)) {
-        const { exec } = require('child_process');
-        const cmd = `npx wrangler r2 object put "gym-profile-pictures/${objectKey}" --file "${localFilePath}" --content-type "${mimeType}"`;
-        exec(cmd, (err) => {
-          if (!err) {
-            console.log(`✅ Uploaded ${objectKey} to remote Cloudflare R2 bucket gym-profile-pictures via Wrangler CLI`);
-          }
-        });
-      }
-    } catch (e) {}
+    // 2. Cloudflare Worker / Serverless context without active R2:
+    // Persist the base64 data URL directly so image is safely stored in database (D1)!
+    if (isWorker || typeof fs === 'undefined' || !fs.writeFileSync) {
+      return profileImage;
+    }
 
-    return `/api/images/${objectKey}`;
+    // 3. Local Node Development Mode - Save flat and inside subfolders in uploads dirs
+    try {
+      const dirs = [
+        UPLOADS_DIR,
+        path.join(UPLOADS_DIR, subfolder),
+        LEGACY_UPLOADS_DIR,
+        path.join(LEGACY_UPLOADS_DIR, subfolder)
+      ];
+      dirs.forEach(d => {
+        try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (_) {}
+      });
+
+      fs.writeFileSync(path.join(UPLOADS_DIR, filename), buffer);
+      fs.writeFileSync(path.join(UPLOADS_DIR, subfolder, filename), buffer);
+      fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, filename), buffer);
+      fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, subfolder, filename), buffer);
+      return `/api/images/${objectKey}`;
+    } catch (e) {
+      console.warn('Local disk write warning:', e.message);
+      return profileImage;
+    }
   } catch (err) {
     console.error('Failed to save image:', err);
     return profileImage;
@@ -1140,21 +1384,22 @@ async function initDb() {
   CREATE TABLE IF NOT EXISTS supplement_sales (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     supplement_id       INTEGER NOT NULL REFERENCES supplements(id),
+    buyer_type          TEXT DEFAULT 'client',
     client_id           TEXT REFERENCES clients(id),
     walkin_name         TEXT,
     walkin_phone        TEXT,
+    staff_id            TEXT REFERENCES staff(id),
+    trainer_id          TEXT REFERENCES trainers(id),
+    inhouse_name        TEXT,
+    inhouse_role        TEXT,
     quantity            INTEGER NOT NULL CHECK(quantity > 0),
     sale_price_per_unit REAL NOT NULL CHECK(sale_price_per_unit > 0),
     total_amount        REAL NOT NULL,
     cost_price_snapshot REAL NOT NULL,
-    payment_mode        TEXT CHECK(payment_mode IN ('Cash','UPI','Card','Other')) NOT NULL,
+    payment_mode        TEXT NOT NULL,
     sale_date           DATE NOT NULL,
     created_by          TEXT REFERENCES users(id),
-    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    CHECK (
-      (client_id IS NOT NULL AND (walkin_name IS NULL OR walkin_name = '')) OR
-      ((client_id IS NULL OR client_id = '') AND walkin_name IS NOT NULL AND walkin_name != '')
-    )
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS other_service_tariffs (
@@ -1203,6 +1448,62 @@ async function initDb() {
     try { db.prepare('ALTER TABLE trainers ADD COLUMN shiftEndTime TEXT').run(); } catch (e) {}
     try { db.prepare('ALTER TABLE website_gallery ADD COLUMN pdfUrl TEXT').run(); } catch (e) {}
 
+    // Safe migration for supplement_sales to support in-house staff and trainers
+    try {
+      const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='supplement_sales'").get();
+      if (tableSqlRow && tableSqlRow.sql) {
+        const sqlText = tableSqlRow.sql;
+        if (sqlText.includes('walkin_name IS NULL') || !sqlText.includes('buyer_type') || !sqlText.includes('staff_id')) {
+          db.prepare(`
+            CREATE TABLE IF NOT EXISTS supplement_sales_new (
+              id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+              supplement_id       INTEGER NOT NULL REFERENCES supplements(id),
+              buyer_type          TEXT DEFAULT 'client',
+              client_id           TEXT REFERENCES clients(id),
+              walkin_name         TEXT,
+              walkin_phone        TEXT,
+              staff_id            TEXT REFERENCES staff(id),
+              trainer_id          TEXT REFERENCES trainers(id),
+              inhouse_name        TEXT,
+              inhouse_role        TEXT,
+              quantity            INTEGER NOT NULL CHECK(quantity > 0),
+              sale_price_per_unit REAL NOT NULL CHECK(sale_price_per_unit > 0),
+              total_amount        REAL NOT NULL,
+              cost_price_snapshot REAL NOT NULL,
+              payment_mode        TEXT NOT NULL,
+              sale_date           DATE NOT NULL,
+              created_by          TEXT REFERENCES users(id),
+              created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+          `).run();
+
+          db.prepare(`
+            INSERT INTO supplement_sales_new (
+              id, supplement_id, buyer_type, client_id, walkin_name, walkin_phone,
+              quantity, sale_price_per_unit, total_amount, cost_price_snapshot,
+              payment_mode, sale_date, created_by, created_at
+            )
+            SELECT 
+              id, supplement_id, 
+              CASE WHEN client_id IS NOT NULL AND client_id != '' THEN 'client' WHEN walkin_name IS NOT NULL AND walkin_name != '' THEN 'walkin' ELSE 'client' END,
+              client_id, walkin_name, walkin_phone,
+              quantity, sale_price_per_unit, total_amount, cost_price_snapshot,
+              payment_mode, sale_date, created_by, created_at
+            FROM supplement_sales
+          `).run();
+
+          db.prepare("DROP TABLE supplement_sales").run();
+          db.prepare("ALTER TABLE supplement_sales_new RENAME TO supplement_sales").run();
+        }
+      }
+    } catch (e) {
+      try { db.prepare("ALTER TABLE supplement_sales ADD COLUMN buyer_type TEXT DEFAULT 'client'").run(); } catch (_) {}
+      try { db.prepare("ALTER TABLE supplement_sales ADD COLUMN staff_id TEXT").run(); } catch (_) {}
+      try { db.prepare("ALTER TABLE supplement_sales ADD COLUMN trainer_id TEXT").run(); } catch (_) {}
+      try { db.prepare("ALTER TABLE supplement_sales ADD COLUMN inhouse_name TEXT").run(); } catch (_) {}
+      try { db.prepare("ALTER TABLE supplement_sales ADD COLUMN inhouse_role TEXT").run(); } catch (_) {}
+    }
+
 
 
     try {
@@ -1232,6 +1533,7 @@ async function initDb() {
       const serviceCount = serviceCountRes?.count || 0;
       if (serviceCount === 0) {
         const defaultOtherServices = [
+          { name: 'Custom PT', price: 0, duration_days: 1 },
           { name: 'Diet & Nutrition Plan', price: 500, duration_days: 30 },
           { name: 'Monthly Locker Rental', price: 300, duration_days: 30 },
           { name: 'Steam & Sauna Pass (1 Month)', price: 800, duration_days: 30 },
@@ -1243,6 +1545,16 @@ async function initDb() {
         defaultOtherServices.forEach(s => {
           insertStmt.run(s.name, s.price, s.duration_days);
         });
+      }
+
+      // Ensure Custom PT default module exists and has 1 day default duration
+      const existingCustomPt = await db.prepare("SELECT id, duration_days FROM other_service_tariffs WHERE LOWER(name) = 'custom pt'").get();
+      if (!existingCustomPt) {
+        await db.prepare('INSERT INTO other_service_tariffs (name, price, duration_days, is_hidden, active) VALUES (?, ?, ?, 0, 1)').run('Custom PT', 0, 1);
+        console.log('✅ Added default "Custom PT" service to other_service_tariffs (1 day default)');
+      } else if (existingCustomPt.duration_days === 30) {
+        await db.prepare("UPDATE other_service_tariffs SET duration_days = 1 WHERE id = ?").run(existingCustomPt.id);
+        console.log('✅ Updated "Custom PT" default duration to 1 day');
       }
     } catch (e) {
       console.error("Error seeding initial other_service_tariffs:", e.message);
@@ -1291,6 +1603,9 @@ async function initDb() {
       try { db.prepare("ALTER TABLE bills ADD COLUMN discount_amount REAL DEFAULT 0").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_name TEXT").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN walkin_phone TEXT").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN trainer_id TEXT").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN custom_days INTEGER").run(); } catch (e) { }
+      try { db.prepare("ALTER TABLE other_service_sales ADD COLUMN pt_assignment_id INTEGER").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN paid_amount REAL").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN due_amount REAL DEFAULT 0").run(); } catch (e) { }
       try { db.prepare("ALTER TABLE pt_assignments ADD COLUMN payment_method TEXT DEFAULT 'CASH'").run(); } catch (e) { }
@@ -1379,6 +1694,19 @@ async function initDb() {
       try {
         db.prepare("ALTER TABLE trainers ADD COLUMN phone TEXT NULLABLE").run();
         console.log('✅ Added phone column to trainers table');
+      } catch (e) { }
+
+      try {
+        db.prepare("ALTER TABLE transactions ADD COLUMN whatsapp_sent INTEGER DEFAULT 0").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE bills ADD COLUMN whatsapp_sent INTEGER DEFAULT 0").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE whatsapp_log ADD COLUMN billNo TEXT").run();
+      } catch (e) { }
+      try {
+        db.prepare("ALTER TABLE whatsapp_log ADD COLUMN billId TEXT").run();
       } catch (e) { }
 
       // Migrate pt_packages table if category check constraint exists or restricts 'Challenge'
@@ -1866,7 +2194,14 @@ const backfillPtAssignmentTransactions = async () => {
 
     if (!ptAssignments || ptAssignments.length === 0) return;
 
+    const allPtAdvBookings = await db.prepare('SELECT invoice_id FROM pt_advance_bookings WHERE invoice_id IS NOT NULL').all();
+    const advBookingInvoiceIds = new Set((allPtAdvBookings || []).map(b => String(b.invoice_id)).filter(Boolean));
+
     for (const assign of ptAssignments) {
+      if (assign.invoice_id && advBookingInvoiceIds.has(String(assign.invoice_id))) {
+        // PT Assignment originates from an advance booking where payment was already captured; never backfill transaction.
+        continue;
+      }
       const discAmt = parseFloat(assign.discount_amount || 0);
       const grossPrice = parseFloat(assign.package_price_snapshot || 0);
       const netPrice = Math.max(0, grossPrice - discAmt);
@@ -2485,8 +2820,14 @@ async function processFaceScanRecord(rawUserId, rawTimeStr, rawDeviceId) {
         record: existing
       };
     }
-    throw err;
   }
+}
+
+// Safely initialize EasyTimePro background sync scheduler with processFaceScanRecord callback
+try {
+  easyTimeProService.initScheduledSync(processFaceScanRecord, cron);
+} catch (e) {
+  console.warn('[EasyTimePro] Scheduler init notice:', e.message);
 }
 
 // ─── ZKTeco ADMS Communication Protocol Endpoints ───
@@ -2550,6 +2891,75 @@ app.get(['/iclock/getrequest', '/getrequest'], (req, res) => {
 // POST /iclock/devicecmd - Device command execution result
 app.post(['/iclock/devicecmd', '/devicecmd'], (req, res) => {
   res.type('text/plain').send('OK');
+});
+
+// ─── EasyTimePro REST API Endpoints ──────────────────────────────────────────
+
+// GET /api/easytimepro/status - Get connection & synchronization status
+app.get('/api/easytimepro/status', (req, res) => {
+  try {
+    res.json(easyTimeProService.getStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/easytimepro/config - Get current configuration (safe, password masked)
+app.get('/api/easytimepro/config', (req, res) => {
+  try {
+    const status = easyTimeProService.getStatus();
+    res.json({
+      url: status.url,
+      username: status.username,
+      autoSync: status.autoSync,
+      syncIntervalMinutes: status.syncIntervalMinutes,
+      configured: status.configured,
+      hasPassword: status.hasPassword
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/easytimepro/config - Save configuration
+app.post('/api/easytimepro/config', (req, res) => {
+  try {
+    const status = easyTimeProService.saveConfig(req.body || {});
+    res.json({ success: true, status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/easytimepro/test - Test connection immediately
+app.post('/api/easytimepro/test', async (req, res) => {
+  try {
+    const result = await easyTimeProService.testConnection(req.body && Object.keys(req.body).length > 0 ? req.body : null);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/easytimepro/sync-now - Trigger an immediate transaction punch pull
+app.post('/api/easytimepro/sync-now', async (req, res) => {
+  try {
+    const result = await easyTimeProService.syncTransactions();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/easytimepro/unlock - Remote unlock a terminal
+app.post('/api/easytimepro/unlock', async (req, res) => {
+  try {
+    const { sn } = req.body || {};
+    const result = await easyTimeProService.unlockTerminal(sn);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ─── ZKTeco React / UI API Endpoints ───
@@ -3284,6 +3694,9 @@ app.put('/api/bills/:id', async (req, res) => {
 // DELETE bill / invoice
 app.delete('/api/bills/:id', async (req, res) => {
   try {
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Forbidden: Super Admin access is required to delete bills.' });
+    }
     const { id } = req.params;
     const existing = await db.prepare('SELECT * FROM bills WHERE id = ?').get(id);
     if (!existing) return res.status(404).json({ error: 'Invoice not found' });
@@ -3317,7 +3730,16 @@ app.put('/api/clients/:id', async (req, res) => {
       trainerId, admissionDate, profileImage, gstin
     } = req.body;
 
-    const finalProfileImage = await saveImageToR2(profileImage, 'client', req.params.id, req.env);
+    let finalProfileImage;
+    if (profileImage !== undefined) {
+      if (!profileImage || profileImage === '' || profileImage === null) {
+        finalProfileImage = null;
+      } else {
+        finalProfileImage = await saveImageToR2(profileImage, 'client', req.params.id, req.env);
+      }
+    } else {
+      finalProfileImage = existing.profileImage;
+    }
 
     // Check for unique clientId
     if (clientId && clientId !== existing.clientId) {
@@ -3349,7 +3771,7 @@ app.put('/api/clients/:id', async (req, res) => {
         diet = COALESCE(?, diet),
         trainerId = COALESCE(?, trainerId),
         admissionDate = COALESCE(?, admissionDate),
-        profileImage = COALESCE(?, profileImage),
+        profileImage = ?,
         gstin = ?
       WHERE id = ?
     `).run(
@@ -3359,7 +3781,7 @@ app.put('/api/clients/:id', async (req, res) => {
       status ?? null,
       gender ?? null, ptCategory ?? null, ptFromDate ?? null, ptToDate ?? null,
       ptPackage ?? null, programType ?? null, diet !== undefined ? (diet ? 1 : 0) : null,
-      trainerId ?? null, admissionDate ?? null, finalProfileImage ?? null, gstin ?? null,
+      trainerId ?? null, admissionDate ?? null, finalProfileImage, gstin ?? null,
       req.params.id
     );
 
@@ -3373,6 +3795,9 @@ app.put('/api/clients/:id', async (req, res) => {
 // DELETE client
 app.delete('/api/clients/:id', async (req, res) => {
   try {
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Forbidden: Super Admin access is required to delete clients.' });
+    }
     const clientId = req.params.id;
 
     // Delete related records sequentially (awaiting each for Turso async wrapper support)
@@ -3524,13 +3949,23 @@ app.put('/api/trainers/:id', async (req, res) => {
       ? parseFloat(custom_commission_percent)
       : null;
 
-    const finalProfileImage = await saveImageToR2(profileImage, 'trainer', req.params.id, req.env);
+    let finalProfileImage;
+    if (profileImage !== undefined) {
+      if (!profileImage || profileImage === '' || profileImage === null) {
+        finalProfileImage = null;
+      } else {
+        finalProfileImage = await saveImageToR2(profileImage, 'trainer', req.params.id, req.env);
+      }
+    } else {
+      const existingTrainer = await db.prepare('SELECT profileImage FROM trainers WHERE id = ? OR trainerId = ?').get(req.params.id, req.params.id);
+      finalProfileImage = existingTrainer ? existingTrainer.profileImage : null;
+    }
 
     await db.prepare(`
       UPDATE trainers SET
         trainerId = ?, name = ?, phone = ?, specialization = ?, experience = ?, status = ?, grade = ?, custom_commission_percent = ?, profileImage = ?, shiftStartTime = ?, shiftEndTime = ?
       WHERE id = ? OR trainerId = ?
-    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage || null, shiftStartTime || null, shiftEndTime || null, req.params.id, req.params.id);
+    `).run(trainerId, name, phone || null, specialization, experience, status, grade, commOverride, finalProfileImage, shiftStartTime || null, shiftEndTime || null, req.params.id, req.params.id);
 
     const updated = await db.prepare('SELECT * FROM trainers WHERE id = ? OR trainerId = ?').get(req.params.id, req.params.id);
     res.json(updated);
@@ -3615,6 +4050,16 @@ app.patch('/api/pt-packages/:id/active', async (req, res) => {
 
 app.delete('/api/pt-packages/:id', async (req, res) => {
   try {
+    try {
+      await db.prepare('UPDATE pt_assignments SET pt_package_id = NULL WHERE pt_package_id = ?').run(req.params.id);
+    } catch (e1) {
+      console.warn('Could not nullify pt_package_id in pt_assignments:', e1.message);
+    }
+    try {
+      await db.prepare('UPDATE pt_advance_bookings SET pt_package_id = NULL WHERE pt_package_id = ?').run(req.params.id);
+    } catch (e2) {
+      console.warn('Could not nullify pt_package_id in pt_advance_bookings:', e2.message);
+    }
     await db.prepare('DELETE FROM pt_packages WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'PT Package deleted successfully' });
   } catch (err) {
@@ -5076,6 +5521,7 @@ async function getMonthlyGymTotalRevenue(targetMonth) {
 
     const txnBillIds = new Set((allTxns || []).map(t => String(t.billId)).filter(Boolean));
     const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
+    const advBookingInvoiceIds = new Set((ptBookingsAll || []).map(b => String(b.invoice_id)).filter(Boolean));
 
     // 1. Transactions collection in target month
     (allTxns || []).forEach(t => {
@@ -5122,9 +5568,10 @@ async function getMonthlyGymTotalRevenue(targetMonth) {
       }
     });
 
-    // 6. PT Package Assignments in target month (only if not already in transactions table)
+    // 6. PT Package Assignments in target month (only if not already in transactions table AND not an advance booking)
     (ptAssignmentsAll || []).forEach(a => {
-      if ((a.invoice_id && txnBillIds.has(String(a.invoice_id))) || (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`)))) return;
+      if (a.invoice_id && (txnBillIds.has(String(a.invoice_id)) || advBookingInvoiceIds.has(String(a.invoice_id)))) return;
+      if (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`))) return;
       const d = parseAnyDate(a.assigned_date || a.created_at);
       if (d && d >= startObj && d <= endObj) {
         const netPaid = Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0));
@@ -5707,13 +6154,38 @@ app.get('/api/transactions', async (req, res) => {
     let sql = `
       SELECT 
         t.id, t.clientId, t.billId, t.name, t.method, t.date, t.amount, t.status, t.timestamp,
+        CASE 
+          WHEN t.whatsapp_sent = 1 THEN 1
+          WHEN b.whatsapp_sent = 1 THEN 1
+          WHEN EXISTS (
+            SELECT 1 FROM whatsapp_log wl 
+            WHERE wl.type = 'invoice_pdf' 
+              AND (
+                (wl.billNo IS NOT NULL AND wl.billNo != '' AND (wl.billNo = b.billNo OR wl.billNo = t.billId OR wl.billNo = b.id))
+                OR (wl.clientId IS NOT NULL AND wl.clientId != '' AND (wl.clientId = t.clientId OR wl.clientId = b.clientId))
+                OR (LOWER(TRIM(wl.clientName)) = LOWER(TRIM(t.name)))
+              )
+          ) THEN 1
+          ELSE 0 
+        END as whatsapp_sent,
+        b.billNo,
         b.discount_amount as discount_amount,
         b.planAmount as bill_plan_amount,
         b.totalPlanAmount as bill_total_amount,
         b.invoice_category as bill_invoice_category,
-        b.planName as bill_plan_name
+        b.planName as bill_plan_name,
+        b.invoiceDate as bill_invoice_date,
+        b.joinDate as bill_join_date,
+        b.expiryDate as bill_expiry_date,
+        b.paidAmount as bill_paid_amount,
+        b.dueAmount as bill_due_amount,
+        b.paymentStatus as bill_payment_status,
+        b.client_gstin_snapshot as bill_gstin,
+        c.phone as clientPhone,
+        c.gstin as clientGstin
       FROM transactions t
-      LEFT JOIN bills b ON t.billId = b.id
+      LEFT JOIN bills b ON (t.billId = b.id OR t.billId = b.billNo)
+      LEFT JOIN clients c ON (t.clientId = c.id OR t.clientId = c.clientId)
       ORDER BY t.timestamp DESC
     `;
 
@@ -5766,9 +6238,8 @@ app.post('/api/expenses', async (req, res) => {
 
 app.delete('/api/expenses/:id', async (req, res) => {
   try {
-    const role = req.headers['x-user-role'] || req.query.user_role || req.body.user_role;
-    if (role !== 'superadmin') {
-      return res.status(403).json({ error: 'Access denied. Master / Superadmin permission required to delete expenses.' });
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Forbidden: Super Admin access is required to delete expenses.' });
     }
     await db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
     res.json({ message: 'Expense deleted' });
@@ -5936,6 +6407,10 @@ app.get('/api/other-services/sales', async (req, res) => {
         s.id,
         s.client_id,
         s.service_id,
+        s.trainer_id,
+        s.custom_days,
+        s.pt_assignment_id,
+        tr.name AS trainerName,
         COALESCE(b.planAmount, s.price_snapshot) AS price_snapshot,
         s.sale_date,
         s.invoice_id,
@@ -5947,7 +6422,7 @@ app.get('/api/other-services/sales', async (req, res) => {
         s.walkin_phone,
         COALESCE(t.name, 'Other Service') AS serviceName,
         COALESCE(t.price, s.price_snapshot + COALESCE(b.discount_amount, 0)) AS original_price,
-        COALESCE(t.duration_days, 30) AS duration_days,
+        COALESCE(s.custom_days, t.duration_days, 30) AS duration_days,
         COALESCE(b.billNo, '') AS billNo,
         COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
         COALESCE(b.dueAmount, 0) AS dueAmount,
@@ -5961,6 +6436,7 @@ app.get('/api/other-services/sales', async (req, res) => {
       )
       LEFT JOIN other_service_tariffs t ON CAST(s.service_id AS INTEGER) = t.id
       LEFT JOIN bills b ON CAST(s.invoice_id AS TEXT) = CAST(b.id AS TEXT)
+      LEFT JOIN trainers tr ON CAST(s.trainer_id AS TEXT) = CAST(tr.id AS TEXT)
       ORDER BY s.id DESC
     `).all();
 
@@ -5979,6 +6455,10 @@ app.get('/api/other-services/sales/client/:clientId', async (req, res) => {
         s.id,
         s.client_id,
         s.service_id,
+        s.trainer_id,
+        s.custom_days,
+        s.pt_assignment_id,
+        tr.name AS trainerName,
         COALESCE(b.planAmount, s.price_snapshot) AS price_snapshot,
         s.sale_date,
         s.invoice_id,
@@ -5988,7 +6468,7 @@ app.get('/api/other-services/sales/client/:clientId', async (req, res) => {
         COALESCE(c.phone, '') AS clientPhone,
         COALESCE(t.name, 'Other Service') AS serviceName,
         COALESCE(t.price, s.price_snapshot + COALESCE(b.discount_amount, 0)) AS original_price,
-        COALESCE(t.duration_days, 30) AS duration_days,
+        COALESCE(s.custom_days, t.duration_days, 30) AS duration_days,
         COALESCE(b.billNo, '') AS billNo,
         COALESCE(b.paidAmount, s.price_snapshot, 0) AS paidAmount,
         COALESCE(b.dueAmount, 0) AS dueAmount,
@@ -6002,6 +6482,7 @@ app.get('/api/other-services/sales/client/:clientId', async (req, res) => {
       )
       LEFT JOIN other_service_tariffs t ON CAST(s.service_id AS INTEGER) = t.id
       LEFT JOIN bills b ON CAST(s.invoice_id AS TEXT) = CAST(b.id AS TEXT)
+      LEFT JOIN trainers tr ON CAST(s.trainer_id AS TEXT) = CAST(tr.id AS TEXT)
       WHERE CAST(s.client_id AS TEXT) = CAST(? AS TEXT)
          OR CAST(c.clientId AS TEXT) = CAST(? AS TEXT)
          OR CAST(c.id AS TEXT) = CAST(? AS TEXT)
@@ -6065,6 +6546,11 @@ app.put('/api/other-services/:id', async (req, res) => {
 
 app.delete('/api/other-services/:id', async (req, res) => {
   try {
+    try {
+      await db.prepare('UPDATE other_service_sales SET service_id = NULL WHERE service_id = ?').run(req.params.id);
+    } catch (fkErr) {
+      console.warn('Could not nullify service_id in other_service_sales:', fkErr.message);
+    }
     await db.prepare('DELETE FROM other_service_tariffs WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Service tariff deleted successfully.' });
   } catch (err) {
@@ -6100,7 +6586,23 @@ app.patch('/api/other-services/:id/active', async (req, res) => {
 
 app.post('/api/other-services/sell', async (req, res) => {
   try {
-    const { is_walkin, walkin_name, walkin_phone, client_id, service_id, sale_date, paid_amount, payment_method, hasGst, gstin, discount_amount = 0 } = req.body;
+    const { 
+      is_walkin, 
+      walkin_name, 
+      walkin_phone, 
+      client_id, 
+      service_id, 
+      sale_date, 
+      paid_amount, 
+      payment_method, 
+      hasGst, 
+      gstin, 
+      discount_amount = 0,
+      trainer_id,
+      custom_days,
+      custom_price,
+      custom_classes
+    } = req.body;
     
     let client = null;
     const isWalkin = Boolean(is_walkin || (walkin_name && (!client_id || client_id === 'WALKIN')));
@@ -6117,6 +6619,50 @@ app.post('/api/other-services/sell', async (req, res) => {
       if (!client) return res.status(404).json({ error: 'Client not found.' });
     }
 
+    const service = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(service_id);
+    if (!service) return res.status(404).json({ error: 'Service tariff not found.' });
+
+    const isPtService = (service.name || '').toLowerCase().includes('pt') || (service.name || '').toLowerCase().includes('personal training') || Boolean(req.body.is_custom_pt);
+    const isCustomPt = (service.name || '').toLowerCase().includes('custom pt') || Boolean(req.body.is_custom_pt);
+
+    // Enforce active General Membership rule for any PT service assignment
+    if (isPtService) {
+      if (isWalkin) {
+        return res.status(400).json({ 
+          error: 'Personal Training (PT) cannot be assigned to a walk-in client without an active General Membership plan. Please enroll the client with a General Plan first.' 
+        });
+      }
+      if (client) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const clientStatus = (client.status || '').toLowerCase();
+        const isStatusInactive = clientStatus === 'inactive' || clientStatus === 'expired';
+        const isExpired = client.expiryDate && String(client.expiryDate).slice(0, 10) < todayStr;
+        const hasNoPlan = !client.plan && !client.currentPlan;
+        if (isStatusInactive || isExpired || hasNoPlan || !client.expiryDate) {
+          return res.status(400).json({ 
+            error: `Personal Training (PT) cannot be assigned to "${client.name}" because they do not have an active General Membership plan (Status: ${client.status || 'Expired'}, Expiry: ${client.expiryDate ? String(client.expiryDate).slice(0, 10) : 'None'}). Please add or renew a General Plan first.` 
+          });
+        }
+      }
+    }
+
+    // Validate Custom PT specific requirements
+    // For Custom PT, custom_days represents number of PT Classes / Sessions (e.g. 2 Classes), with 30-day plan validity
+    let selectedTrainer = null;
+    let ptClassesCount = parseInt(custom_days || custom_classes || req.body.total_classes || 1, 10);
+    if (isCustomPt) {
+      if (!trainer_id) {
+        return res.status(400).json({ error: 'Trainer selection is required for Custom PT.' });
+      }
+      selectedTrainer = await db.prepare('SELECT * FROM trainers WHERE id = ?').get(trainer_id);
+      if (!selectedTrainer) {
+        return res.status(404).json({ error: 'Selected trainer not found.' });
+      }
+      if (isNaN(ptClassesCount) || ptClassesCount <= 0) {
+        return res.status(400).json({ error: 'Number of PT classes must be greater than 0.' });
+      }
+    }
+
     let gstinSnapshot = null;
     if (client && (hasGst === true || hasGst === 'yes' || hasGst === 'true') && gstin && gstin.trim()) {
       gstinSnapshot = gstin.trim().toUpperCase();
@@ -6125,12 +6671,15 @@ app.post('/api/other-services/sell', async (req, res) => {
       gstinSnapshot = gstin.trim().toUpperCase();
     }
 
-    const service = await db.prepare('SELECT * FROM other_service_tariffs WHERE id = ?').get(service_id);
-    if (!service) return res.status(404).json({ error: 'Service tariff not found.' });
-
     const saleDateStr = sale_date || new Date().toISOString().split('T')[0];
     const discAmt = parseFloat(discount_amount) || 0;
-    const priceSnapshot = service.price; // original MRP
+    
+    // Price snapshot: if Custom PT has custom_price provided, use it
+    let priceSnapshot = parseFloat(service.price || 0);
+    if (isCustomPt && custom_price !== undefined && custom_price !== null && custom_price !== '') {
+      priceSnapshot = parseFloat(custom_price) || 0;
+    }
+
     const discountedPrice = Math.max(0, priceSnapshot - discAmt); // price after discount
     const paidAmountVal = paid_amount !== undefined && paid_amount !== null && paid_amount !== '' ? parseFloat(paid_amount) : discountedPrice;
     const dueAmountVal = Math.max(0, discountedPrice - paidAmountVal);
@@ -6149,11 +6698,40 @@ app.post('/api/other-services/sell', async (req, res) => {
 
     const billId = randomUUID();
     const invoiceDateStr = toDateLabel();
-    const expiryDateStr = calculateExpiryDate(saleDateStr, service.duration_days);
+    // Custom PT has 30 days calendar validity by default; stays active until classes completed or 30 days expiry
+    const validityDays = isCustomPt ? 30 : (service.duration_days || 30);
+    const expiryDateStr = calculateExpiryDate(saleDateStr, validityDays);
 
-    const clientNameVal = isWalkin ? walkin_name.trim() : (client ? client.name : 'Walk-in Client');
-    const clientIdVal = isWalkin ? 'WALKIN' : (client ? (client.id || client_id) : 'WALKIN');
-    const clientPhoneVal = isWalkin ? (walkin_phone || '').trim() : (client ? (client.phone || client.mobile || '') : '');
+    // If walk-in bought Custom PT, create a registered client profile so PT Assignment & PT Log can link to them
+    if (isWalkin && isCustomPt) {
+      const clientCountRow = await db.prepare('SELECT COUNT(*) as count FROM clients').get();
+      const nextCode = 60000 + (clientCountRow?.count || 0) + 1;
+      const newClientId = randomUUID();
+      await db.prepare(`
+        INSERT INTO clients (id, clientId, name, phone, personalTraining, status, trainerId, ptCategory, ptPackage, ptFromDate, ptToDate, admissionDate, dateAdded)
+        VALUES (?, ?, ?, ?, 1, 'active', ?, 'Personal Training', ?, ?, ?, ?, ?)
+      `).run(
+        newClientId,
+        String(nextCode),
+        walkin_name.trim(),
+        (walkin_phone || '').trim(),
+        trainer_id,
+        `Custom PT (${ptClassesCount} ${ptClassesCount === 1 ? 'Class' : 'Classes'})`,
+        saleDateStr,
+        expiryDateStr,
+        saleDateStr,
+        saleDateStr
+      );
+      client = await db.prepare('SELECT * FROM clients WHERE id = ?').get(newClientId);
+    }
+
+    const clientNameVal = isWalkin && !isCustomPt ? walkin_name.trim() : (client ? client.name : 'Walk-in Client');
+    const clientIdVal = isWalkin && !isCustomPt ? 'WALKIN' : (client ? (client.clientId || client.id || client_id) : 'WALKIN');
+    const clientPhoneVal = isWalkin && !isCustomPt ? (walkin_phone || '').trim() : (client ? (client.phone || client.mobile || '') : '');
+
+    const planNameVal = isCustomPt 
+      ? `Custom PT (${ptClassesCount} ${ptClassesCount === 1 ? 'Class' : 'Classes'}) — ${selectedTrainer?.name || 'Trainer'}` 
+      : `Service: ${service.name}`;
 
     await db.prepare(`
       INSERT INTO bills (id, billNo, clientId, clientName, invoiceDate, joinDate, expiryDate, planAmount, paidAmount, dueAmount, paymentStatus, dueNumber, totalPlanAmount, remainingBalance, planName, invoice_category, client_gstin_snapshot, discount_amount)
@@ -6173,7 +6751,7 @@ app.post('/api/other-services/sell', async (req, res) => {
       0,
       discountedPrice,      // totalPlanAmount = price after discount
       dueAmountVal,
-      `Service: ${service.name}`,
+      planNameVal,
       gstinSnapshot,
       discAmt               // ← persist discount in bills table
     );
@@ -6188,7 +6766,7 @@ app.post('/api/other-services/sell', async (req, res) => {
         txId,
         clientIdVal,
         billId,
-        `${clientNameVal} - ${service.name}`,
+        `${clientNameVal} - ${isCustomPt ? `Custom PT (${ptClassesCount} Classes)` : service.name}`,
         payMethodVal,
         paidAmountVal,
         invoiceDateStr
@@ -6196,27 +6774,91 @@ app.post('/api/other-services/sell', async (req, res) => {
     }
 
     // Update client due amount if there is any due from discounted price
-    if (!isWalkin && client && dueAmountVal > 0) {
+    if (client && dueAmountVal > 0) {
       const currentDue = client.dueAmount || 0;
       const updatedDue = currentDue + dueAmountVal;
       await db.prepare('UPDATE clients SET dueAmount = ?, paymentStatus = ? WHERE id = ?').run(updatedDue, 'Due', client.id || client_id);
     }
 
+    // If Custom PT: create PT package and PT assignment!
+    let createdPtAssignmentId = null;
+    if (isCustomPt && client) {
+      const totalClassesSnapshot = ptClassesCount;
+
+      const customPkgResult = await db.prepare(`
+        INSERT INTO pt_packages (name, price, total_classes, category, duration_days, eligible_grades, is_custom, active)
+        VALUES (?, ?, ?, 'Custom', 30, ?, 1, 1)
+      `).run(
+        `Custom PT (${totalClassesSnapshot} ${totalClassesSnapshot === 1 ? 'Class' : 'Classes'})`,
+        priceSnapshot,
+        totalClassesSnapshot,
+        JSON.stringify([selectedTrainer?.grade || 'A', 'A_PRO_PT', 'A', 'B'])
+      );
+      const ptPackageId = customPkgResult.lastInsertRowid;
+
+      // Complete any previous active PT assignment for this client
+      try {
+        await db.prepare(`
+          UPDATE pt_assignments 
+          SET status = 'Completed' 
+          WHERE client_id = ? AND status = 'Active'
+        `).run(client.id);
+      } catch (e) {}
+
+      const ptAssignResult = await db.prepare(`
+        INSERT INTO pt_assignments (
+          client_id, pt_package_id, trainer_id, package_price_snapshot, discount_amount, paid_amount, due_amount, payment_method, total_classes_snapshot, classes_completed, status, assigned_date, expiry_date, invoice_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'Active', ?, ?, ?)
+      `).run(
+        client.id,
+        ptPackageId,
+        trainer_id,
+        priceSnapshot,
+        discAmt,
+        paidAmountVal,
+        dueAmountVal,
+        payMethodVal,
+        totalClassesSnapshot,
+        saleDateStr,
+        expiryDateStr,
+        billId
+      );
+      createdPtAssignmentId = ptAssignResult.lastInsertRowid;
+
+      // Update client profile in clients table
+      try {
+        await db.prepare(`
+          UPDATE clients 
+          SET ptCategory = 'Personal Training',
+              ptPackage = ?,
+              ptFromDate = ?,
+              ptToDate = ?,
+              trainerId = ?,
+              personalTraining = 1
+          WHERE id = ? OR clientId = ?
+        `).run(`Custom PT (${totalClassesSnapshot} ${totalClassesSnapshot === 1 ? 'Class' : 'Classes'})`, saleDateStr, expiryDateStr, trainer_id, client.id, client.id);
+      } catch (e) {
+        console.warn("Could not sync client PT fields:", e.message);
+      }
+    }
+
     // 2. Insert into other_service_sales
-    const walkinNameVal = isWalkin ? walkin_name.trim() : null;
-    const walkinPhoneVal = isWalkin ? (walkin_phone || '').trim() : null;
-    const finalClientId = isWalkin ? null : String(client ? (client.id || client_id) : '');
+    const walkinNameVal = (isWalkin && !isCustomPt) ? walkin_name.trim() : null;
+    const walkinPhoneVal = (isWalkin && !isCustomPt) ? (walkin_phone || '').trim() : null;
+    const finalClientId = client ? String(client.id || client_id) : null;
+    const customDaysSnapshot = isCustomPt ? ptClassesCount : (service.duration_days || 30);
 
     const result = await db.prepare(`
-      INSERT INTO other_service_sales (client_id, walkin_name, walkin_phone, service_id, price_snapshot, sale_date, invoice_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(finalClientId, walkinNameVal, walkinPhoneVal, service.id, discountedPrice, saleDateStr, billId);
+      INSERT INTO other_service_sales (client_id, walkin_name, walkin_phone, service_id, price_snapshot, sale_date, invoice_id, trainer_id, custom_days, pt_assignment_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(finalClientId, walkinNameVal, walkinPhoneVal, service.id, discountedPrice, saleDateStr, billId, trainer_id || null, customDaysSnapshot || null, createdPtAssignmentId || null);
 
     const saleRecord = await db.prepare(`
-      SELECT s.*, COALESCE(c.name, s.walkin_name) as clientName, COALESCE(c.phone, s.walkin_phone) as clientPhone, t.name as serviceName
+      SELECT s.*, COALESCE(c.name, s.walkin_name) as clientName, COALESCE(c.phone, s.walkin_phone) as clientPhone, t.name as serviceName, tr.name as trainerName
       FROM other_service_sales s
       LEFT JOIN clients c ON (s.client_id IS NOT NULL AND (s.client_id = c.id OR s.client_id = c.clientId))
       LEFT JOIN other_service_tariffs t ON s.service_id = t.id
+      LEFT JOIN trainers tr ON s.trainer_id = tr.id
       WHERE s.id = ?
     `).get(result.lastInsertRowid);
 
@@ -6230,8 +6872,8 @@ app.post('/api/other-services/sell', async (req, res) => {
       invoiceDate: invoiceDateStr,
       joinDate: saleDateStr,
       expiryDate: expiryDateStr,
-      planName: `Service: ${service.name}`,
-      packageName: `Service: ${service.name}`,
+      planName: planNameVal,
+      packageName: planNameVal,
       planAmount: discountedPrice,
       totalPlanAmount: discountedPrice,
       paidAmount: paidAmountVal,
@@ -6246,7 +6888,8 @@ app.post('/api/other-services/sell', async (req, res) => {
       message: 'Service sold successfully.',
       sale: saleRecord,
       billNo: nextBillNo,
-      bill: invoiceBillObj
+      bill: invoiceBillObj,
+      pt_assignment_id: createdPtAssignmentId
     });
   } catch (err) {
     console.error("Error selling other service:", err);
@@ -6471,6 +7114,16 @@ app.delete('/api/other-services/sales/:id', async (req, res) => {
 
     const invoiceId = sale.invoice_id;
 
+    // Delete associated PT assignment and logs if this was a Custom PT sale
+    if (sale.pt_assignment_id) {
+      try {
+        await db.prepare('DELETE FROM pt_class_log WHERE pt_assignment_id = ?').run(sale.pt_assignment_id);
+        await db.prepare('DELETE FROM pt_assignments WHERE id = ?').run(sale.pt_assignment_id);
+      } catch (ptErr) {
+        console.warn('Notice: Could not delete associated PT assignment:', ptErr.message);
+      }
+    }
+
     // 1. Delete from child table other_service_sales first to release foreign key reference to bills
     await db.prepare('DELETE FROM other_service_sales WHERE id = ?').run(saleId);
 
@@ -6541,6 +7194,7 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
     const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
+    const advBookingInvoiceIds = new Set((ptBookingsAll || []).map(b => String(b.invoice_id)).filter(Boolean));
 
     // 1. Transactions collection in range
     let rangeRevenue = (allTxns || []).reduce((sum, t) => {
@@ -6588,9 +7242,10 @@ app.get('/api/dashboard/stats', async (req, res) => {
       }
     });
 
-    // 6. PT Package Assignments in range (only if not already in transactions table)
+    // 6. PT Package Assignments in range (only if not already in transactions table AND not an advance booking)
     (ptAssignmentsAll || []).forEach(a => {
-      if ((a.invoice_id && txnBillIds.has(a.invoice_id)) || (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`)))) return;
+      if (a.invoice_id && (txnBillIds.has(a.invoice_id) || advBookingInvoiceIds.has(String(a.invoice_id)))) return;
+      if (a.id && (txnIds.has(String(a.id)) || txnIds.has(`pt-assign-${a.id}`))) return;
       const d = parseAnyDate(a.assigned_date || a.created_at);
       const inRange = d && d >= startObj && d <= endObj;
       if (inRange) {
@@ -6697,12 +7352,13 @@ app.get('/api/stats', async (req, res) => {
 
     const txnBillIds = new Set((allTxns || []).map(t => t.billId).filter(Boolean));
     const txnIds = new Set((allTxns || []).map(t => String(t.id)).filter(Boolean));
+    const advBookingInvoiceIds = new Set((ptBookingsAllStats || []).map(b => String(b.invoice_id)).filter(Boolean));
     const unloggedOtherServiceSalesAll = (otherServiceSalesAll || []).filter(s => !s.invoice_id || !txnBillIds.has(s.invoice_id));
 
     const totalGenBookingsRevenue = (genBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price || 0) - (b.discount_amount || 0)), 0);
     const totalPtBookingsRevenue = (ptBookingsAllStats || []).reduce((sum, b) => sum + Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0)), 0);
     const totalPtAssignmentsRevenue = (ptAssignmentsAllStats || [])
-      .filter(a => !a.invoice_id || !txnBillIds.has(a.invoice_id))
+      .filter(a => (!a.invoice_id || (!txnBillIds.has(a.invoice_id) && !advBookingInvoiceIds.has(String(a.invoice_id)))) && (!a.id || (!txnIds.has(String(a.id)) && !txnIds.has(`pt-assign-${a.id}`))))
       .reduce((sum, a) => sum + Math.max(0, parseFloat(a.package_price_snapshot || 0) - parseFloat(a.discount_amount || 0)), 0);
 
     const totalRevenueVal = (allTxns || []).reduce((sum, t) => sum + (t.amount || 0), 0) + unloggedOtherServiceSalesAll.reduce((sum, s) => sum + (s.price_snapshot || 0), 0) + totalGenBookingsRevenue + totalPtBookingsRevenue + totalPtAssignmentsRevenue;
@@ -6754,7 +7410,7 @@ app.get('/api/stats', async (req, res) => {
       .reduce((sum, b) => sum + Math.max(0, (b.price_snapshot || 0) - (b.discount_amount || 0)), 0);
 
     const monthlyPtAssignmentsRev = (ptAssignmentsAllStats || [])
-      .filter(a => (!a.invoice_id || !txnBillIds.has(a.invoice_id)) && (!a.id || (!txnIds.has(String(a.id)) && !txnIds.has(`pt-assign-${a.id}`))))
+      .filter(a => (!a.invoice_id || (!txnBillIds.has(a.invoice_id) && !advBookingInvoiceIds.has(String(a.invoice_id)))) && (!a.id || (!txnIds.has(String(a.id)) && !txnIds.has(`pt-assign-${a.id}`))))
       .filter(a => {
         const d = parseAnyDate(a.assigned_date || a.created_at);
         if (!d) return false;
@@ -7040,14 +7696,35 @@ app.put('/api/settings', async (req, res) => {
 // POST login check
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { username, role, password } = req.body;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch (_) {}
+    }
+    const { username, role, password } = body || {};
     const targetRole = role || 'superadmin';
+    const targetUser = username || targetRole;
+    const pwd = password ? String(password).trim() : '';
+
+    if (!pwd) {
+      return res.status(401).json({ success: false, error: 'Password is required' });
+    }
 
     // Strictly match by role (or username) AND password
-    const user = await db.prepare('SELECT id, role FROM users WHERE (role = ? OR username = ?) AND password = ?').get(targetRole, username || targetRole, password);
+    const user = await db.prepare('SELECT id, role FROM users WHERE (role = ? OR username = ?) AND password = ?').get(targetRole, targetUser, pwd);
 
     if (user && user.role === targetRole) {
-      res.json({ success: true, role: user.role });
+      const token = signJwt({
+        id: user.id,
+        role: user.role,
+        username: username || targetRole
+      }, req.env);
+
+      res.json({
+        success: true,
+        role: user.role,
+        token,
+        username: username || targetRole
+      });
     } else {
       res.status(401).json({ success: false, error: `Invalid password for ${targetRole === 'superadmin' ? 'Super Admin' : 'Admin'} access` });
     }
@@ -7056,9 +7733,12 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// GET all user credentials (for master management)
+// GET all user credentials (for master management - Super Admin only)
 app.get('/api/auth/credentials', async (req, res) => {
   try {
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Forbidden: Super Admin access required' });
+    }
     const users = await db.prepare('SELECT id, username, password, role FROM users').all();
     res.json(users);
   } catch (err) {
@@ -7066,9 +7746,12 @@ app.get('/api/auth/credentials', async (req, res) => {
   }
 });
 
-// PUT update credentials
+// PUT update credentials (Super Admin only)
 app.put('/api/auth/credentials', async (req, res) => {
   try {
+    if (req.user?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Forbidden: Super Admin access required' });
+    }
     const { credentials } = req.body; // Array of { role, username, password }
 
     const update = await db.prepare('UPDATE users SET username = ?, password = ? WHERE role = ?');
@@ -7431,9 +8114,28 @@ app.post('/api/whatsapp/send-invoice', async (req, res) => {
     await sendWhatsAppDocument(targetPhone, caption, documentUrl, filename, req.env, pdfBase64, name || 'Member');
 
     // Log it
-    await db.prepare(
-      'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
-    ).run(randomUUID(), clientId || '', name || '', targetPhone, 'invoice_pdf');
+    try {
+      await db.prepare(
+        'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type, billNo) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(randomUUID(), clientId || '', name || '', targetPhone, 'invoice_pdf', billNo || null);
+    } catch (logErr) {
+      await db.prepare(
+        'INSERT INTO whatsapp_log (id, clientId, clientName, phone, type) VALUES (?, ?, ?, ?, ?)'
+      ).run(randomUUID(), clientId || '', name || '', targetPhone, 'invoice_pdf');
+    }
+
+    // Mark whatsapp_sent = 1 on bills and transactions
+    if (billNo) {
+      try {
+        await db.prepare('UPDATE bills SET whatsapp_sent = 1 WHERE billNo = ? OR id = ?').run(billNo, billNo);
+        await db.prepare('UPDATE transactions SET whatsapp_sent = 1 WHERE billId IN (SELECT id FROM bills WHERE billNo = ? OR id = ?) OR billId = ?').run(billNo, billNo, billNo);
+      } catch (uErr) {}
+    }
+    if (clientId) {
+      try {
+        await db.prepare('UPDATE transactions SET whatsapp_sent = 1 WHERE clientId = ? AND (billId = ? OR id = ?)').run(clientId, billNo || '', billNo || '');
+      } catch (uErr) {}
+    }
 
     res.json({ success: true, message: `Invoice PDF sent to ${targetPhone} via WhatsApp!` });
   } catch (err) {
@@ -8438,10 +9140,16 @@ app.get('/api/supplements/sales', async (req, res) => {
   try {
     const { startDate, endDate, supplementId, buyerType } = req.query;
     let query = `
-      SELECT s.*, sup.name as supplement_name, sup.brand as supplement_brand, sup.unit as supplement_unit, c.name as client_name
+      SELECT s.*, 
+        sup.name as supplement_name, sup.brand as supplement_brand, sup.unit as supplement_unit,
+        c.name as client_name, c.phone as client_phone,
+        st.name as staff_name, st.contactNumber as staff_phone,
+        tr.name as trainer_name, tr.phone as trainer_phone, tr.grade as trainer_grade
       FROM supplement_sales s
       JOIN supplements sup ON s.supplement_id = sup.id
       LEFT JOIN clients c ON s.client_id = c.id
+      LEFT JOIN staff st ON s.staff_id = st.id
+      LEFT JOIN trainers tr ON s.trainer_id = tr.id
       WHERE 1=1
     `;
     const params = [];
@@ -8459,9 +9167,15 @@ app.get('/api/supplements/sales', async (req, res) => {
       params.push(supplementId);
     }
     if (buyerType === 'client') {
-      query += ' AND s.client_id IS NOT NULL';
+      query += " AND (s.buyer_type = 'client' OR (s.buyer_type IS NULL AND s.client_id IS NOT NULL))";
     } else if (buyerType === 'walkin') {
-      query += ' AND s.walkin_name IS NOT NULL';
+      query += " AND (s.buyer_type = 'walkin' OR (s.buyer_type IS NULL AND s.walkin_name IS NOT NULL))";
+    } else if (buyerType === 'staff') {
+      query += " AND (s.buyer_type = 'staff' OR s.staff_id IS NOT NULL)";
+    } else if (buyerType === 'trainer') {
+      query += " AND (s.buyer_type = 'trainer' OR s.trainer_id IS NOT NULL)";
+    } else if (buyerType === 'inhouse') {
+      query += " AND (s.buyer_type IN ('staff', 'trainer', 'inhouse') OR s.staff_id IS NOT NULL OR s.trainer_id IS NOT NULL)";
     }
 
     query += ' ORDER BY s.sale_date DESC, s.created_at DESC';
@@ -8475,19 +9189,80 @@ app.get('/api/supplements/sales', async (req, res) => {
 app.post('/api/supplements/sales', async (req, res) => {
   try {
     const {
-      supplement_id, client_id, walkin_name, walkin_phone, quantity,
-      sale_price_per_unit, payment_mode, sale_date, created_by
+      supplement_id,
+      buyer_type = 'client', // 'client' | 'walkin' | 'staff' | 'trainer' | 'inhouse'
+      client_id,
+      walkin_name,
+      walkin_phone,
+      staff_id,
+      trainer_id,
+      inhouse_name,
+      inhouse_role,
+      quantity,
+      sale_price_per_unit,
+      payment_mode,
+      sale_date,
+      created_by
     } = req.body;
 
     if (!supplement_id || !quantity || !sale_price_per_unit || !payment_mode || !sale_date) {
       return res.status(400).json({ error: 'Missing required sale fields' });
     }
 
-    const hasClient = client_id && String(client_id).trim() !== '';
-    const hasWalkin = walkin_name && String(walkin_name).trim() !== '';
+    let resolvedBuyerType = buyer_type || 'client';
+    let finalClientId = null;
+    let finalWalkinName = null;
+    let finalWalkinPhone = null;
+    let finalStaffId = null;
+    let finalTrainerId = null;
+    let finalInhouseName = null;
+    let finalInhouseRole = null;
 
-    if ((hasClient && hasWalkin) || (!hasClient && !hasWalkin)) {
-      return res.status(400).json({ error: 'Sale must specify either a Client or a Walk-in buyer name (not both, not neither)' });
+    if (resolvedBuyerType === 'client') {
+      if (!client_id || String(client_id).trim() === '') {
+        return res.status(400).json({ error: 'Please select an existing client for this sale' });
+      }
+      finalClientId = String(client_id).trim();
+    } else if (resolvedBuyerType === 'walkin') {
+      if (!walkin_name || String(walkin_name).trim() === '') {
+        return res.status(400).json({ error: 'Walk-in buyer name is required' });
+      }
+      finalWalkinName = String(walkin_name).trim();
+      finalWalkinPhone = walkin_phone ? String(walkin_phone).trim() : null;
+    } else if (resolvedBuyerType === 'staff') {
+      if (!staff_id && (!inhouse_name || String(inhouse_name).trim() === '')) {
+        return res.status(400).json({ error: 'Please select a staff member' });
+      }
+      finalStaffId = staff_id ? String(staff_id).trim() : null;
+      if (finalStaffId) {
+        const staffRec = await db.prepare('SELECT name FROM staff WHERE id = ?').get(finalStaffId);
+        finalInhouseName = staffRec ? staffRec.name : (inhouse_name || 'Staff Member');
+      } else {
+        finalInhouseName = String(inhouse_name).trim();
+      }
+      finalInhouseRole = inhouse_role || 'Staff';
+    } else if (resolvedBuyerType === 'trainer') {
+      if (!trainer_id && (!inhouse_name || String(inhouse_name).trim() === '')) {
+        return res.status(400).json({ error: 'Please select a trainer' });
+      }
+      finalTrainerId = trainer_id ? String(trainer_id).trim() : null;
+      if (finalTrainerId) {
+        const trainerRec = await db.prepare('SELECT name FROM trainers WHERE id = ?').get(finalTrainerId);
+        finalInhouseName = trainerRec ? trainerRec.name : (inhouse_name || 'Trainer');
+      } else {
+        finalInhouseName = String(inhouse_name).trim();
+      }
+      finalInhouseRole = inhouse_role || 'Trainer';
+    } else if (resolvedBuyerType === 'inhouse') {
+      if (!inhouse_name || String(inhouse_name).trim() === '') {
+        return res.status(400).json({ error: 'In-house person name is required' });
+      }
+      finalInhouseName = String(inhouse_name).trim();
+      finalInhouseRole = inhouse_role || 'In-House';
+      finalStaffId = staff_id || null;
+      finalTrainerId = trainer_id || null;
+    } else {
+      return res.status(400).json({ error: 'Invalid buyer type specified' });
     }
 
     const qty = parseInt(quantity, 10);
@@ -8500,7 +9275,7 @@ app.post('/api/supplements/sales', async (req, res) => {
       return res.status(400).json({ error: 'Sale price per unit must be greater than 0' });
     }
 
-    const validPaymentModes = ['Cash', 'UPI', 'Card', 'Other'];
+    const validPaymentModes = ['Cash', 'UPI', 'Card', 'Salary Deduction', 'Other'];
     if (!validPaymentModes.includes(payment_mode)) {
       return res.status(400).json({ error: `Invalid payment mode. Must be one of: ${validPaymentModes.join(', ')}` });
     }
@@ -8523,14 +9298,20 @@ app.post('/api/supplements/sales', async (req, res) => {
 
       const result = await db.prepare(`
         INSERT INTO supplement_sales (
-          supplement_id, client_id, walkin_name, walkin_phone, quantity,
+          supplement_id, buyer_type, client_id, walkin_name, walkin_phone,
+          staff_id, trainer_id, inhouse_name, inhouse_role, quantity,
           sale_price_per_unit, total_amount, cost_price_snapshot, payment_mode, sale_date, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         supplement_id,
-        hasClient ? String(client_id).trim() : null,
-        hasWalkin ? String(walkin_name).trim() : null,
-        walkin_phone ? String(walkin_phone).trim() : null,
+        resolvedBuyerType,
+        finalClientId,
+        finalWalkinName,
+        finalWalkinPhone,
+        finalStaffId,
+        finalTrainerId,
+        finalInhouseName,
+        finalInhouseRole,
         qty,
         salePrice,
         totalAmount,
@@ -8547,10 +9328,16 @@ app.post('/api/supplements/sales', async (req, res) => {
 
     const newSaleId = await executeSaleTransaction();
     const newSale = await db.prepare(`
-      SELECT s.*, sup.name as supplement_name, sup.unit as supplement_unit, c.name as client_name
+      SELECT s.*, 
+        sup.name as supplement_name, sup.unit as supplement_unit, sup.brand as supplement_brand,
+        c.name as client_name, c.phone as client_phone,
+        st.name as staff_name, st.contactNumber as staff_phone,
+        tr.name as trainer_name, tr.phone as trainer_phone, tr.grade as trainer_grade
       FROM supplement_sales s
       JOIN supplements sup ON s.supplement_id = sup.id
       LEFT JOIN clients c ON s.client_id = c.id
+      LEFT JOIN staff st ON s.staff_id = st.id
+      LEFT JOIN trainers tr ON s.trainer_id = tr.id
       WHERE s.id = ?
     `).get(newSaleId);
 
@@ -8633,7 +9420,7 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
     const grossProfit = totalSaleRevenue - totalCogs;
     const profitMarginPct = totalSaleRevenue > 0 ? (grossProfit / totalSaleRevenue) * 100 : 0;
 
-    // Per-supplement breakdown
+    // Per-supplement breakdown (includes ALL buyers: clients, walk-ins, staff, trainers)
     const breakdown = await db.prepare(`
       SELECT 
         sup.id,
@@ -8691,6 +9478,94 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
 
     const chartData = Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 
+    // In-House detailed sales list (Staff & Trainers)
+    const inhouseSalesQuery = `
+      SELECT 
+        s.*,
+        sup.name as supplement_name,
+        sup.brand as supplement_brand,
+        sup.category as supplement_category,
+        sup.unit as supplement_unit,
+        st.name as staff_name,
+        st.contactNumber as staff_phone,
+        tr.name as trainer_name,
+        tr.phone as trainer_phone,
+        tr.grade as trainer_grade,
+        (s.quantity * s.cost_price_snapshot) as cogs,
+        (s.total_amount - (s.quantity * s.cost_price_snapshot)) as gross_profit
+      FROM supplement_sales s
+      JOIN supplements sup ON s.supplement_id = sup.id
+      LEFT JOIN staff st ON s.staff_id = st.id
+      LEFT JOIN trainers tr ON s.trainer_id = tr.id
+      ${salesWhere}
+      AND (s.buyer_type IN ('staff', 'trainer', 'inhouse') OR s.staff_id IS NOT NULL OR s.trainer_id IS NOT NULL)
+      ORDER BY s.sale_date DESC, s.created_at DESC
+    `;
+    const inhouseSalesList = await db.prepare(inhouseSalesQuery).all(...salesParams);
+
+    // Channel / Buyer category breakdown
+    const allSalesForChannels = await db.prepare(`
+      SELECT 
+        s.*,
+        (s.quantity * s.cost_price_snapshot) as cogs,
+        (s.total_amount - (s.quantity * s.cost_price_snapshot)) as gross_profit
+      FROM supplement_sales s
+      ${salesWhere}
+    `).all(...salesParams);
+
+    const channels = {
+      client: { key: 'client', name: 'Registered Clients', icon: '👤', revenue: 0, cogs: 0, profit: 0, units: 0, count: 0 },
+      walkin: { key: 'walkin', name: 'Walk-in Customers', icon: '🚶', revenue: 0, cogs: 0, profit: 0, units: 0, count: 0 },
+      staff: { key: 'staff', name: 'In-House Staff', icon: '👔', revenue: 0, cogs: 0, profit: 0, units: 0, count: 0 },
+      trainer: { key: 'trainer', name: 'Trainers', icon: '🏋️', revenue: 0, cogs: 0, profit: 0, units: 0, count: 0 }
+    };
+
+    allSalesForChannels.forEach(s => {
+      let bType = s.buyer_type || (s.client_id ? 'client' : (s.walkin_name ? 'walkin' : (s.staff_id ? 'staff' : (s.trainer_id ? 'trainer' : 'client'))));
+      if (!channels[bType]) {
+        if (bType === 'inhouse') bType = s.trainer_id ? 'trainer' : 'staff';
+        else bType = 'client';
+      }
+      const ch = channels[bType];
+      const rev = parseFloat(s.total_amount || 0);
+      const cogs = parseFloat(s.cogs || 0);
+      const prof = rev - cogs;
+      const u = parseInt(s.quantity || 0, 10);
+
+      ch.revenue += rev;
+      ch.cogs += cogs;
+      ch.profit += prof;
+      ch.units += u;
+      ch.count += 1;
+    });
+
+    const buyerChannelBreakdown = Object.values(channels).map(ch => ({
+      ...ch,
+      marginPct: ch.revenue > 0 ? (ch.profit / ch.revenue) * 100 : 0,
+      sharePct: totalSaleRevenue > 0 ? (ch.revenue / totalSaleRevenue) * 100 : 0
+    }));
+
+    const inhouseUnits = channels.staff.units + channels.trainer.units;
+    const inhouseRevenue = channels.staff.revenue + channels.trainer.revenue;
+    const inhouseCogs = channels.staff.cogs + channels.trainer.cogs;
+    const inhouseProfit = inhouseRevenue - inhouseCogs;
+    const inhouseCount = channels.staff.count + channels.trainer.count;
+
+    const inhouseSummary = {
+      totalInhouseRevenue: inhouseRevenue,
+      totalInhouseCogs: inhouseCogs,
+      inhouseProfit: inhouseProfit,
+      inhouseMarginPct: inhouseRevenue > 0 ? (inhouseProfit / inhouseRevenue) * 100 : 0,
+      inhouseUnitsSold: inhouseUnits,
+      inhouseOrdersCount: inhouseCount,
+      staffRevenue: channels.staff.revenue,
+      staffProfit: channels.staff.profit,
+      staffUnits: channels.staff.units,
+      trainerRevenue: channels.trainer.revenue,
+      trainerProfit: channels.trainer.profit,
+      trainerUnits: channels.trainer.units
+    };
+
     const lowStockAlerts = await db.prepare(`
       SELECT * FROM supplements
       WHERE active = 1 AND current_stock <= low_stock_threshold
@@ -8709,6 +9584,9 @@ app.get('/api/supplements/revenue-report', async (req, res) => {
         totalStockRetailValue: stockInventoryRow ? stockInventoryRow.totalStockRetailValue : 0,
         totalStockItems: stockInventoryRow ? stockInventoryRow.totalItems : 0
       },
+      buyerChannelBreakdown,
+      inhouseSummary,
+      inhouseSalesList,
       breakdown: breakdownFormatted,
       chartData,
       lowStockAlerts
@@ -9026,14 +9904,17 @@ app.post('/api/website-gallery', async (req, res) => {
             await r2Bucket.put(pdfFilename, pdfBuffer, {
               httpMetadata: { contentType: 'application/pdf' }
             });
-            finalPdfUrl = `/api/images/${pdfObjectKey}`;
-          } else {
-            try {
-              const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
-              fs.writeFileSync(pdfPath, pdfBuffer);
-              finalPdfUrl = `/api/images/${pdfFilename}`;
-            } catch (fsErr) {}
-          }
+            } else {
+              try {
+                const pdfDirs = [UPLOADS_DIR, path.join(UPLOADS_DIR, 'gallery'), LEGACY_UPLOADS_DIR, path.join(LEGACY_UPLOADS_DIR, 'gallery')];
+                pdfDirs.forEach(d => { try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (_) {} });
+                fs.writeFileSync(path.join(UPLOADS_DIR, pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(UPLOADS_DIR, 'gallery', pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, 'gallery', pdfFilename), pdfBuffer);
+                finalPdfUrl = `/api/images/${pdfObjectKey}`;
+              } catch (fsErr) {}
+            }
         }
       } catch (e) {
         console.error('Error saving PDF file:', e);
@@ -9093,9 +9974,13 @@ app.post('/api/website-gallery/batch', async (req, res) => {
               finalPdfUrl = `/api/images/${pdfObjectKey}`;
             } else {
               try {
-                const pdfPath = path.join(UPLOADS_DIR, pdfFilename);
-                fs.writeFileSync(pdfPath, pdfBuffer);
-                finalPdfUrl = `/api/images/${pdfFilename}`;
+                const pdfDirs = [UPLOADS_DIR, path.join(UPLOADS_DIR, 'gallery'), LEGACY_UPLOADS_DIR, path.join(LEGACY_UPLOADS_DIR, 'gallery')];
+                pdfDirs.forEach(d => { try { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); } catch (_) {} });
+                fs.writeFileSync(path.join(UPLOADS_DIR, pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(UPLOADS_DIR, 'gallery', pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, pdfFilename), pdfBuffer);
+                fs.writeFileSync(path.join(LEGACY_UPLOADS_DIR, 'gallery', pdfFilename), pdfBuffer);
+                finalPdfUrl = `/api/images/${pdfObjectKey}`;
               } catch (fsErr) {}
             }
           }
@@ -9207,7 +10092,11 @@ if (!process.env.CF_WORKER) {
 app.use((err, req, res, next) => {
   const status = err.status || err.statusCode || 500;
   console.error('[Express Error]', err.message, err.stack);
-  res.status(status).json({ error: err.message || 'Internal Server Error' });
+  const isInternal = status >= 500;
+  const safeMessage = isInternal
+    ? 'An unexpected server error occurred. Please try again or contact support.'
+    : (err.message || 'Error processing request');
+  res.status(status).json({ error: safeMessage });
 });
 
 app.initDb = initDb;

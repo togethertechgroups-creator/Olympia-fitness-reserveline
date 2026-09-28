@@ -259,7 +259,21 @@ const ClientServiceSalesHistoryPage = () => {
                         <div style={{ fontWeight: '800', color: '#0f172a' }}>{sale.clientName}</div>
                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: '2px' }}>ID: {formatShortId(sale.clientCode || sale.client_id)}</div>
                       </td>
-                      <td><span style={{ fontWeight: '700', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px', color: '#334155' }}>{sale.serviceName}</span></td>
+                      <td>
+                        <span style={{ fontWeight: '700', background: '#f1f5f9', padding: '4px 10px', borderRadius: '6px', color: '#334155', display: 'inline-block' }}>
+                          {sale.serviceName}
+                        </span>
+                        {sale.trainerName && (
+                          <div style={{ fontSize: '0.78rem', color: '#166534', fontWeight: '700', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span>👤</span> Trainer: {sale.trainerName}
+                          </div>
+                        )}
+                        {(sale.custom_days || sale.duration_days) && (sale.serviceName || '').toLowerCase().includes('custom pt') && (
+                          <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '600', marginTop: '2px' }}>
+                            PT Duration: {sale.custom_days || sale.duration_days} Days
+                          </div>
+                        )}
+                      </td>
                       <td style={{ fontWeight: '600', color: '#475569' }}>{sale.sale_date ? formatDateDDMMYYYY(sale.sale_date) : 'N/A'}</td>
                       <td style={{ fontWeight: '600', color: '#475569' }}>{sale.expiryDate ? formatDateDDMMYYYY(sale.expiryDate) : 'N/A'}</td>
                       <td style={{ fontWeight: '900', color: '#059669' }}>
@@ -439,7 +453,7 @@ const ClientServiceSalesHistoryPage = () => {
                       <option value="UPI">UPI</option>
                       <option value="Cash">Cash</option>
                       <option value="Card">Card</option>
-                      <option value="Net Banking">Net Banking</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
                     </select>
                   </div>
                   <div>

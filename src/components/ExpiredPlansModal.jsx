@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { formatShortId } from '../utils/formatShortId';
 import { sendWhatsAppText } from '../api';
+import { handleImageError } from '../utils/imageUtils';
 import './ExpiredPlansModal.css';
 
 const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) => {
@@ -49,9 +50,9 @@ const ExpiredPlansModal = ({ isOpen, onClose, onGoToManage, expiredClients }) =>
         <div className="item-left">
           <div className="client-avatar-mini-glow">
             {client.profileImage ? (
-              <img src={client.profileImage} alt={client.name} />
+              <img src={client.profileImage} alt={client.name} onError={handleImageError('avatar')} />
             ) : (
-              <span>{client.name.charAt(0).toUpperCase()}</span>
+              <span>{client.name ? client.name.charAt(0).toUpperCase() : 'C'}</span>
             )}
           </div>
           <div className="item-info">

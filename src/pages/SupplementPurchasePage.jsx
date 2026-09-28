@@ -12,7 +12,7 @@ import './SupplementPurchasePage.css';
 
 const SupplementPurchasePage = () => {
   const userRole = localStorage.getItem('userRole');
-  const canManagePurchases = userRole === 'admin' || userRole === 'superadmin';
+  const canManagePurchases = userRole === 'superadmin';
   const [searchParams] = useSearchParams();
   const preselectedSuppId = searchParams.get('supplementId');
 

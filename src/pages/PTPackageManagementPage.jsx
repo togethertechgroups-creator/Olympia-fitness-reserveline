@@ -4,6 +4,7 @@ import './PricingSettingsPage.css';
 import './PTPackageManagementPage.css';
 
 const PTPackageManagementPage = () => {
+  const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -24,9 +25,9 @@ const PTPackageManagementPage = () => {
     fetchPackages();
   }, []);
 
-  const fetchPackages = async () => {
+  const fetchPackages = async (forceRefresh = false) => {
     try {
-      const data = await getPtPackages();
+      const data = await getPtPackages(forceRefresh);
       setPackages(data);
     } catch (error) {
       console.error('Failed to fetch PT packages', error);
@@ -94,7 +95,7 @@ const PTPackageManagementPage = () => {
       } else {
         await addPtPackage(formData);
       }
-      fetchPackages();
+      fetchPackages(true);
       handleCloseModal();
     } catch (error) {
       alert(error.message || 'Failed to save PT Package');
@@ -129,10 +130,12 @@ const PTPackageManagementPage = () => {
           <h1><span>PT PACKAGE</span> CATALOG</h1>
           <p>Superadmin Portal • Manage official Personal Training packages and grade eligibility.</p>
         </div>
-        <button className="btn-add-pkg" onClick={() => handleOpenModal()}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
-          Add New Package
-        </button>
+        {isSuperAdmin && (
+          <button className="btn-add-pkg" onClick={() => handleOpenModal()}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12h14"/></svg>
+            Add New Package
+          </button>
+        )}
       </header>
 
       {loading ? (
@@ -166,26 +169,28 @@ const PTPackageManagementPage = () => {
 
                   <div className="pricing-header-subrow">
                     <span className="pricing-read-more">PT PRICING</span>
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        className="pricing-header-delete-link"
-                        onClick={() => handleToggleActive(pkg.id, pkg.active)}
-                        title={pkg.active ? 'Hide Tariff' : 'Unhide Tariff'}
-                        style={{ color: pkg.active ? '#f59e0b' : '#10b981' }}
-                      >
-                        {pkg.active ? '🙈 Hide' : '👁 Unhide'}
-                      </button>
+                    {isSuperAdmin && (
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          className="pricing-header-delete-link"
+                          onClick={() => handleToggleActive(pkg.id, pkg.active)}
+                          title={pkg.active ? 'Hide Tariff' : 'Unhide Tariff'}
+                          style={{ color: pkg.active ? '#f59e0b' : '#10b981' }}
+                        >
+                          {pkg.active ? '🙈 Hide' : '👁 Unhide'}
+                        </button>
 
-                      <button
-                        type="button"
-                        className="pricing-header-delete-link"
-                        onClick={(e) => handleDeletePackage(pkg.id, pkg.name, e)}
-                        title={`Delete ${pkg.name}`}
-                      >
-                        🗑 Delete
-                      </button>
-                    </div>
+                        <button
+                          type="button"
+                          className="pricing-header-delete-link"
+                          onClick={(e) => handleDeletePackage(pkg.id, pkg.name, e)}
+                          title={`Delete ${pkg.name}`}
+                        >
+                          🗑 Delete
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -234,31 +239,33 @@ const PTPackageManagementPage = () => {
                   <div className="pricing-price-sub">TARIFF PRICE</div>
                 </div>
 
-                <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="pricing-action-btn"
-                    style={{ flex: 1 }}
-                    onClick={() => handleOpenModal(pkg)}
-                  >
-                    EDIT PLAN
-                  </button>
+                {isSuperAdmin && (
+                  <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="pricing-action-btn"
+                      style={{ flex: 1 }}
+                      onClick={() => handleOpenModal(pkg)}
+                    >
+                      EDIT PLAN
+                    </button>
 
-                  <button
-                    type="button"
-                    className="pricing-card-delete-btn"
-                    title={`Delete ${pkg.name}`}
-                    onClick={(e) => handleDeletePackage(pkg.id, pkg.name, e)}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 6h18"></path>
-                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                      <line x1="10" y1="11" x2="10" y2="17"></line>
-                      <line x1="14" y1="11" x2="14" y2="17"></line>
-                    </svg>
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      className="pricing-card-delete-btn"
+                      title={`Delete ${pkg.name}`}
+                      onClick={(e) => handleDeletePackage(pkg.id, pkg.name, e)}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 6h18"></path>
+                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}

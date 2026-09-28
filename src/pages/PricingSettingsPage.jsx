@@ -3,6 +3,7 @@ import { getSettings, updateSettings } from '../api';
 import './PricingSettingsPage.css';
 
 const PricingSettingsPage = () => {
+    const isSuperAdmin = localStorage.getItem('userRole') === 'superadmin';
     const [settings, setSettings] = useState({});
 
     const [isSaving, setIsSaving] = useState(false);
@@ -213,34 +214,36 @@ const PricingSettingsPage = () => {
                     <div className="pricing-price-sub">TARIFF PRICE</div>
                 </div>
 
-                <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                    <button 
-                        type="button" 
-                        className={`pricing-action-btn ${isEditingThisCard ? 'edit-mode' : ''}`}
-                        style={{ flex: 1 }}
-                        onClick={() => {
-                            if (!isEditingThisCard) setEditingPlanKey(baseKey);
-                            else handleSubmit(new Event('submit'));
-                        }}
-                    >
-                        {isEditingThisCard ? 'SAVE PLAN' : 'EDIT PLAN'}
-                    </button>
+                {isSuperAdmin && (
+                    <div className="pricing-action-btn-container" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <button 
+                            type="button" 
+                            className={`pricing-action-btn ${isEditingThisCard ? 'edit-mode' : ''}`}
+                            style={{ flex: 1 }}
+                            onClick={() => {
+                                if (!isEditingThisCard) setEditingPlanKey(baseKey);
+                                else handleSubmit(new Event('submit'));
+                            }}
+                        >
+                            {isEditingThisCard ? 'SAVE PLAN' : 'EDIT PLAN'}
+                        </button>
 
-                    <button 
-                        type="button" 
-                        className="pricing-card-delete-btn"
-                        title={`Delete ${baseKey} Plan`}
-                        onClick={(e) => handleDeletePlan(baseKey, e)}
-                    >
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M3 6h18"></path>
-                            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                            <line x1="10" y1="11" x2="10" y2="17"></line>
-                            <line x1="14" y1="11" x2="14" y2="17"></line>
-                        </svg>
-                    </button>
-                </div>
+                        <button 
+                            type="button" 
+                            className="pricing-card-delete-btn"
+                            title={`Delete ${baseKey} Plan`}
+                            onClick={(e) => handleDeletePlan(baseKey, e)}
+                        >
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M3 6h18"></path>
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                            </svg>
+                        </button>
+                    </div>
+                )}
             </div>
         );
     };
@@ -270,7 +273,7 @@ const PricingSettingsPage = () => {
                                 <span style={{ background: 'linear-gradient(to right, #ea580c, #db2777)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Management</span>
                             </div>
                             <img 
-                                src="./document_19016375.gif" 
+                                src="/document_19016375.gif" 
                                 alt="Document" 
                                 style={{ width: '58px', height: '58px', objectFit: 'contain', mixBlendMode: 'multiply' }} 
                             />
@@ -285,38 +288,40 @@ const PricingSettingsPage = () => {
                             renderPlanSection(`${planBase} Plan`, planBase, index)
                         )}
 
-                        <div className="pricing-card add-plan-card">
-                            {!isAddingPlan ? (
-                                <button type="button" onClick={() => setIsAddingPlan(true)} style={{ background: 'transparent', color: '#1e1b4b', border: 'none', cursor: 'pointer', fontSize: '1rem', fontWeight: '800', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
-                                    <span style={{ width: '48px', height: '48px', background: '#1e1b4b', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>+</span> 
-                                    ADD PLAN FORMAT
-                                </button>
-                            ) : (
-                                <div style={{ padding: '2rem', width: '100%', display: 'flex', flexDirection: 'column', gap: '1rem', margin: 'auto' }}>
-                                    <input 
-                                        type="text" 
-                                        placeholder="Plan Name (e.g. Weekly)" 
-                                        value={newPlanName} 
-                                        onChange={(e) => setNewPlanName(e.target.value)}
-                                        style={{ padding: '0.85rem 1.25rem', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', color: '#1e1b4b', outline: 'none', width: '100%', fontSize: '1rem', fontWeight: '800' }}
-                                    />
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                                        <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Plan Duration (Days)</label>
+                        {isSuperAdmin && (
+                            <div className="pricing-card add-plan-card">
+                                {!isAddingPlan ? (
+                                    <button type="button" onClick={() => setIsAddingPlan(true)} style={{ background: 'transparent', color: '#1e1b4b', border: 'none', cursor: 'pointer', fontSize: '1rem', fontWeight: '800', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem' }}>
+                                        <span style={{ width: '48px', height: '48px', background: '#1e1b4b', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }}>+</span> 
+                                        ADD PLAN FORMAT
+                                    </button>
+                                ) : (
+                                    <div style={{ padding: '2rem', width: '100%', display: 'flex', flexDirection: 'column', gap: '1rem', margin: 'auto' }}>
                                         <input 
-                                            type="number" 
-                                            placeholder="Duration in Days (e.g. 30)" 
-                                            value={newPlanDuration} 
-                                            onChange={(e) => setNewPlanDuration(e.target.value)}
+                                            type="text" 
+                                            placeholder="Plan Name (e.g. Weekly)" 
+                                            value={newPlanName} 
+                                            onChange={(e) => setNewPlanName(e.target.value)}
                                             style={{ padding: '0.85rem 1.25rem', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', color: '#1e1b4b', outline: 'none', width: '100%', fontSize: '1rem', fontWeight: '800' }}
                                         />
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                                            <label style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Plan Duration (Days)</label>
+                                            <input 
+                                                type="number" 
+                                                placeholder="Duration in Days (e.g. 30)" 
+                                                value={newPlanDuration} 
+                                                onChange={(e) => setNewPlanDuration(e.target.value)}
+                                                style={{ padding: '0.85rem 1.25rem', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '12px', color: '#1e1b4b', outline: 'none', width: '100%', fontSize: '1rem', fontWeight: '800' }}
+                                            />
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                                            <button type="button" onClick={handleAddPlan} className="pricing-action-btn edit-mode" style={{ flex: 1, padding: '0.85rem', background: '#1e1b4b' }}>Create</button>
+                                            <button type="button" onClick={() => setIsAddingPlan(false)} className="pricing-action-btn" style={{ flex: 1, padding: '0.85rem' }}>Cancel</button>
+                                        </div>
                                     </div>
-                                    <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
-                                        <button type="button" onClick={handleAddPlan} className="pricing-action-btn edit-mode" style={{ flex: 1, padding: '0.85rem', background: '#1e1b4b' }}>Create</button>
-                                        <button type="button" onClick={() => setIsAddingPlan(false)} className="pricing-action-btn" style={{ flex: 1, padding: '0.85rem' }}>Cancel</button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     <div className="settings-actions">

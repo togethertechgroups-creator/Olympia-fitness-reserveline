@@ -58,13 +58,135 @@
   color: #15803d;
 }
 
-.sale-form .form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* Structured Sale Form Sections */
+.sale-form {
+  display: flex;
+  flex-direction: column;
   gap: 1.25rem;
+}
+
+.sale-form-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 1.25rem 1.5rem;
+}
+
+.section-subheading {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.9rem;
+}
+
+/* Section 1: Buyer Grid (Channel + Dynamic Input) */
+.buyer-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.channel-group {
+  min-width: 0;
+}
+
+.buyer-type-toggle {
+  display: flex;
+  gap: 0.5rem;
   width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
+}
+
+.toggle-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.72rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.toggle-btn.active {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);
+}
+
+.walkin-input-dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+/* Section 2: Pricing Grid */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1.2fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Section 3: Settlement Grid */
+.settlement-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 1.25rem;
+  align-items: end;
+}
+
+.action-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.action-label {
+  visibility: hidden;
+  user-select: none;
+}
+
+.btn-submit-sale-grid {
+  width: 100%;
+  height: 46px;
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-submit-sale-grid:hover:not(:disabled) {
+  background: #059669;
+  transform: translateY(-2px);
+}
+
+.btn-submit-sale-grid:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .form-group {
@@ -83,15 +205,28 @@
   color: #334155;
 }
 
+.search-select-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.search-input-top {
+  padding: 0.5rem 0.8rem !important;
+  font-size: 0.86rem !important;
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
 .form-group input,
 .form-group select {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 0.75rem 1rem;
+  padding: 0.72rem 0.9rem;
   border-radius: 10px;
   border: 1px solid #cbd5e1;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   outline: none;
   background: #ffffff;
   transition: border-color 0.2s;
@@ -102,35 +237,12 @@
   border-color: #ea580c;
 }
 
-.client-search-field {
-  margin-bottom: 0.3rem;
-  font-size: 0.85rem !important;
-  padding: 0.55rem 0.85rem !important;
-}
-
-.buyer-type-toggle {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.toggle-btn {
-  flex: 1;
-  padding: 0.65rem 0.5rem;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  border-radius: 10px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.toggle-btn.active {
-  background: #ea580c;
-  color: #ffffff;
-  border-color: #ea580c;
-  box-shadow: 0 2px 8px rgba(234, 88, 12, 0.3);
+.total-amount-input {
+  background: #f0fdf4 !important;
+  color: #059669 !important;
+  font-weight: 800 !important;
+  font-size: 1.05rem !important;
+  border-color: #bbf7d0 !important;
 }
 
 .stock-info-box {
@@ -138,7 +250,7 @@
   justify-content: space-between;
   font-size: 0.8rem;
   color: #64748b;
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
 }
 
 .text-red {
@@ -153,50 +265,23 @@
   font-size: 0.8rem;
   font-weight: 700;
   color: #dc2626;
-  margin-top: 0.2rem;
+  margin-top: 0.25rem;
 }
 
 .warning-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   background: #fffbeb;
   border: 1px solid #fde68a;
   color: #b45309;
   padding: 0.85rem 1.25rem;
   border-radius: 10px;
   font-size: 0.88rem;
-  margin-top: 1.25rem;
+  margin-top: 0.5rem;
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 1.5rem;
-}
-
-.btn-submit-sale {
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: #ffffff;
-  border: none;
-  padding: 0.85rem 2rem;
-  border-radius: 12px;
-  font-weight: 700;
-  font-size: 1rem;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
-  transition: all 0.2s ease;
-}
-
-.btn-submit-sale:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-.btn-submit-sale:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
-}
-
+/* Recent Sales History Section */
 .recent-sales-section {
   background: #ffffff;
   border-radius: 16px;
@@ -218,7 +303,7 @@
   gap: 1.25rem;
   align-items: center;
   background: #f8fafc;
-  padding: 1rem 1.25rem;
+  padding: 0.85rem 1.25rem;
   border-radius: 12px;
   margin-bottom: 1.5rem;
   border: 1px solid #e2e8f0;
@@ -228,22 +313,34 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 0.88rem;
-  font-weight: 600;
+  font-size: 0.85rem;
+  font-weight: 700;
   color: #475569;
 }
 
 .filter-item input,
 .filter-item select {
-  padding: 0.5rem 0.75rem;
+  padding: 0.45rem 0.75rem;
+  height: 38px;
+  box-sizing: border-box;
   border-radius: 8px;
   border: 1px solid #cbd5e1;
-  font-size: 0.88rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #1e293b;
   outline: none;
+  background: #ffffff;
+}
+
+.filter-item input:focus,
+.filter-item select:focus {
+  border-color: #ea580c;
 }
 
 .table-container {
   overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
 }
 
 .sales-table {
@@ -254,42 +351,162 @@
 
 .sales-table th {
   background: #f8fafc;
-  padding: 0.9rem 1rem;
-  font-size: 0.82rem;
-  font-weight: 700;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.76rem;
+  font-weight: 800;
   color: #475569;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .sales-table td {
-  padding: 0.9rem 1rem;
+  padding: 0.75rem 0.85rem;
   border-bottom: 1px solid #f1f5f9;
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   color: #334155;
+  vertical-align: middle;
 }
 
-.client-buyer {
+.sales-table tr:hover td {
+  background: #fbfcfe;
+}
+
+.sales-table .th-center,
+.sales-table .td-center {
+  text-align: center;
+}
+
+.sales-table .th-right,
+.sales-table .td-right {
+  text-align: right;
+}
+
+.td-index {
+  font-weight: 700;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.td-date {
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  font-size: 0.86rem;
+}
+
+.supp-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.supp-name-cell strong {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.supp-brand-sub {
+  font-size: 0.76rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+/* Structured Buyer Badges */
+.buyer-pill-box {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.35rem 0.65rem;
+  border-radius: 8px;
+  font-size: 0.84rem;
+  min-width: 140px;
+}
+
+.buyer-pill-box .pill-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.buyer-pill-box .pill-name {
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.buyer-pill-box .pill-phone {
+  font-size: 0.74rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.pill-staff {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+}
+.pill-staff .pill-role {
+  color: #7c3aed;
+}
+
+.pill-trainer {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+.pill-trainer .pill-role {
+  color: #d97706;
+}
+
+.pill-client {
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+}
+.pill-client .pill-role {
   color: #4f46e5;
-  font-size: 0.9rem;
 }
 
-.walkin-buyer {
+.pill-walkin {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+}
+.pill-walkin .pill-role {
   color: #0284c7;
-  font-size: 0.9rem;
+}
+
+.qty-badge {
+  display: inline-block;
+  background: #f1f5f9;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: #334155;
+  white-space: nowrap;
 }
 
 .total-amount-cell {
-  font-weight: 700;
+  font-weight: 800;
   color: #059669;
+  font-size: 0.92rem;
+}
+
+.text-muted {
+  color: #64748b;
+  font-size: 0.86rem;
 }
 
 .margin-badge {
+  display: inline-block;
   font-weight: 700;
-  font-size: 0.85rem;
-  padding: 0.25rem 0.55rem;
+  font-size: 0.82rem;
+  padding: 2px 7px;
   border-radius: 6px;
+  white-space: nowrap;
 }
 
 .margin-badge.profit {
@@ -303,22 +520,25 @@
 }
 
 .mode-badge {
+  display: inline-block;
   background: #f1f5f9;
+  border: 1px solid #e2e8f0;
   color: #475569;
-  padding: 0.25rem 0.6rem;
+  padding: 2px 7px;
   border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .btn-delete-sale {
   background: #fef2f2;
   border: 1px solid #fecaca;
   color: #dc2626;
-  padding: 0.35rem 0.6rem;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 0.9rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -330,4 +550,47 @@
   color: #ffffff;
   border-color: #dc2626;
   box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
+}
+
+.loading-state,
+.empty-state {
+  padding: 3rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+  .buyer-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .pricing-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .settlement-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .settlement-grid .action-group {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+  .settlement-grid {
+    grid-template-columns: 1fr;
+  }
+  .settlement-grid .action-group {
+    grid-column: span 1;
+  }
+  .buyer-type-toggle {
+    flex-wrap: wrap;
+  }
+  .toggle-btn {
+    flex: 1 1 calc(50% - 0.5rem);
+  }
 }

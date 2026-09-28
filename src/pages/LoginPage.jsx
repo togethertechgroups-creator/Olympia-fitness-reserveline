@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { loginUser } from '../api';
 import loginLogo from '../assets/olympialogo.jpeg';
 import rightPosterLogo from '../assets/olympialogo copy.jpeg';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './LoginPage.css';
 
 const LoginPage = ({ onLogin }) => {
@@ -27,7 +28,10 @@ const LoginPage = ({ onLogin }) => {
         sessionStorage.removeItem('hasSeenPTAlert');
         sessionStorage.removeItem('hasSeenPTAlertDashboard');
 
-        onLogin(response.role);
+        if (response.token) {
+          localStorage.setItem('authToken', response.token);
+        }
+        onLogin(response.role, response.token);
         const target = response.role === 'superadmin' ? '/dashboard' : '/manage-clients';
         navigate(target);
       }
@@ -99,8 +103,15 @@ const LoginPage = ({ onLogin }) => {
               </div>
             </div>
 
-            <button type="submit" className="login-submit-btn">
-              {isLoggingIn ? 'Verifying...' : 'Initialize Session'}
+            <button type="submit" className="login-submit-btn" disabled={isLoggingIn} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}>
+              {isLoggingIn ? (
+                <>
+                  <LoadingSpinner size="sm" style={{ padding: 0 }} />
+                  <span>Verifying Session...</span>
+                </>
+              ) : (
+                'Initialize Session'
+              )}
             </button>
           </form>
 

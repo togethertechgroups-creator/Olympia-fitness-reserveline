@@ -5,6 +5,7 @@ import { planDurationDays } from '../data/mockData';
 import InvoicePreviewModal from '../components/InvoicePreviewModal';
 import { isValidGSTIN } from '../utils/gstValidator';
 import { calculatePlanExpiryDate } from '../utils/formatDate';
+import { handleImageError, compressImageFile } from '../utils/imageUtils';
 import './AddClientPage.css';
 
 const getTodayDate = () => {
@@ -52,19 +53,22 @@ const AddClientPage = () => {
   const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
   const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("Image must be smaller than 2MB");
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image must be smaller than 10MB");
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result);
-        setIsDirty(true);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, 600, 600, 0.82);
+        if (compressed) {
+          setProfileImage(compressed);
+          setIsDirty(true);
+        }
+      } catch (err) {
+        console.error("Image compression error:", err);
+      }
     }
   };
 
@@ -251,7 +255,7 @@ const AddClientPage = () => {
 
       const finalData = {
         ...formData,
-        profileImage: profileImage,
+        profileImage: profileImage || null,
         personalTraining: formData.ptCategory !== 'None',
         expiryDate: summary.toDate,
         amount: summary.totalAmount,
@@ -359,7 +363,7 @@ const AddClientPage = () => {
                     <div className="avatar-upload-container">
                       <div className="avatar-preview">
                         {profileImage ? (
-                          <img src={profileImage} alt="Profile" />
+                          <img src={profileImage} alt="Profile" onError={handleImageError('avatar')} />
                         ) : (
                           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
                         )}
@@ -369,7 +373,7 @@ const AddClientPage = () => {
                           Upload Photo
                           <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
                         </label>
-                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0, lineHeight: '1.2' }}>Max file size 2MB</p>
+                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', margin: 0, lineHeight: '1.2' }}>PNG, JPG up to 10MB</p>
                       </div>
                     </div>
 

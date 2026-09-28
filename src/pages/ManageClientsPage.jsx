@@ -10,6 +10,7 @@ import './ManageClientsPage.css';
 import { formatDateDDMMYYYY, calculatePlanExpiryDate } from '../utils/formatDate';
 import { formatShortId } from '../utils/formatShortId';
 import { parseUploadedExcel } from '../utils/excelParser';
+import { handleImageError } from '../utils/imageUtils';
 
 const getDurationDays = (planName) => {
   if (planName === 'Quarterly') return 90;
@@ -71,7 +72,7 @@ const ManageClientsPage = () => {
   const [deleteConfirm, setDeleteConfirm] = useState({ isOpen: false, id: null, name: '', clientId: '' });
   const [viewClientModal, setViewClientModal] = useState({ isOpen: false, client: null, ptAssignments: [], otherServices: [], bills: [], loadingDetails: false, activeTab: 'overview' });
   const [invoicePreviewClient, setInvoicePreviewClient] = useState(null);
-  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' });
+  const [viewImageModal, setViewImageModal] = useState({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '', clientId: null });
   const [paymentModal, setPaymentModal] = useState({ isOpen: false, client: null, amount: '', method: 'CASH', date: new Date().toISOString().split('T')[0] });
   const [editBillModal, setEditBillModal] = useState({
     isOpen: false,
@@ -900,6 +901,21 @@ const ManageClientsPage = () => {
     }
   };
 
+  const handleRemoveClientPhoto = async (clientId, clientName) => {
+    if (!clientId) return;
+    if (window.confirm(`Are you sure you want to remove the profile photo for ${clientName || 'this client'}?`)) {
+      try {
+        await updateClient(clientId, { profileImage: null });
+        setClients(prev => prev.map(c => (c.id === clientId || c.clientId === clientId) ? { ...c, profileImage: null } : c));
+        setSelectedClientOverview(prev => (prev && (prev.id === clientId || prev.clientId === clientId)) ? { ...prev, profileImage: null } : prev);
+        setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '', clientId: null });
+      } catch (err) {
+        console.error('Failed to remove client photo:', err);
+        alert('Failed to remove profile photo: ' + (err.message || 'Unknown error'));
+      }
+    }
+  };
+
   const handleAddPaymentSubmit = async (e) => {
     e.preventDefault();
     const clientForInvoice = paymentModal.client;
@@ -1495,20 +1511,21 @@ const ManageClientsPage = () => {
                             url: client.profileImage,
                             title: client.name,
                             name: client.name,
+                            clientId: client.id,
                             subtitle: `ID: ${formatShortId(client.clientId || client.id)} • ${client.plan || 'General Membership'}`
                           })}
                           title={client.profileImage ? "Click to view full photo" : client.name}
-                          style={{ position: 'relative' }}
+                          style={{ position: 'relative', cursor: client.profileImage ? 'pointer' : 'default' }}
                         >
                           {client.profileImage ? (
                             <>
-                              <img src={client.profileImage} alt={client.name} />
+                              <img src={client.profileImage} alt={client.name} onError={handleImageError('avatar')} />
                               <div className="avatar-hover-overlay">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                               </div>
                             </>
                           ) : (
-                            <span className="avatar-fallback">{client.name.charAt(0).toUpperCase()}</span>
+                            <span className="avatar-fallback">{client.name ? client.name.charAt(0).toUpperCase() : 'C'}</span>
                           )}
                         </div>
                         <div className="name-renew-stack">
@@ -1852,6 +1869,27 @@ const ManageClientsPage = () => {
         );
         const otherServices = viewClientModal.otherServices || [];
 
+        const getServiceExpiryDate = (svc) => {
+          if (!svc) return '';
+          if (svc.expiryDate) {
+            let str = String(svc.expiryDate).trim();
+            if (str.includes('T')) str = str.split('T')[0];
+            if (str.includes(' ')) str = str.split(' ')[0];
+            return str;
+          }
+          const days = parseInt(svc.duration_days || svc.custom_days || 1, 10) || 1;
+          return calculatePlanExpiryDate(svc.sale_date, '', days);
+        };
+
+        const isServiceActive = (svc) => {
+          const expStr = getServiceExpiryDate(svc);
+          if (!expStr) return false;
+          const todayStr = new Date().toISOString().split('T')[0];
+          return expStr >= todayStr;
+        };
+
+        const activeOtherServices = otherServices.filter(isServiceActive);
+
         // Historic Plans Timeline & Records
         const historicPlans = (() => {
           const history = [];
@@ -1905,14 +1943,17 @@ const ManageClientsPage = () => {
             });
           });
 
-          // 2. Process remaining bills (General membership, other services, or unmatched PT bills)
-          //    Skip GeneralAdvance and PTAdvance bills — they are handled in steps 3 & 4
-          //    via the advance booking records (to prevent duplicate entries).
+          // 2. Process remaining bills (General membership or unmatched PT bills)
+          //    Skip GeneralAdvance, PTAdvance and OtherService bills — handled in steps 3, 4 & 5
           bills.forEach(b => {
             if (processedBillIds.has(b.id)) return;
 
             // Skip advance booking bills — shown via clientGenBookings / clientPtBookings below
             if (b.invoice_category === 'GeneralAdvance' || b.invoice_category === 'PTAdvance') return;
+
+            // Skip OtherService bills here — they are processed in step 5 with their full other_service_sales details
+            const isOtherService = b.invoice_category === 'OtherService' || (b.planName && b.planName.startsWith('Service:'));
+            if (isOtherService) return;
 
             const isPt = b.invoice_category === 'PT' || (b.planName && b.planName.toLowerCase().includes('pt package'));
             if (isPt) {
@@ -1925,7 +1966,7 @@ const ManageClientsPage = () => {
 
             history.push({
               id: `bill-${b.id}`,
-              type: b.invoice_category === 'PT' ? 'Personal Training' : (b.invoice_category === 'OtherService' ? 'Other Service' : 'General Membership'),
+              type: b.invoice_category === 'PT' ? 'Personal Training' : 'General Membership',
               planName: b.planName || b.packageName || 'Membership Plan',
               billNo: b.billNo || 'INVOICE',
               startDate: b.joinDate || b.invoiceDate,
@@ -1997,20 +2038,59 @@ const ManageClientsPage = () => {
             });
           });
 
+          // 5. Process all Other Service Sales — linking bill, trainer, true expiry date & amount
           otherServices.forEach(s => {
-            const exists = history.some(item => item.id === `bill-${s.invoice_id}`);
-            if (!exists) {
+            const linkedBill = s.invoice_id
+              ? bills.find(bl => String(bl.id) === String(s.invoice_id) || String(bl.billNo) === String(s.invoice_id))
+              : bills.find(bl => (bl.invoice_category === 'OtherService' || (bl.planName && bl.planName.includes(s.serviceName))) && bl.joinDate === s.sale_date);
+
+            if (linkedBill) {
+              processedBillIds.add(linkedBill.id);
+            }
+
+            const expStr = getServiceExpiryDate(s);
+            const amt = linkedBill ? Number(linkedBill.totalPlanAmount || linkedBill.planAmount || s.price_snapshot || 0) : Number(s.price_snapshot || 0);
+            const paid = linkedBill ? Number(linkedBill.paidAmount !== undefined ? linkedBill.paidAmount : amt) : Number(s.paidAmount !== undefined ? s.paidAmount : amt);
+            const due = linkedBill ? Number(linkedBill.dueAmount || 0) : Number(s.dueAmount || 0);
+            const status = linkedBill ? (linkedBill.paymentStatus || s.paymentStatus || 'Paid') : (s.paymentStatus || (due > 0 ? 'Due' : 'Paid'));
+
+            history.push({
+              id: `svc-${s.id}`,
+              type: 'Other Service',
+              planName: s.serviceName || linkedBill?.planName || 'Other Service',
+              billNo: linkedBill?.billNo || s.billNo || (s.invoice_id ? `INV-${s.invoice_id}` : null),
+              trainerName: s.trainerName || null,
+              startDate: s.sale_date || linkedBill?.joinDate || linkedBill?.invoiceDate,
+              expiryDate: expStr || linkedBill?.expiryDate || s.sale_date,
+              amount: amt,
+              paidAmount: paid,
+              dueAmount: due,
+              paymentStatus: status,
+              date: s.sale_date || linkedBill?.invoiceDate || linkedBill?.joinDate,
+              billObj: linkedBill || null,
+              svcObj: s
+            });
+          });
+
+          // Process any unmatched OtherService bills
+          bills.forEach(b => {
+            if (processedBillIds.has(b.id)) return;
+            const isOtherService = b.invoice_category === 'OtherService' || (b.planName && b.planName.startsWith('Service:'));
+            if (isOtherService) {
+              processedBillIds.add(b.id);
               history.push({
-                id: `svc-${s.id}`,
+                id: `bill-${b.id}`,
                 type: 'Other Service',
-                planName: s.serviceName || 'Service',
-                startDate: s.sale_date,
-                expiryDate: s.sale_date,
-                amount: Number(s.price_snapshot || 0),
-                paidAmount: Number(s.price_snapshot || 0),
-                dueAmount: 0,
-                paymentStatus: s.paymentStatus || 'Paid',
-                date: s.sale_date
+                planName: b.planName || 'Other Service',
+                billNo: b.billNo || 'INVOICE',
+                startDate: b.joinDate || b.invoiceDate,
+                expiryDate: b.expiryDate,
+                amount: Number(b.totalPlanAmount || b.planAmount || 0),
+                paidAmount: Number(b.paidAmount || 0),
+                dueAmount: Number(b.dueAmount || 0),
+                paymentStatus: b.paymentStatus || (Number(b.dueAmount) <= 0 ? 'Paid' : 'Due'),
+                date: b.invoiceDate || b.joinDate || b.timestamp,
+                billObj: b
               });
             }
           });
@@ -2369,13 +2449,13 @@ const ManageClientsPage = () => {
                         >
                           {c.profileImage ? (
                             <>
-                              <img src={c.profileImage} alt={c.name} />
+                              <img src={c.profileImage} alt={c.name} onError={handleImageError('avatar')} />
                               <div className="avatar-hover-overlay">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                               </div>
                             </>
                           ) : (
-                            <span>{c.name.charAt(0)}</span>
+                            <span>{c.name ? c.name.charAt(0).toUpperCase() : 'C'}</span>
                           )}
                         </div>
                       </div>
@@ -2398,6 +2478,7 @@ const ManageClientsPage = () => {
                                 url: c.profileImage,
                                 title: c.name,
                                 name: c.name,
+                                clientId: c.id,
                                 subtitle: `ID: ${formatShortId(c.clientId || c.id)} • ${c.plan || 'General Membership'}`
                               })}
                               style={{
@@ -2417,6 +2498,30 @@ const ManageClientsPage = () => {
                             >
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
                               View Full Photo
+                            </button>
+                          )}
+                          {c.profileImage && isSuperAdmin && (
+                            <button
+                              type="button"
+                              className="btn-remove-photo"
+                              onClick={() => handleRemoveClientPhoto(c.id, c.name)}
+                              style={{
+                                marginTop: '8px',
+                                fontSize: '0.78rem',
+                                color: '#dc2626',
+                                background: 'rgba(220, 38, 38, 0.08)',
+                                border: '1px solid rgba(220, 38, 38, 0.3)',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                padding: '4px 10px',
+                                fontWeight: '700',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                              Remove Photo
                             </button>
                           )}
                           <button
@@ -2625,39 +2730,109 @@ const ManageClientsPage = () => {
 
                     {/* Other Services */}
                     <div className="landscape-bottom-col">
-                      <div className="col-header-small" style={{ color: '#4f46e5' }}>
-                        <span>🧩 Other Services ({otherServices.length})</span>
+                      <div className="col-header-small" style={{ color: '#4f46e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>🧩 Active Other Services ({activeOtherServices.length})</span>
+                        {otherServices.length > activeOtherServices.length && (
+                          <button
+                            type="button"
+                            onClick={() => setViewClientModal(prev => ({ ...prev, activeTab: 'history' }))}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#4f46e5',
+                              fontSize: '0.72rem',
+                              fontWeight: '700',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              padding: 0
+                            }}
+                            title="View past / expired other services in Historic Plan Details"
+                          >
+                            Past ({otherServices.length - activeOtherServices.length}) 📜
+                          </button>
+                        )}
                       </div>
                       <div className="scrollable-list">
-                        {otherServices.length > 0 ? otherServices.map(svc => (
-                          <div key={svc.id} className="mini-card os-card">
-                            <div className="mc-head">
-                              <strong style={{color:'#3730a3'}}>{svc.serviceName}</strong>
-                              <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
+                        {activeOtherServices.length > 0 ? activeOtherServices.map(svc => {
+                          const svcExpiry = getServiceExpiryDate(svc);
+                          const svcVal = svcExpiry ? getValidityDisplay(svcExpiry) : null;
+                          return (
+                            <div key={svc.id} className="mini-card os-card">
+                              <div className="mc-head">
+                                <strong style={{color:'#3730a3'}}>{svc.serviceName}</strong>
+                                <span className="mc-status" style={{background:'#4f46e5'}}>{svc.paymentStatus || 'Paid'}</span>
+                              </div>
+                              <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
+                              {svc.trainerName && (
+                                <div style={{ fontSize: '0.74rem', color: '#64748b', marginTop: '2px' }}>
+                                  Trainer: <strong>{svc.trainerName}</strong>
+                                </div>
+                              )}
+                              {svcExpiry && (
+                                <div style={{ fontSize: '0.73rem', color: '#4338ca', fontWeight: '700', marginTop: '2px' }}>
+                                  Valid: {formatDateDDMMYYYY(svc.sale_date)} → {formatDateDDMMYYYY(svcExpiry)}
+                                </div>
+                              )}
+                              {svcVal && (
+                                <div style={{
+                                  fontSize: '0.73rem',
+                                  fontWeight: '800',
+                                  marginTop: '2px',
+                                  color: svcVal.isExpired ? '#dc2626' : (svcVal.isWarning ? '#ea580c' : '#16a34a')
+                                }}>
+                                  ⏳ {svcVal.text}
+                                </div>
+                              )}
+                              {isSuperAdmin && (
+                                <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                                  <button
+                                    type="button"
+                                    style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
+                                    onClick={async () => {
+                                      if (!window.confirm(`Delete service "${svc.serviceName}"?`)) return;
+                                      try {
+                                        await deleteOtherServiceSale(svc.id);
+                                        setViewClientModal(prev => ({
+                                          ...prev,
+                                          otherServices: (prev.otherServices || []).filter(s => s.id !== svc.id)
+                                        }));
+                                        alert('Service deleted successfully.');
+                                      } catch (e) {
+                                        alert(e.message || 'Failed to delete service');
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                            <div className="mc-dates">Sold: {formatDateDDMMYYYY(svc.sale_date)} • ₹{(svc.price_snapshot || 0).toLocaleString()}</div>
-                            {isSuperAdmin && (
-                              <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.4rem' }}>
+                          );
+                        }) : (
+                          <div className="mini-empty">
+                            No Active Other Services
+                            {otherServices.length > 0 && (
+                              <div style={{ marginTop: '8px' }}>
                                 <button
                                   type="button"
-                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '700' }}
-                                  onClick={async () => {
-                                    if (!window.confirm(`Delete service "${svc.serviceName}"?`)) return;
-                                    try {
-                                      await deleteOtherServiceSale(svc.id);
-                                      setOtherServices(prev => prev.filter(s => s.id !== svc.id));
-                                      alert('Service deleted successfully.');
-                                    } catch (e) {
-                                      alert(e.message || 'Failed to delete service');
-                                    }
+                                  onClick={() => setViewClientModal(prev => ({ ...prev, activeTab: 'history' }))}
+                                  style={{
+                                    background: '#e0e7ff',
+                                    color: '#4338ca',
+                                    border: '1px solid #c7d2fe',
+                                    borderRadius: '6px',
+                                    padding: '4px 10px',
+                                    fontSize: '0.74rem',
+                                    fontWeight: '800',
+                                    cursor: 'pointer'
                                   }}
                                 >
-                                  Delete
+                                  View {otherServices.length} in Historic Details 📜
                                 </button>
                               </div>
                             )}
                           </div>
-                        )) : <div className="mini-empty">No Other Services</div>}
+                        )}
                       </div>
                     </div>
                   </div>
@@ -3210,20 +3385,45 @@ const ManageClientsPage = () => {
                 <h3>{viewImageModal.title || viewImageModal.name || 'Client Profile Photo'}</h3>
                 {viewImageModal.subtitle && <p>{viewImageModal.subtitle}</p>}
               </div>
-              <button
-                type="button"
-                className="image-lightbox-close"
-                onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '' })}
-                title="Close (Esc)"
-              >
-                &times;
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {viewImageModal.clientId && isSuperAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveClientPhoto(viewImageModal.clientId, viewImageModal.name || viewImageModal.title)}
+                    style={{
+                      background: 'rgba(220, 38, 38, 0.15)',
+                      color: '#ef4444',
+                      border: '1px solid rgba(220, 38, 38, 0.4)',
+                      padding: '5px 12px',
+                      borderRadius: '6px',
+                      fontSize: '0.8rem',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Remove Photo
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="image-lightbox-close"
+                  onClick={() => setViewImageModal({ isOpen: false, imageUrl: '', title: '', subtitle: '', url: '', name: '', clientId: null })}
+                  title="Close (Esc)"
+                >
+                  &times;
+                </button>
+              </div>
             </div>
             <div className="image-lightbox-body">
               <img 
                 src={viewImageModal.imageUrl || viewImageModal.url} 
                 alt={viewImageModal.title || viewImageModal.name || 'Full Profile Photo'} 
                 className="image-lightbox-img"
+                onError={handleImageError('avatar')}
               />
             </div>
           </div>

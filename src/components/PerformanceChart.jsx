@@ -19,7 +19,7 @@ const PerformanceChart = ({ data }) => {
       </div>
       
       <div className="performance-body">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
           <BarChart 
             data={chartData} 
             layout="vertical"

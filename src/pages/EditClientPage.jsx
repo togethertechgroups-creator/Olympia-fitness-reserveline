@@ -4,6 +4,7 @@ import { planDurationDays } from '../data/mockData';
 import { getClientById, updateClient, getSettings, getTrainers } from '../api';
 import { isValidGSTIN } from '../utils/gstValidator';
 import { calculatePlanExpiryDate } from '../utils/formatDate';
+import { handleImageError, compressImageFile } from '../utils/imageUtils';
 import './AddClientPage.css'; // Reuse AddClientPage styles
 
 const EditClientPage = () => {
@@ -49,19 +50,22 @@ const EditClientPage = () => {
   const [blockedTargetUrl, setBlockedTargetUrl] = useState('');
   const [isConfirmExitOpen, setIsConfirmExitOpen] = useState(false);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        alert("Image must be smaller than 2MB");
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image must be smaller than 10MB");
         return;
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProfileImage(reader.result);
-        setIsDirty(true);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageFile(file, 600, 600, 0.82);
+        if (compressed) {
+          setProfileImage(compressed);
+          setIsDirty(true);
+        }
+      } catch (err) {
+        console.error("Image compression error:", err);
+      }
     }
   };
 
@@ -239,7 +243,7 @@ const EditClientPage = () => {
       setIsDirty(false);
       await updateClient(id, {
         ...formData,
-        profileImage: profileImage,
+        profileImage: profileImage || null,
         personalTraining: formData.ptCategory !== 'None',
         expiryDate: summary.toDate,
         amount: summary.totalAmount,
@@ -327,18 +331,46 @@ const EditClientPage = () => {
                 <div className="form-column">
                   <div className="bento-panel">
                       <h3 className="col-heading">Personal Details</h3>
+
                       <div className="avatar-upload-container">
                         <div className="avatar-preview">
                           {profileImage ? (
-                            <img src={profileImage} alt="Profile" />
+                            <img src={profileImage} alt="Profile" onError={handleImageError('avatar')} />
                           ) : (
                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                           )}
                         </div>
-                        <label className="avatar-upload-btn">
-                          Upload Photo
-                          <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
-                        </label>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <label className="avatar-upload-btn">
+                            Upload Photo
+                            <input type="file" accept="image/*" onChange={handleImageUpload} style={{ display: 'none' }} />
+                          </label>
+                          {profileImage && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProfileImage(null);
+                                setIsDirty(true);
+                              }}
+                              style={{
+                                background: 'rgba(220, 38, 38, 0.08)',
+                                border: '1px solid rgba(220, 38, 38, 0.3)',
+                                color: '#dc2626',
+                                padding: '8px 14px',
+                                borderRadius: '8px',
+                                fontSize: '0.85rem',
+                                fontWeight: '700',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px'
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                              Remove Photo
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="input-group">
